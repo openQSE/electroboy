@@ -151,6 +151,34 @@ class IDEBridgeTests(unittest.TestCase):
         self.assertEqual(diagnostics["input_event_count"], 1)
         self.assertEqual(diagnostics["recent_input_events"], [event])
 
+    def test_keybinding_resolution_context_is_sanitized(self) -> None:
+        event = self.bridge.record_input_event(
+            self.instance,
+            {
+                "event_type": "keybinding-resolution",
+                "sequence": 9,
+                "key_label": "UpArrow",
+                "dispatch_chord": "up",
+                "resolution_kind": 2,
+                "resolved_command": "vscode-neovim.send",
+                "context": {
+                    "editor_text_focus": True,
+                    "neovim_init": True,
+                    "neovim_mode": "normal",
+                    "editor_language": "c",
+                    "neovim_recording": False,
+                    "editor_language_exclusions": ["output", "search-result"],
+                    "unrequested": "discard me",
+                },
+            },
+        )
+
+        self.assertEqual(event["event_type"], "keybinding-resolution")
+        self.assertEqual(event["resolved_command"], "vscode-neovim.send")
+        self.assertEqual(event["resolution_kind"], 2)
+        self.assertEqual(event["context"]["neovim_mode"], "normal")
+        self.assertNotIn("unrequested", event["context"])
+
     def test_vsix_build_is_reproducible_and_contains_extension(self) -> None:
         source = (
             Path(__file__).resolve().parents[1]

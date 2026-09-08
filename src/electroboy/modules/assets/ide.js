@@ -119,6 +119,30 @@
           shift: Boolean(event?.shiftKey),
         },
       };
+      submitInputEvent(payload);
+    }
+
+    function recordKeybindingResolution(event) {
+      if (!telemetry || !workspaceId || disposed) return;
+      const detail = event?.detail || {};
+      inputSequence += 1;
+      submitInputEvent({
+        event_type: "keybinding-resolution",
+        sequence: inputSequence,
+        occurred_at: new Date().toISOString(),
+        key_label: String(detail.key_label || "").slice(0, 32) || null,
+        dispatch_chord: String(detail.dispatch_chord || "").slice(0, 64) || null,
+        resolution_kind: Number(detail.resolution_kind),
+        resolved_command:
+          String(detail.resolved_command || "").slice(0, 160) || null,
+        context:
+          detail.context && typeof detail.context === "object"
+            ? detail.context
+            : {},
+      });
+    }
+
+    function submitInputEvent(payload) {
       fetch(contextUrl("/api/ide/input-events"), {
         method: "POST",
         cache: "no-store",
@@ -138,17 +162,26 @@
           window.setTimeout(() => recordInputEvent(event.type, event), 0);
         };
         const pointerEvent = (event) => recordInputEvent("pointerdown", event);
+        const keybindingEvent = (event) => recordKeybindingResolution(event);
         const focused = () => recordInputEvent("frame-focus");
         const blurred = () => recordInputEvent("frame-blur");
         targetWindow.addEventListener("keydown", keyEvent, true);
         targetWindow.addEventListener("keyup", keyEvent, true);
         targetWindow.addEventListener("pointerdown", pointerEvent, true);
+        targetWindow.addEventListener(
+          "electroboy-keybinding-resolution",
+          keybindingEvent,
+        );
         targetWindow.addEventListener("focus", focused, true);
         targetWindow.addEventListener("blur", blurred, true);
         inputTelemetryCleanup = () => {
           targetWindow.removeEventListener("keydown", keyEvent, true);
           targetWindow.removeEventListener("keyup", keyEvent, true);
           targetWindow.removeEventListener("pointerdown", pointerEvent, true);
+          targetWindow.removeEventListener(
+            "electroboy-keybinding-resolution",
+            keybindingEvent,
+          );
           targetWindow.removeEventListener("focus", focused, true);
           targetWindow.removeEventListener("blur", blurred, true);
         };

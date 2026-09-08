@@ -27,6 +27,7 @@ from .domain import (
     IDERuntime,
     IDEWorkspace,
 )
+from .keybinding_telemetry import instrument_keybinding_resolver
 from .processes import DirectIDEProcessLauncher, IDEProcessLaunch, IDEProcessLauncher
 from .profile import configure_managed_profile
 
@@ -67,6 +68,7 @@ class OpenVSCodeProvider:
         runtime: IDERuntime,
         profile: IDEProfile,
     ) -> IDEInstance:
+        instrument_keybinding_resolver(runtime)
         for path in (
             profile.root,
             profile.user_data,

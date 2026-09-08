@@ -31,7 +31,9 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/ide/input-events")', script)
         self.assertIn("function installInputTelemetry()", script)
         self.assertIn('targetWindow.addEventListener("keydown"', script)
-        self.assertIn('key.length > 1 ? key : null', script)
+        self.assertIn('"electroboy-keybinding-resolution"', script)
+        self.assertIn("function recordKeybindingResolution(event)", script)
+        self.assertIn("key.length > 1 ? key : null", script)
 
     def test_core_discovers_contributed_panes_and_mounts_ide(self) -> None:
         modules = build_module_registry()

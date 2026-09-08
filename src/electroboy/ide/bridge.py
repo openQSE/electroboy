@@ -307,10 +307,24 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
 
 def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, object]:
     event_type = str(payload.get("event_type") or "unknown")
-    if event_type not in {"frame-focus", "frame-blur", "keydown", "keyup", "pointerdown"}:
+    if event_type not in {
+        "frame-focus",
+        "frame-blur",
+        "keydown",
+        "keyup",
+        "pointerdown",
+        "keybinding-resolution",
+    }:
         event_type = "unknown"
     key_group = str(payload.get("key_group") or "")
-    if key_group not in {"navigation", "editing", "modifier", "function", "printable", "other"}:
+    if key_group not in {
+        "navigation",
+        "editing",
+        "modifier",
+        "function",
+        "printable",
+        "other",
+    }:
         key_group = ""
     named_key = str(payload.get("named_key") or "")
     if len(named_key) > 24 or len(named_key) == 1:
@@ -318,7 +332,7 @@ def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, objec
     modifiers = payload.get("modifiers")
     if not isinstance(modifiers, dict):
         modifiers = {}
-    return {
+    event = {
         "source": "browser",
         "event_type": event_type,
         "sequence": max(0, _optional_int(payload.get("sequence")) or 0),
@@ -340,6 +354,37 @@ def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, objec
             for name in ("alt", "control", "meta", "shift")
         },
     }
+    if event_type == "keybinding-resolution":
+        context = payload.get("context")
+        if not isinstance(context, dict):
+            context = {}
+        kind = _optional_int(payload.get("resolution_kind"))
+        event.update(
+            key_label=str(payload.get("key_label") or "")[:32] or None,
+            dispatch_chord=(str(payload.get("dispatch_chord") or "")[:64] or None),
+            resolution_kind=kind if kind in {0, 1, 2} else None,
+            resolved_command=(str(payload.get("resolved_command") or "")[:160] or None),
+            context={
+                name: _sanitize_context_value(context.get(name))
+                for name in (
+                    "editor_text_focus",
+                    "neovim_init",
+                    "neovim_mode",
+                    "editor_language",
+                    "neovim_recording",
+                    "editor_language_exclusions",
+                )
+            },
+        )
+    return event
+
+
+def _sanitize_context_value(value: object) -> object:
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [str(item)[:40] for item in value[:32]]
+    return str(value)[:120]
 
 
 def _public_input_event(payload: dict[str, object]) -> dict[str, object]:
