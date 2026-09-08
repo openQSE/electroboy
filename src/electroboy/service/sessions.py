@@ -28,6 +28,7 @@ MIN_TERMINAL_COLUMNS = 20
 MAX_TERMINAL_COLUMNS = 1000
 MIN_TERMINAL_ROWS = 5
 MAX_TERMINAL_ROWS = 120
+MAX_SESSION_NAME_LENGTH = 120
 SESSION_BACKEND_ENV = "ELECTROBOY_SESSION_BACKEND"
 SESSION_BACKEND_PTY = "pty"
 SESSION_BACKEND_TMUX = "tmux"
@@ -77,6 +78,7 @@ class AgentSession:
         on_status_changed: Callable[["AgentSession"], None] | None = None,
         session_id: str | None = None,
         controlling_terminal: bool = True,
+        name: str = "",
     ) -> None:
         self.session_id = session_id or uuid4().hex
         self.command = command
@@ -84,6 +86,7 @@ class AgentSession:
         self.columns = _clamp_terminal_columns(columns)
         self.rows = _clamp_terminal_rows(rows)
         self.label = label
+        self.name = normalize_session_name(name)
         self.kind = kind
         self.interactive = interactive
         self.echo_input = echo_input
@@ -114,6 +117,7 @@ class AgentSession:
             "session_id": self.session_id,
             "kind": self.kind,
             "label": self.label,
+            "name": self.name,
             "status": "running" if self.is_active() else self.status,
             "returncode": self.returncode,
             "interactive": self.interactive,
@@ -452,6 +456,7 @@ class TmuxAgentSession(AgentSession):
         session_id: str | None = None,
         tmux_name: str | None = None,
         controlling_terminal: bool = True,
+        name: str = "",
     ) -> None:
         super().__init__(
             command,
@@ -459,6 +464,7 @@ class TmuxAgentSession(AgentSession):
             columns=columns,
             rows=rows,
             label=label,
+            name=name,
             kind=kind,
             interactive=interactive,
             lock_names=lock_names,
@@ -483,6 +489,7 @@ class TmuxAgentSession(AgentSession):
             columns=session.columns,
             rows=session.rows,
             label=session.label,
+            name=session.name,
             kind=session.kind,
             interactive=session.interactive,
             lock_names=session.lock_names,
@@ -814,6 +821,17 @@ def _terminal_input_chunks_for_message(message: str) -> list[str]:
     if "\n" in text:
         return [f"\x1b[200~{text}\x1b[201~", "\r"]
     return [text, "\r"]
+
+
+def normalize_session_name(value: object) -> str:
+    """Return a safe, single-line operator-facing session name."""
+
+    name = " ".join(str(value or "").split())
+    if len(name) > MAX_SESSION_NAME_LENGTH:
+        raise AgentSessionError(
+            f"session name must be {MAX_SESSION_NAME_LENGTH} characters or fewer"
+        )
+    return name
 
 
 def _normalize_session_backend(value: str | None) -> str:

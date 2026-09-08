@@ -1654,7 +1654,12 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("hideArtifactPreview()", ad_hoc_start)
         self.assertIn('contextUrl("/api/agents/ad-hoc/sessions")', software)
         self.assertIn("function ensureAdHocSessionDialog()", software)
+        self.assertIn('class="ad-hoc-session-name"', software)
         self.assertIn("provider_session_id: choice.providerSessionId", ad_hoc_start)
+        self.assertIn('name: choice.name || ""', ad_hoc_start)
+        self.assertIn('contextUrl("/api/sessions/rename")', sessions)
+        self.assertIn("function renameSelectedSession()", sessions)
+        self.assertIn('String(session.name || "").trim()', sessions)
         self.assertNotIn("Focus ad-hoc", software)
         self.assertNotIn("runtimeApi.getState().adHocRunning", ad_hoc_start)
         self.assertIn("async function startGenericStageAgent(", software)
@@ -4342,6 +4347,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="projectPanel"', template)
         self.assertIn('id="fileBrowser"', template)
         self.assertIn('id="sessionSwitcher"', template)
+        self.assertIn('id="renameAgentSession"', template)
         self.assertIn('id="agentOutput"', template)
         self.assertIn('id="artifactPreviewPane"', template)
         self.assertIn('id="progressOutputPane"', template)
@@ -7720,7 +7726,10 @@ class ServiceTests(unittest.TestCase):
 
             controller = state.workflow_controller("software")
             with mock.patch("electroboy.service.AgentSession.start"):
-                session, started = controller.start_ad_hoc_agent(context_id)
+                session, started = controller.start_ad_hoc_agent(
+                    context_id,
+                    name="Authentication refactor",
+                )
             payload = state.project_payload(context_id)
             rules_created = (
                 project_root
@@ -7733,6 +7742,7 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(started)
         self.assertEqual(session.kind, "ad-hoc")
         self.assertEqual(session.label, "ad-hoc agent")
+        self.assertEqual(session.name, "Authentication refactor")
         self.assertTrue(session.interactive)
         self.assertEqual(session.cwd, project_root.resolve())
         self.assertEqual(session.command[:2], ["codex", "--cd"])
@@ -7753,6 +7763,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("detailed-design", session.command[-1])
         self.assertEqual(payload["selected_session_id"], session.session_id)
         self.assertEqual(payload["sessions"][0]["kind"], "ad-hoc")
+        self.assertEqual(payload["sessions"][0]["name"], "Authentication refactor")
 
     def test_service_state_starts_multiple_ad_hoc_agents(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -8085,6 +8096,7 @@ class ServiceTests(unittest.TestCase):
                                 "interactive": True,
                                 "kind": "ad-hoc",
                                 "label": "ad-hoc agent",
+                                "name": "Authentication refactor",
                                 "metadata": {},
                                 "project_mode": "project",
                                 "session_id": "session-restored",
@@ -8113,6 +8125,7 @@ class ServiceTests(unittest.TestCase):
         attach_existing.assert_called_once()
         self.assertEqual(registry["sessions"][0]["session_id"], "session-restored")
         self.assertEqual(registry["sessions"][0]["backend"], "tmux")
+        self.assertEqual(registry["sessions"][0]["name"], "Authentication refactor")
         self.assertFalse(registry["sessions"][0]["attachable"])
         self.assertEqual(
             registry["sessions"][0]["active_project_root"],
@@ -8300,6 +8313,92 @@ class ServiceTests(unittest.TestCase):
                 second.session_id: False,
             },
         )
+
+    def test_agent_session_rename_route_updates_and_persists_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            try:
+                server = create_server(service_root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            state = server.service_state
+            self.assertIsNotNone(state)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, _ = state.workflow_controller(
+                    "software"
+                ).start_ad_hoc_agent(context_id)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, _ = post_json(
+                    server,
+                    f"/api/sessions/rename?context_id={context_id}",
+                    {
+                        "session_id": session.session_id,
+                        "name": "  Authentication   refactor  ",
+                    },
+                )
+                invalid_status, invalid_body, _ = post_json(
+                    server,
+                    f"/api/sessions/rename?context_id={context_id}",
+                    {"session_id": session.session_id, "name": "x" * 121},
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+            records = json.loads(
+                _service_session_records_path(service_root).read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(status, HTTPStatus.OK)
+        payload = json.loads(body)
+        self.assertEqual(payload["sessions"][0]["name"], "Authentication refactor")
+        self.assertEqual(records["sessions"][0]["name"], "Authentication refactor")
+        self.assertEqual(invalid_status, HTTPStatus.CONFLICT)
+        self.assertIn("120 characters or fewer", json.loads(invalid_body)["error"])
+
+    def test_service_state_renames_session_and_can_restore_default_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            with mock.patch("electroboy.service.AgentSession.start"):
+                session, _ = state.workflow_controller(
+                    "software"
+                ).start_ad_hoc_agent(context_id)
+
+            renamed = state.rename_session(
+                context_id,
+                session.session_id,
+                "  Authentication   refactor  ",
+            )
+            cleared = state.rename_session(context_id, session.session_id, "  ")
+            records = json.loads(
+                _service_session_records_path(service_root).read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(renamed["sessions"][0]["name"], "Authentication refactor")
+        self.assertEqual(cleared["sessions"][0]["name"], "")
+        self.assertEqual(records["sessions"][0]["name"], "")
+        with self.assertRaisesRegex(AgentSessionError, "120 characters or fewer"):
+            state.rename_session(context_id, session.session_id, "x" * 121)
 
     def test_agent_session_input_routes_can_target_explicit_session(self) -> None:
         class FakeSession:

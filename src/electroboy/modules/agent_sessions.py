@@ -62,6 +62,19 @@ def _select(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(result)
 
 
+def _rename(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.body()
+        result = request.services.sessions.rename(
+            request.context_id,
+            str(payload.get("session_id") or ""),
+            str(payload.get("name") or ""),
+        )
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(result)
+
+
 def _message(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.body()
@@ -209,6 +222,7 @@ _HANDLERS = {
     "session_registry": _session_registry,
     "attach": _attach,
     "select": _select,
+    "rename": _rename,
     "message": _message,
     "key": _key,
     "raw": _raw,
@@ -229,6 +243,7 @@ def module() -> ServiceModule:
             route("GET", "/api/session-registry", "agent_sessions", "session_registry"),
             route("POST", "/api/sessions/attach", "agent_sessions", "attach"),
             route("POST", "/api/sessions/select", "agent_sessions", "select"),
+            route("POST", "/api/sessions/rename", "agent_sessions", "rename"),
             route("POST", "/api/sessions/message", "agent_sessions", "message"),
             route("POST", "/api/sessions/key", "agent_sessions", "key"),
             route("POST", "/api/sessions/raw", "agent_sessions", "raw"),
@@ -247,7 +262,13 @@ def module() -> ServiceModule:
         ),
         asset_package="electroboy.modules",
         capabilities=frozenset(
-            {"input-history", "terminal", "sse", "transcript-export"}
+            {
+                "input-history",
+                "session-naming",
+                "sse",
+                "terminal",
+                "transcript-export",
+            }
         ),
         state_namespace="sessions",
     )

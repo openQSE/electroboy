@@ -20,7 +20,11 @@ from electroboy.modules.document_service import _ensure_document_target
 from electroboy.modules.project_corkboard import ProjectCorkboardProvider
 from electroboy.service.recent_projects import remember_recent_project
 from electroboy.service.services import ServiceServices
-from electroboy.service.sessions import AgentSession, AgentSessionError
+from electroboy.service.sessions import (
+    AgentSession,
+    AgentSessionError,
+    normalize_session_name,
+)
 from electroboy.service.workflow_controller import BoundWorkflowController
 from electroboy.state_store import StateError, StateStore
 
@@ -225,10 +229,12 @@ class SoftwareWorkflowController(BoundWorkflowController):
         self,
         context_id: str,
         provider_session_id: str | None = None,
+        name: str = "",
     ) -> tuple[AgentSession, bool]:
         """Start a workflow-neutral agent or resume a selected Codex UUID."""
 
         requested_session_id = str(provider_session_id or "").strip().lower()
+        requested_name = normalize_session_name(name)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             command_root = self.services.contexts.command_root(context)
@@ -241,6 +247,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
                         metadata.get("provider_session_id") or ""
                     ).strip().lower()
                     if provider_id == requested_session_id and session.is_active():
+                        if requested_name:
+                            session.name = requested_name
+                            self.services.sessions.record(context, session)
                         context.selected_session_id = session.session_id
                         return session, False
 
@@ -260,6 +269,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             remember_ad_hoc_session(
                 self.services.files.state_root,
                 provider_session,
+                title=requested_name or None,
             )
         else:
             known_provider_paths = codex_session_paths()
@@ -287,6 +297,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
                         provider_id == requested_session_id
                         and active_session.is_active()
                     ):
+                        if requested_name:
+                            active_session.name = requested_name
+                            self.services.sessions.record(context, active_session)
                         context.selected_session_id = active_session.session_id
                         return active_session, False
             session = AgentSession(
@@ -296,6 +309,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 ),
                 cwd=command_root,
                 label="ad-hoc agent",
+                name=requested_name,
                 kind="ad-hoc",
                 interactive=True,
                 metadata=metadata,
@@ -329,6 +343,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 known_provider_paths,
                 session.is_active,
                 registered,
+                title=requested_name or None,
             )
         return session, True
 

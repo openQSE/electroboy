@@ -82,6 +82,7 @@
     const showInputHistory = document.getElementById("showInputHistory");
     const inputActionResizeHandle = document.getElementById("inputActionResizeHandle");
     const sessionSwitcher = document.getElementById("sessionSwitcher");
+    const renameAgentSession = document.getElementById("renameAgentSession");
     const decreaseTerminalFont = document.getElementById("decreaseTerminalFont");
     const terminalFontValue = document.getElementById("terminalFontValue");
     const increaseTerminalFont = document.getElementById("increaseTerminalFont");
@@ -8432,6 +8433,7 @@
         shellPaneDivider,
         leftOutputPane,
         sessionSwitcher,
+        renameAgentSession,
         agentSessionIndicator,
         insertFileLink,
         agentOutputPane,

@@ -126,6 +126,7 @@ class AdHocSessionCatalogTests(unittest.TestCase):
                     "electroboy-session",
                     frozenset(),
                     lambda: False,
+                    title="Authentication refactor",
                 )
                 tracker.join(timeout=2)
 
@@ -141,6 +142,7 @@ class AdHocSessionCatalogTests(unittest.TestCase):
         self.assertFalse(tracker.is_alive())
         self.assertEqual(catalog["schema_version"], 2)
         self.assertEqual(catalog["sessions"][0]["provider_session_id"], SESSION_ID)
+        self.assertEqual(catalog["sessions"][0]["title"], "Authentication refactor")
         self.assertEqual(
             catalog["sessions"][0]["electroboy_session_id"],
             "electroboy-session",

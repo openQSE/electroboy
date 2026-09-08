@@ -195,6 +195,13 @@ class SessionServices(Protocol):
 
     def select(self, context_id: str, session_id: str) -> dict[str, object]: ...
 
+    def rename(
+        self,
+        context_id: str,
+        session_id: str,
+        name: str,
+    ) -> dict[str, object]: ...
+
     def selected(self, context_id: str) -> AgentSession | None: ...
 
     def by_id(self, context_id: str, session_id: str) -> AgentSession: ...
@@ -520,6 +527,13 @@ class ServiceRuntimeBackend(Protocol):
         self,
         context_id: str,
         session_id: str,
+    ) -> dict[str, object]: ...
+
+    def rename_session(
+        self,
+        context_id: str,
+        session_id: str,
+        name: str,
     ) -> dict[str, object]: ...
 
     def selected_session(self, context_id: str) -> AgentSession | None: ...
@@ -1020,6 +1034,14 @@ class RuntimeSessionServices:
 
     def select(self, context_id: str, session_id: str) -> dict[str, object]:
         return self.runtime.select_session(context_id, session_id)
+
+    def rename(
+        self,
+        context_id: str,
+        session_id: str,
+        name: str,
+    ) -> dict[str, object]:
+        return self.runtime.rename_session(context_id, session_id, name)
 
     def selected(self, context_id: str) -> AgentSession | None:
         return self.runtime.selected_session(context_id)

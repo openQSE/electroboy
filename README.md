@@ -74,8 +74,10 @@ The software workflow's `Code` actions include `Start ad-hoc`. Starting an
 ad-hoc agent opens a session chooser with a new-session option, resumable Codex
 sessions previously used for the active project, and a field for an explicit
 Codex session UUID. Previous sessions are ordered from most recently updated
-to oldest. ElectroBoy only resumes a UUID whose Codex metadata identifies the
-active project as its working directory.
+to oldest. Give the session a name in the chooser so it is recognizable in the
+Agent dropdown. Use the dropdown's `Rename` button to edit the selected
+session's name later. ElectroBoy only resumes a UUID whose Codex metadata
+identifies the active project as its working directory.
 
 The service reads these environment variables when command-line options are not
 provided:

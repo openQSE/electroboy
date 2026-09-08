@@ -183,6 +183,8 @@ def start_ad_hoc_session_tracking(
     known_paths: Collection[Path],
     is_active: Callable[[], bool],
     on_registered: Callable[[CodexSessionSummary], None] | None = None,
+    *,
+    title: str | None = None,
 ) -> threading.Thread:
     """Register the one Codex rollout created by a new ad-hoc launch."""
 
@@ -195,6 +197,7 @@ def start_ad_hoc_session_tracking(
             frozenset(path.resolve() for path in known_paths),
             is_active,
             on_registered,
+            title,
         ),
         name=f"electroboy-ad-hoc-index-{electroboy_session_id[:8]}",
         daemon=True,
@@ -210,6 +213,7 @@ def _track_new_ad_hoc_session(
     known_paths: frozenset[Path],
     is_active: Callable[[], bool],
     on_registered: Callable[[CodexSessionSummary], None] | None,
+    title: str | None,
 ) -> None:
     resolved_root = project_root.expanduser().resolve()
     while True:
@@ -225,6 +229,7 @@ def _track_new_ad_hoc_session(
                 service_root,
                 session,
                 electroboy_session_id=electroboy_session_id,
+                title=title,
             )
             if on_registered is not None:
                 on_registered(session)

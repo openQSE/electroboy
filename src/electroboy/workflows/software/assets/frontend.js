@@ -1099,6 +1099,17 @@
               </span>
             </label>
           </fieldset>
+          <label class="ad-hoc-session-name-field">
+            <span>Name</span>
+            <input
+              class="ad-hoc-session-name"
+              type="text"
+              autocomplete="off"
+              maxlength="120"
+              required
+              placeholder="What is this session for?"
+            >
+          </label>
           <p class="ad-hoc-session-error" role="alert" hidden></p>
           <footer class="ad-hoc-session-footer">
             <button type="button" class="ad-hoc-session-cancel">Cancel</button>
@@ -1123,6 +1134,7 @@
       copy.className = "ad-hoc-session-option-copy";
       const title = document.createElement("strong");
       title.textContent = String(session.title || "Ad-hoc session");
+      input.dataset.sessionName = title.textContent;
       const details = document.createElement("span");
       details.className = "ad-hoc-session-details";
       details.textContent = `${adHocSessionDate(session)} · ${input.value}`;
@@ -1146,12 +1158,14 @@
       const list = dialog.querySelector(".ad-hoc-session-list");
       const customInput = dialog.querySelector(".ad-hoc-session-uuid");
       const customRadio = dialog.querySelector('input[value="custom"]');
+      const nameInput = dialog.querySelector(".ad-hoc-session-name");
       const error = dialog.querySelector(".ad-hoc-session-error");
       const submit = dialog.querySelector(".ad-hoc-session-submit");
       const newOption = document.createElement("label");
       newOption.className = "ad-hoc-session-option";
       newOption.innerHTML = `
-        <input type="radio" name="ad-hoc-session" value="" checked>
+        <input type="radio" name="ad-hoc-session" value="" checked
+          data-session-name="">
         <span class="ad-hoc-session-option-copy">
           <strong>New session</strong>
           <span class="ad-hoc-session-details">
@@ -1165,6 +1179,8 @@
         ...sessions.map((session, index) => adHocSessionOption(session, index)),
       );
       customInput.value = "";
+      customRadio.dataset.sessionName = "";
+      nameInput.value = "";
       error.hidden = true;
       submit.textContent = "Start";
       dialog.querySelector(".ad-hoc-session-options").onchange = (event) => {
@@ -1172,9 +1188,13 @@
           return;
         }
         submit.textContent = event.target.value ? "Resume" : "Start";
+        nameInput.value = event.target.dataset.sessionName || "";
         error.hidden = true;
       };
       customInput.onfocus = () => {
+        if (!customRadio.checked) {
+          nameInput.value = "";
+        }
         customRadio.checked = true;
         submit.textContent = "Resume";
       };
@@ -1211,7 +1231,14 @@
               return;
             }
           }
-          finish({ providerSessionId });
+          const name = nameInput.value.trim();
+          if (!name) {
+            error.textContent = "Enter a session name.";
+            error.hidden = false;
+            nameInput.focus();
+            return;
+          }
+          finish({ providerSessionId, name });
         };
         dialog.showModal();
       });
@@ -1251,6 +1278,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider_session_id: choice.providerSessionId || "",
+          name: choice.name || "",
         }),
       });
       const payload = await response.json().catch(() => ({ error: "start failed" }));

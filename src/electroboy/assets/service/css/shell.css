@@ -2672,6 +2672,20 @@
       cursor: default;
     }
 
+    .session-rename-button {
+      align-self: stretch;
+      flex: 0 0 auto;
+      padding: 0 10px;
+      border-left: 1px solid #a8bbcd !important;
+      cursor: pointer;
+      font-size: var(--ui-small-font-size);
+    }
+
+    .session-rename-button:disabled {
+      color: #7a8b9c;
+      cursor: default;
+    }
+
     .terminal-font-controls {
       flex-shrink: 0;
       gap: 0;

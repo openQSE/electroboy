@@ -909,6 +909,7 @@ All workflows should use the same session manager. A session records:
 
 - session id
 - label
+- operator-facing name
 - kind
 - role
 - command
@@ -929,6 +930,7 @@ The session manager should support:
 - send key
 - send raw bytes
 - resize terminal
+- rename
 - stream events
 - export transcript
 

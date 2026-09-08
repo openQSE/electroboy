@@ -289,6 +289,10 @@
 
     function agentSessionDisplayLabel(session) {
       const status = session.status === "running" ? "running" : session.status || "done";
+      const name = String(session.name || "").trim();
+      if (name) {
+        return `${name} · ${session.kind || "agent"} · ${status}`;
+      }
       const documentTarget = documentTargetForSession(session);
       if (documentTarget) {
         return `Document: ${documentTargetLabel(documentTarget)} · ${status}`;
@@ -315,6 +319,7 @@
         option.textContent = "No streams";
         runtimeApi.elements.sessionSwitcher.append(option);
         runtimeApi.elements.sessionSwitcher.disabled = true;
+        runtimeApi.elements.renameAgentSession.disabled = true;
         updateSessionIndicator(null);
         return;
       }
@@ -354,6 +359,7 @@
         runtimeState.selectedSessionId = selected ? selected.session_id : "";
       }
       runtimeApi.elements.sessionSwitcher.value = runtimeState.selectedSessionId;
+      runtimeApi.elements.renameAgentSession.disabled = !selectedSession();
       updateSessionIndicator(selectedSession());
       ensureRunningSessionStreams();
       ensureSelectedSessionStream();
@@ -454,6 +460,35 @@
       );
     }
 
+    async function renameSelectedSession() {
+      const session = selectedSession();
+      if (!session) {
+        return;
+      }
+      const name = window.prompt(
+        "Session name (leave blank to use the default label)",
+        String(session.name || ""),
+      );
+      if (name === null) {
+        return;
+      }
+      const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/rename"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: session.session_id, name }),
+      });
+      const payload = await response.json().catch(() => ({ error: "rename failed" }));
+      if (!response.ok) {
+        appendOutput(`${payload.error || "rename failed"}\n`, "error");
+        return;
+      }
+      if (Array.isArray(payload.sessions)) {
+        runtimeState.agentSessions = payload.sessions;
+      }
+      runtimeState.selectedSessionId = payload.selected_session_id || session.session_id;
+      renderSessionSwitcher();
+    }
+
     async function refreshServiceSessions() {
       runtimeState.serviceSessions = [];
       renderSessionSwitcher();
@@ -552,6 +587,7 @@
       runtimeApi.elements.interruptAgent.disabled = !sessionIsRunning(session);
       runtimeApi.elements.exportAgentOutput.disabled = !session;
       runtimeApi.elements.exportProgressOutput.disabled = !runtimeState.activationRoot;
+      runtimeApi.elements.renameAgentSession.disabled = !session;
       if (agentPaneTools) {
         agentPaneTools.refresh();
       }
@@ -930,6 +966,11 @@
         );
       });
     });
+    element.renameAgentSession.addEventListener("click", () => {
+      renameSelectedSession().catch((error) => {
+        runtime.notifications.appendOutput(`rename failed: ${error}\n`, "error");
+      });
+    });
     element.exportAgentOutput.addEventListener("click", () => {
       exportAgentSession().catch((error) => {
         runtime.notifications.appendOutput(`export failed: ${error}\n`, "error");
@@ -973,6 +1014,7 @@
     label: "Agent Sessions",
     capabilities: [
       "session-switching",
+      "session-naming",
       "terminal-input",
       "input-history",
       "session-export",
@@ -992,6 +1034,7 @@
       serviceSessionDisplayLabel: (runtime, ...args) => invoke(runtime, serviceSessionDisplayLabel, args),
       renderSessionSwitcher: (runtime, ...args) => invoke(runtime, renderSessionSwitcher, args),
       selectAgentSession: (runtime, ...args) => invoke(runtime, selectAgentSession, args),
+      renameSelectedSession: (runtime, ...args) => invoke(runtime, renameSelectedSession, args),
       refreshServiceSessions: (runtime, ...args) => invoke(runtime, refreshServiceSessions, args),
       attachAgentSession: (runtime, ...args) => invoke(runtime, attachAgentSession, args),
       connectAgentEvents: (runtime, ...args) => invoke(runtime, connectAgentEvents, args),

@@ -76,6 +76,7 @@ from .sessions import (
     AgentSession,
     AgentSessionError,
     TmuxAgentSession,
+    normalize_session_name,
     _agent_process_env,
     _normalize_session_backend,
     _session_backend_from_env,
@@ -403,6 +404,7 @@ class ServiceState:
                     cwd=Path(cwd),
                     session_id=session_id,
                     label=str(entry.get("label") or "agent"),
+                    name=str(entry.get("name") or ""),
                     kind=str(entry.get("kind") or "agent"),
                     interactive=bool(entry.get("interactive", True)),
                     metadata=(
@@ -1530,6 +1532,23 @@ class ServiceState:
                 "sessions": _session_payloads(context),
             }
 
+    def rename_session(
+        self,
+        context_id: str,
+        session_id: str,
+        name: str,
+    ) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            session = self._session_by_id_locked(context, session_id)
+            session.name = normalize_session_name(name)
+            self._record_session_locked(context, session)
+            return {
+                "context_id": context.context_id,
+                "selected_session_id": context.selected_session_id,
+                "sessions": _session_payloads(context),
+            }
+
     def attach_session(self, context_id: str, session_id: str) -> dict[str, object]:
         with self.lock:
             target_context = self._context_locked(context_id)
@@ -2476,6 +2495,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
                 "session_id": session_id,
                 "kind": getattr(session, "kind", "agent"),
                 "label": getattr(session, "label", "agent"),
+                "name": getattr(session, "name", ""),
                 "status": "running" if session.is_active() else "completed",
                 "returncode": getattr(session, "returncode", None),
                 "interactive": bool(getattr(session, "interactive", True)),
@@ -2490,9 +2510,10 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
 
 
 def _session_display_label(session: AgentSession) -> str:
+    name = str(getattr(session, "name", "") or "")
     label = str(getattr(session, "label", "") or "")
     kind = str(getattr(session, "kind", "") or "")
-    return label or kind or "agent"
+    return name or label or kind or "agent"
 
 
 def _limited_session_replay_events(
