@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TypeVar, cast
 from uuid import uuid4
 
+from ..ide import IDEEditorContext
 from .sessions import AgentSession
 
 T = TypeVar("T")
@@ -26,6 +27,7 @@ class BrowserContext:
     active_repository_name: str | None = None
     registered_repositories: list[dict[str, object]] = field(default_factory=list)
     selected_session_id: str | None = None
+    editor_context: IDEEditorContext | None = None
     workflow_state: dict[str, dict[str, object]] = field(default_factory=dict)
     module_state: dict[str, dict[str, object]] = field(default_factory=dict)
 
@@ -59,6 +61,7 @@ class BrowserContext:
         self.active_repository_name = active_repository_name
         self.registered_repositories = list(registered_repositories or [])
         self.selected_session_id = None
+        self.editor_context = None
         self.workflow_state.clear()
         self.module_state.clear()
         self.workflow_stage = workflow_stage
@@ -158,6 +161,14 @@ class BrowserContext:
         if value is not None:
             session_id = str(getattr(value, "session_id", "__general__"))
             sessions[session_id] = value
+
+    @property
+    def code_learner_sessions(self) -> dict[str, AgentSession]:
+        return self._value(self.workflow("code-learner"), "sessions", dict)
+
+    @code_learner_sessions.setter
+    def code_learner_sessions(self, value: dict[str, AgentSession]) -> None:
+        self.workflow("code-learner")["sessions"] = value
 
     @property
     def ad_hoc_sessions(self) -> dict[str, AgentSession]:

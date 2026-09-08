@@ -1,0 +1,22 @@
+{
+  "name": "electroboy-theme",
+  "displayName": "ElectroBoy Theme",
+  "description": "The managed ElectroBoy IDE color theme.",
+  "version": "1.1.0",
+  "publisher": "electroboy",
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "categories": [
+    "Themes"
+  ],
+  "contributes": {
+    "themes": [
+      {
+        "label": "ElectroBoy",
+        "uiTheme": "vs-dark",
+        "path": "./themes/electroboy-color-theme.json"
+      }
+    ]
+  }
+}

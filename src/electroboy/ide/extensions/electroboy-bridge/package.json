@@ -1,0 +1,33 @@
+{
+  "name": "electroboy-bridge",
+  "displayName": "ElectroBoy IDE Bridge",
+  "description": "Workspace context and navigation bridge for ElectroBoy.",
+  "version": "1.5.1",
+  "publisher": "electroboy",
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "ElectroBoy IDE Bridge",
+      "properties": {
+        "electroboy.bridge.directory": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Managed bridge directory. ElectroBoy configures this value."
+        }
+      }
+    }
+  }
+}

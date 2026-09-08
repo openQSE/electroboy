@@ -27,6 +27,7 @@ _SOURCE_MODULE_FACTORIES = {
     "binder": "electroboy.modules.binder:module",
     "corkboard": "electroboy.modules.corkboard:module",
     "file_browser": "electroboy.modules.file_browser:module",
+    "ide": "electroboy.modules.ide:module",
     "markdown_documents": "electroboy.modules.markdown_documents:module",
     "mind_map": "electroboy.modules.mind_map:module",
     "progress": "electroboy.modules.progress:module",
@@ -39,6 +40,7 @@ _SOURCE_MODULE_FACTORIES = {
 _SOURCE_WORKFLOW_FACTORIES = {
     "software": "electroboy.workflows.software.plugin:workflow",
     "creative-writing": "electroboy.workflows.creative_writing.plugin:workflow",
+    "code-learner": "electroboy.workflows.code_learner.plugin:workflow",
 }
 
 

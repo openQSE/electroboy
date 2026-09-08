@@ -173,7 +173,15 @@
       { label: "API", path: "docs/api.md" },
     ];
     const DEFAULT_TERMINAL_FONT_SIZE = 15;
-    const PANE_FONT_KEYS = ["agent", "progress", "shell", "input", "scratch", "status"];
+    const PANE_FONT_KEYS = [
+      "agent",
+      "code-learner",
+      "progress",
+      "shell",
+      "input",
+      "scratch",
+      "status",
+    ];
     const PANE_FONT_CSS_PROPERTIES = {
       agent: "--agent-output-font-size",
       progress: "--progress-output-font-size",
@@ -370,6 +378,7 @@
       agenda: { label: "Agenda", element: null },
       assignments: { label: "Assignments", element: null },
       calendar: { label: "Calendar", element: null },
+      "code-learner": { label: "Code Learner", element: null },
       "mind-map": { label: "Mind Map", element: null },
       shell: { label: "Shell", element: projectShellPane },
       scratch: { label: "Scratch", element: scratchPane },
@@ -381,6 +390,7 @@
       "agenda",
       "assignments",
       "calendar",
+      "code-learner",
       "mind-map",
     ]);
     const WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS = new Set([
@@ -397,10 +407,28 @@
       "agenda",
       "assignments",
       "calendar",
+      "code-learner",
       "mind-map",
       "scratch",
       "status",
     ]);
+    for (const module of window.ElectroBoyFrontend?.listModules?.() || []) {
+      for (const pane of Array.isArray(module.panes) ? module.panes : []) {
+        const kind = String(pane.id || "").trim();
+        if (!kind || PANE_LAYOUT_KINDS[kind]) {
+          continue;
+        }
+        PANE_LAYOUT_KINDS[kind] = {
+          label: String(pane.label || kind),
+          element: null,
+          moduleId: module.id,
+        };
+        if (pane.instance !== false) INSTANCE_PANE_LAYOUT_KINDS.add(kind);
+        if (pane.workspaceInstance) WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS.add(kind);
+        if (pane.singleton) SINGLETON_PANE_LAYOUT_KINDS.add(kind);
+        if (pane.restorable !== false) RESTORABLE_PANE_LAYOUT_KINDS.add(kind);
+      }
+    }
 
     function newPaneLayoutId(prefix = "pane") {
       paneLayoutIdSequence += 1;
@@ -2038,6 +2066,10 @@
       if (kind === "corkboard") {
         return Boolean(window.ElectroBoyFrontend?.module("corkboard"));
       }
+      const definition = PANE_LAYOUT_KINDS[kind];
+      if (definition?.moduleId) {
+        return Boolean(window.ElectroBoyFrontend?.module(definition.moduleId));
+      }
       return true;
     }
 
@@ -2394,27 +2426,9 @@
     }
 
     function paneLayoutRequestedContent(leaf) {
-      if (leaf.kind === "agent") {
-        return leaf.content && typeof leaf.content === "object"
-          ? leaf.content
-          : null;
-      }
-      if (leaf.kind === "agenda") {
-        return leaf.content && typeof leaf.content === "object"
-          ? leaf.content
-          : null;
-      }
-      if (leaf.kind === "assignments") {
-        return leaf.content && typeof leaf.content === "object"
-          ? leaf.content
-          : null;
-      }
-      if (leaf.kind === "calendar") {
-        return leaf.content && typeof leaf.content === "object"
-          ? leaf.content
-          : null;
-      }
-      if (leaf.kind === "mind-map") {
+      if (leaf.kind === "agent" || (
+        INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind) && leaf.kind !== "artifact"
+      )) {
         return leaf.content && typeof leaf.content === "object"
           ? leaf.content
           : null;
@@ -3122,6 +3136,27 @@
       return;
     }
 
+    function openPaneLayoutKind(kind) {
+      if (
+        !INSTANCE_PANE_LAYOUT_KINDS.has(kind) ||
+        !paneLayoutKindAvailable(kind)
+      ) {
+        return;
+      }
+      let leaf = paneLayoutLeafByKind(kind);
+      if (!leaf) {
+        leaf = createPaneLayoutLeafForItem(kind, { direction: "row" });
+      }
+      if (!leaf) {
+        return;
+      }
+      leaf.kind = kind;
+      leaf.projectRoot = activeProjectRoot;
+      setActivePaneLayoutLeaf(leaf.id);
+      savePaneLayout();
+      renderPaneLayout();
+    }
+
     function handlePaneLayoutMessage(event) {
       if (event.origin !== window.location.origin) {
         return;
@@ -3130,12 +3165,37 @@
       if (!message) {
         return;
       }
+      if (message.type === "electroboy:pane-open-kind") {
+        const requestedKind = String(message.kind || "");
+        openPaneLayoutKind(requestedKind);
+        return;
+      }
       const leaf = paneLayoutLeafById(String(message.paneInstanceId || ""));
       if (!leaf) {
         return;
       }
+      if (
+        message.type === "electroboy:pane-recover-workspace" &&
+        leaf.kind === "ide"
+      ) {
+        recoverWorkspaceAttachment().then((recovered) => {
+          if (!recovered) {
+            window.location.reload();
+            return;
+          }
+          refreshPaneLayoutInstanceFrames("workspace-recovered");
+        }).catch(() => window.location.reload());
+        return;
+      }
       if (message.type === "electroboy:pane-activate") {
         setActivePaneLayoutLeaf(leaf.id);
+        return;
+      }
+      if (
+        message.type === "electroboy:pane-pop" &&
+        INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)
+      ) {
+        popOutPaneLayoutLeaf(leaf);
         return;
       }
       if (
@@ -3374,6 +3434,7 @@
     }
 
     function paneFontKeyForKind(kind) {
+      if (kind === "code-learner") return "code-learner";
       if (kind === "shell") return "shell";
       if (kind === "progress") return "progress";
       if (kind === "input") return "input";
@@ -5351,6 +5412,9 @@
       if (className === "error") {
         return `\x1b[31m${text}\x1b[0m`;
       }
+      if (className === "warning") {
+        return `\x1b[33m${text}\x1b[0m`;
+      }
       if (className === "system") {
         return `\x1b[36m${text}\x1b[0m`;
       }
@@ -5438,6 +5502,9 @@
       const paneSessionId = String(options.sessionId || selectedSessionId || "");
       if (paneSessionId) {
         parameters.set("session_id", paneSessionId);
+      }
+      if (options.popped) {
+        parameters.set("popped", "1");
       }
       const artifactItem = requestedArtifactItem === undefined
         ? artifactPreviewItems[0] || null
@@ -5585,6 +5652,7 @@
         sessionId: kind === "agent"
           ? String(options.sessionId || selectedSessionId || "")
           : "",
+        popped: true,
       };
       const popoutKey = poppedPaneKey(kind, popoutOptions);
       const popup = window.open(

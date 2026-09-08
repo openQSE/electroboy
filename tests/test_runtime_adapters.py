@@ -5,6 +5,8 @@ import os
 import sys
 import tempfile
 import textwrap
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -91,6 +93,73 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(activities, ["Mapping the central conflict."])
         self.assertTrue(result.structured_output)
 
+    def test_codex_exec_extracts_provider_session_from_thread_event(self) -> None:
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command="codex",
+                args=["exec", "--json"],
+            )
+        )
+
+        result = runtime._parse_stdout(
+            '{"type":"thread.started","thread_id":"session-123"}\n'
+            '{"type":"turn.completed","message":"done"}\n'
+        )
+
+        self.assertEqual(result.provider, "codex")
+        self.assertEqual(result.provider_session_id, "session-123")
+
+    def test_codex_exec_builds_resume_and_fork_commands(self) -> None:
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command="codex",
+                args=["exec", "--json"],
+            )
+        )
+
+        resumed = runtime._command(
+            AgentInvocation(
+                role="code_learner_analysis",
+                prompt="continue",
+                provider_session_id="primary-session",
+            )
+        )
+        forked = runtime._command(
+            AgentInvocation(
+                role="code_learner_course",
+                prompt="build",
+                fork_provider_session_id="primary-session",
+            )
+        )
+
+        self.assertEqual(resumed[-3:], ["resume", "primary-session", "-"])
+        self.assertEqual(forked[-3:], ["fork", "primary-session", "-"])
+        self.assertEqual(resumed[-5:-3], ["--sandbox", "read-only"])
+
+    def test_codex_exec_rejects_resume_and_fork_together(self) -> None:
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command="codex",
+                args=["exec", "--json"],
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "cannot resume and fork"):
+            runtime.invoke(
+                AgentInvocation(
+                    role="code_learner_analysis",
+                    prompt="invalid",
+                    provider_session_id="one",
+                    fork_provider_session_id="two",
+                )
+            )
+
     def test_generic_cli_runtime_errors_return_agent_result(self) -> None:
         runtime = GenericCliRuntime(
             RuntimeConfig(
@@ -119,12 +188,24 @@ class RuntimeAdapterTests(unittest.TestCase):
         generation = runtime._command(
             AgentInvocation(role="corkboard_generation", prompt="p")
         )
+        code_learner = runtime._command(
+            AgentInvocation(role="code_learner_initialize", prompt="p")
+        )
+        code_learner_analysis = runtime._command(
+            AgentInvocation(role="code_learner_analysis", prompt="p")
+        )
+        code_learner_course = runtime._command(
+            AgentInvocation(role="code_learner_course", prompt="p")
+        )
         coding = runtime._command(AgentInvocation(role="coding", prompt="p"))
 
         self.assertEqual(review[-2:], ["--sandbox", "read-only"])
         self.assertEqual(generation[-2:], ["--sandbox", "read-only"])
         self.assertIn('model_reasoning_summary="concise"', generation)
         self.assertNotIn('model_reasoning_summary="concise"', review)
+        self.assertEqual(code_learner[-2:], ["--sandbox", "read-only"])
+        self.assertEqual(code_learner_analysis[-2:], ["--sandbox", "read-only"])
+        self.assertEqual(code_learner_course[-2:], ["--sandbox", "read-only"])
         self.assertEqual(coding[-2:], ["--sandbox", "workspace-write"])
 
     def test_codex_exec_uses_writable_sandbox_for_progress_file(self) -> None:
@@ -335,6 +416,39 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result.final_message, "blocked")
         self.assertEqual(result.error, "review failed")
 
+    def test_codex_exec_preserves_single_domain_json_object(self) -> None:
+        runtime = CodexExecRuntime(
+            RuntimeConfig(
+                name="codex",
+                adapter="codex_exec",
+                command="codex",
+                args=["exec", "--json"],
+            )
+        )
+        record = {
+            "schema_version": 1,
+            "record_type": "component_reconciliation",
+            "overlap_group_id": "overlap:example",
+            "decision": "same",
+            "partitions": [{"candidate_ids": ["a", "b"], "reason": "same"}],
+        }
+
+        result = runtime._parse_stdout(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "agent_message",
+                        "text": json.dumps(record),
+                    },
+                }
+            )
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(json.loads(result.final_message), record)
+        self.assertFalse(result.structured_output)
+
     def test_generic_cli_uses_configured_environment_allowlist(self) -> None:
         os.environ["ELECTROBOY_ALLOWED_TEST"] = "allowed"
         os.environ["ELECTROBOY_BLOCKED_TEST"] = "blocked"
@@ -426,6 +540,71 @@ class RuntimeAdapterTests(unittest.TestCase):
 
         self.assertTrue(result.ok)
         self.assertEqual(result.final_message, "done")
+
+    def test_generic_cli_cancellation_stops_active_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cancel_event = threading.Event()
+            runtime = GenericCliRuntime(
+                RuntimeConfig(
+                    name="test",
+                    adapter="generic_cli",
+                    command=sys.executable,
+                    args=["-c", "import time; time.sleep(30)"],
+                ),
+                tmp,
+            )
+            timer = threading.Timer(0.1, cancel_event.set)
+            started = time.monotonic()
+            timer.start()
+            try:
+                result = runtime.invoke(
+                    AgentInvocation(
+                        role="review",
+                        prompt="prompt",
+                        cancel_event=cancel_event,
+                    )
+                )
+            finally:
+                timer.cancel()
+
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "Agent invocation aborted.")
+
+    def test_codex_cli_streams_structured_runtime_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            events: list[dict[str, object]] = []
+            runtime = CodexExecRuntime(
+                RuntimeConfig(
+                    name="test",
+                    adapter="codex_exec",
+                    command=sys.executable,
+                    args=[
+                        "-c",
+                        (
+                            "import json; "
+                            "print(json.dumps({'type': 'turn.started'}), flush=True); "
+                            "print(json.dumps({'final_message': 'done'}), flush=True)"
+                        ),
+                        "--sandbox",
+                        "read-only",
+                    ],
+                ),
+                tmp,
+            )
+
+            result = runtime.invoke(
+                AgentInvocation(
+                    role="review",
+                    prompt="prompt",
+                    event_callback=events.append,
+                )
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.final_message, "done")
+        self.assertEqual(events[0]["stream"], "stdout")
+        self.assertEqual(events[0]["event"], {"type": "turn.started"})
 
 
 if __name__ == "__main__":

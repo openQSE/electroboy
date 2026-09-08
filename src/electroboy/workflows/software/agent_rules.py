@@ -51,6 +51,18 @@ layout. If none exists, recommend the conventional
 `man/man<section>/<command>.<section>` path and confirm the desired section
 before creating the file.""",
     ),
+    AgentRuleDefinition(
+        id="software.editor-context",
+        label="Current IDE Editor Context",
+        priority=50,
+        content="""\
+When an operator refers to the file, code, symbol, cursor, or selection they are
+currently viewing, read `.electroboy/ide/editor-context.json` if it exists. The
+file contains the active repository-relative path, language, cursor, selection,
+dirty state, and revision. Use it as navigation context; inspect the repository
+source directly when source content is needed. Do not require the operator to
+repeat context already present in that file.""",
+    ),
 )
 
 

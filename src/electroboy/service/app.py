@@ -21,9 +21,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .. import __version__
+from ..ide import IDEEditorContext, IDELocation
+from ..ide.service import IDEService
 from ..models import utc_now
 from ..state_store import StateError
 from .context import BrowserContext, ContextStore
@@ -150,8 +152,19 @@ INDEX_HTML = "\n".join(
 PANE_WINDOW_HTML = read_service_text_asset("pane-window.html")
 
 
-def pane_window_html(kind: str) -> str:
-    return PANE_WINDOW_HTML.replace("__PANE_KIND__", json.dumps(kind))
+def pane_window_html(
+    kind: str,
+    workflow_registry: WorkflowRegistry | None = None,
+) -> str:
+    module_registry = (
+        workflow_registry.modules if workflow_registry is not None else None
+    )
+    page = render_service_index(
+        PANE_WINDOW_HTML,
+        module_registry,
+        workflow_registry,
+    )
+    return page.replace("__PANE_KIND__", json.dumps(kind))
 
 
 FILE_BROWSER_WINDOW_HTML = read_service_text_asset("file-browser.html")
@@ -172,6 +185,34 @@ def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
     )
 
 
+def _ide_optional_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
+def _write_editor_context(
+    project_root: Path,
+    editor_context: IDEEditorContext | None,
+) -> None:
+    path = project_root / ".electroboy" / "ide" / "editor-context.json"
+    if editor_context is None:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(
+            {"schema_version": 1, **editor_context.payload()},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
 @dataclass
 class ServiceState:
     root: Path
@@ -184,6 +225,7 @@ class ServiceState:
         init=False,
         default_factory=dict,
     )
+    ide_service: IDEService = field(init=False)
 
     @property
     def lock(self) -> threading.RLock:
@@ -200,6 +242,7 @@ class ServiceState:
             self.state_root,
             self.context_store,
         )
+        self.ide_service = IDEService(context_callback=self._record_ide_context)
         self.session_backend = _normalize_session_backend(self.session_backend)
         if self.workflow_registry is None:
             module_registry = build_module_registry()
@@ -748,6 +791,7 @@ class ServiceState:
                     f"{active_labels}{extra}"
                 )
         self._terminate_sessions(sessions)
+        self.ide_service.stop(context_id, "project deactivated")
         with self.lock:
             context = self._context_locked(context_id)
             context.reset_project(
@@ -766,6 +810,179 @@ class ServiceState:
             ),
             "status": "deactivated",
         }
+
+    def ide_runtime_status(self) -> dict[str, object]:
+        return self.ide_service.runtime_status()
+
+    def install_ide_runtime(self) -> dict[str, object]:
+        return self.ide_service.install()
+
+    def start_ide(self, context_id: str) -> dict[str, object]:
+        return self.ide_service.start(
+            context_id,
+            self.active_project_root(context_id),
+        )
+
+    def ide_status(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            context = self._context_locked(context_id)
+            project_root = context.active_project_root
+        return self.ide_service.status(context_id, project_root)
+
+    def stop_ide(
+        self,
+        context_id: str,
+        reason: str = "requested",
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.stop(context_id, reason)
+
+    def open_ide_location(
+        self,
+        context_id: str,
+        location: dict[str, object],
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.open_location(
+            context_id,
+            IDELocation(
+                path=str(location.get("path") or ""),
+                line=_ide_optional_int(location.get("line")),
+                column=_ide_optional_int(location.get("column")),
+                end_line=_ide_optional_int(location.get("end_line")),
+                end_column=_ide_optional_int(location.get("end_column")),
+                symbol=str(location.get("symbol") or "") or None,
+            ),
+        )
+
+    def ide_diagnostics(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.diagnostics(context_id)
+
+    def record_ide_input_event(
+        self,
+        context_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.record_input_event(context_id, payload)
+
+    def ide_configuration(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.configuration_status(context_id)
+
+    def configure_ide(
+        self,
+        context_id: str,
+        values: dict[str, object],
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.configure(context_id, values)
+
+    def ide_network_status(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.network_status(context_id)
+
+    def configure_ide_network(
+        self,
+        context_id: str,
+        *,
+        mode: str,
+        rules: object,
+        temporary_rules: object,
+        audit_acknowledged: bool,
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.configure_network(
+            context_id,
+            mode=mode,
+            rules=rules,
+            temporary_rules=temporary_rules,
+            audit_acknowledged=audit_acknowledged,
+        )
+
+    def clear_ide_network_events(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.clear_network_events(context_id)
+
+    def record_ide_csp_violation(
+        self,
+        context_id: str,
+        payload: object,
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.record_csp_violation(payload, context_id)
+
+    def ide_editor_context(self, context_id: str) -> dict[str, object] | None:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.editor_context(context_id)
+
+    def ide_neovim_status(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.neovim_status()
+
+    def launch_ide_neovim(self, context_id: str) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.launch_neovim(context_id)
+
+    def configure_ide_neovim(
+        self,
+        context_id: str,
+        *,
+        enabled: bool,
+        executable: str,
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.configure_neovim(
+            enabled=enabled,
+            executable=executable,
+        )
+
+    def _record_ide_context(
+        self,
+        context_id: str,
+        editor_context: IDEEditorContext | None,
+    ) -> None:
+        with self.lock:
+            context = self.contexts.get(context_id)
+            if context is None:
+                return
+            context.editor_context = editor_context
+            project_root = context.active_project_root
+        if project_root is not None:
+            _write_editor_context(project_root, editor_context)
+
+    def attach_ide_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.attach_view(context_id, view_id)
+
+    def detach_ide_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.detach_view(context_id, view_id)
 
     def start_requirements_agent(
         self,
@@ -1647,6 +1864,7 @@ class ServiceState:
                 *context.stage_sessions.values(),
                 *context.documentation_sessions.values(),
                 *context.creative_sessions.values(),
+                *context.code_learner_sessions.values(),
                 *context.ad_hoc_sessions.values(),
             ]
             if session is not None
@@ -1695,6 +1913,11 @@ class ServiceState:
             for key, creative_session in list(context.creative_sessions.items()):
                 if creative_session is session:
                     context.creative_sessions.pop(key, None)
+            for key, code_learner_session in list(
+                context.code_learner_sessions.items()
+            ):
+                if code_learner_session is session:
+                    context.code_learner_sessions.pop(key, None)
             for key, ad_hoc_session in list(context.ad_hoc_sessions.items()):
                 if ad_hoc_session is session:
                     context.ad_hoc_sessions.pop(key, None)
@@ -1762,6 +1985,8 @@ class ServiceState:
             context.documentation_sessions[session_key] = session
         elif session.kind == "creative-writing":
             context.creative_sessions[session.session_id] = session
+        elif session.kind == "code-learner":
+            context.code_learner_sessions[session.session_id] = session
         elif session.kind == "ad-hoc":
             context.ad_hoc_sessions[session.session_id] = session
         elif session.kind == "project-shell":
@@ -1875,6 +2100,7 @@ class ElectroBoyHTTPServer(ThreadingHTTPServer):
         ):
             self.service_state.terminate_all_sessions()
         if self.service_state is not None:
+            self.service_state.ide_service.close()
             self.service_state.close_workflow_controllers()
         super().server_close()
 
@@ -2084,6 +2310,9 @@ def project_payload(
         "active_project_root": str(active_root) if active_root else None,
         "active_repository_name": context.active_repository_name,
         "registered_repositories": context.registered_repositories,
+        "editor_context": (
+            context.editor_context.payload() if context.editor_context else None
+        ),
         "workflow_stage": workflow_stage,
         "documentation_running": documentation_running,
         "creative_writing_running": creative_running,
@@ -2231,6 +2460,7 @@ def _session_payloads(context: BrowserContext) -> list[dict[str, object]]:
         *context.stage_sessions.values(),
         *context.documentation_sessions.values(),
         *context.creative_sessions.values(),
+        *context.code_learner_sessions.values(),
         *context.ad_hoc_sessions.values(),
     ]:
         if session is None:
@@ -2497,6 +2727,7 @@ def _handler_for(
 
     class ElectroBoyRequestHandler(BaseHTTPRequestHandler):
         server_version = "ElectroBoyService/0.1"
+        protocol_version = "HTTP/1.1"
 
         def _record_frontend_debug_response(
             self,
@@ -2623,6 +2854,9 @@ def _handler_for(
             if path == "/api/live":
                 self._serve_live_websocket()
                 return
+            if path.startswith("/ide/"):
+                self._proxy_ide_request(path, parsed.query)
+                return
             if self._dispatch_registered_route("GET", path, parsed.query):
                 return
             if path == SPLASH_IMAGE_ROUTE:
@@ -2645,6 +2879,9 @@ def _handler_for(
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
             path = parsed.path
+            if path.startswith("/ide/"):
+                self._proxy_ide_request(path, parsed.query)
+                return
             if self._dispatch_registered_route("POST", path, parsed.query):
                 return
             self._send_json(
@@ -2652,8 +2889,24 @@ def _handler_for(
                 status=HTTPStatus.NOT_FOUND,
             )
 
+        def do_PUT(self) -> None:
+            self._proxy_ide_method()
+
+        def do_PATCH(self) -> None:
+            self._proxy_ide_method()
+
+        def do_DELETE(self) -> None:
+            self._proxy_ide_method()
+
+        def do_OPTIONS(self) -> None:
+            self._proxy_ide_method()
+
         def do_HEAD(self) -> None:
-            path = urlparse(self.path).path
+            parsed = urlparse(self.path)
+            path = parsed.path
+            if path.startswith("/ide/"):
+                self._proxy_ide_request(path, parsed.query)
+                return
             if path in {"/", "/index.html"}:
                 self._send_headers(
                     HTTPStatus.OK,
@@ -2749,6 +3002,92 @@ def _handler_for(
             )
             session.run()
 
+        def _proxy_ide_method(self) -> None:
+            parsed = urlparse(self.path)
+            if not parsed.path.startswith("/ide/"):
+                self._send_json(
+                    {"error": "not found"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            self._proxy_ide_request(parsed.path, parsed.query)
+
+        def _proxy_ide_request(self, path: str, query: str) -> None:
+            parts = path.split("/", 3)
+            workspace_id = unquote(parts[2]) if len(parts) > 2 else ""
+            if not workspace_id:
+                self._send_json(
+                    {"error": "IDE workspace is required"},
+                    status=HTTPStatus.NOT_FOUND,
+                )
+                return
+            cookie_header = self.headers.get("Cookie", "")
+            set_cookie = None
+            if not state.ide_service.proxy_sessions.authorize(
+                cookie_header,
+                workspace_id,
+            ):
+                params = parse_qs(query)
+                requested_workspace = str(
+                    (
+                        params.get("workspace_id")
+                        or params.get("context_id")
+                        or [""]
+                    )[0]
+                )
+                try:
+                    if requested_workspace != workspace_id:
+                        raise StateError("IDE workspace does not match its lease")
+                    state.workspace_registry.validate(
+                        workspace_id,
+                        str((params.get("connection_id") or [""])[0]),
+                        str((params.get("lease_token") or [""])[0]),
+                    )
+                    session = state.ide_service.proxy_sessions.create(workspace_id)
+                    set_cookie = state.ide_service.proxy_sessions.cookie(
+                        session,
+                        workspace_id,
+                    )
+                except Exception as error:
+                    self._send_json(
+                        {"error": str(error)},
+                        status=HTTPStatus.CONFLICT,
+                    )
+                    return
+            try:
+                report_path = f"/ide/{workspace_id}/_electroboy/csp-report"
+                if path.rstrip("/") == report_path:
+                    length = min(
+                        int(self.headers.get("Content-Length", "0") or 0),
+                        64 * 1024,
+                    )
+                    raw = self.rfile.read(length) if length else b"{}"
+                    try:
+                        report = json.loads(raw)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        report = {}
+                    payload = state.ide_service.record_csp_violation(
+                        report,
+                        workspace_id,
+                    )
+                    self._send_json(payload)
+                    return
+                endpoint = state.ide_service.proxy_endpoint(workspace_id)
+                state.ide_service.proxy.relay(
+                    self,
+                    endpoint,
+                    set_cookie=set_cookie,
+                    egress_mode=state.ide_service.proxy_egress_mode(
+                        workspace_id
+                    ),
+                    report_uri=report_path,
+                )
+            except Exception as error:
+                self._send_json(
+                    {"error": str(error)},
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+
         def _dispatch_registered_route(
             self,
             method: str,
@@ -2834,6 +3173,8 @@ def _handler_for(
                 "artifact",
                 "calendar",
                 "corkboard",
+                "code-learner",
+                "ide",
                 "mind-map",
                 "progress",
                 "scratch",
@@ -2847,7 +3188,7 @@ def _handler_for(
                 )
                 return
             self._send_text(
-                pane_window_html(kind),
+                pane_window_html(kind, config.workflow_registry),
                 "text/html; charset=utf-8",
             )
 

@@ -308,6 +308,88 @@ class WorkflowServices(Protocol):
     def bind_registry(self, registry: WorkflowRegistry) -> None: ...
 
 
+class IDEServices(Protocol):
+    """Workspace-scoped IDE operations exposed to capability modules."""
+
+    def runtime_status(self) -> dict[str, object]: ...
+
+    def install(self) -> dict[str, object]: ...
+
+    def start(self, context_id: str) -> dict[str, object]: ...
+
+    def status(self, context_id: str) -> dict[str, object]: ...
+
+    def stop(self, context_id: str, reason: str = "requested") -> dict[str, object]: ...
+
+    def open_location(
+        self,
+        context_id: str,
+        location: dict[str, object],
+    ) -> dict[str, object]: ...
+
+    def diagnostics(self, context_id: str) -> dict[str, object]: ...
+
+    def record_input_event(
+        self,
+        context_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]: ...
+
+    def configuration(self, context_id: str) -> dict[str, object]: ...
+
+    def configure(
+        self,
+        context_id: str,
+        values: dict[str, object],
+    ) -> dict[str, object]: ...
+
+    def network_status(self, context_id: str) -> dict[str, object]: ...
+
+    def configure_network(
+        self,
+        context_id: str,
+        *,
+        mode: str,
+        rules: object,
+        temporary_rules: object,
+        audit_acknowledged: bool,
+    ) -> dict[str, object]: ...
+
+    def clear_network_events(self, context_id: str) -> dict[str, object]: ...
+
+    def editor_context(self, context_id: str) -> dict[str, object] | None: ...
+
+    def neovim_status(self, context_id: str) -> dict[str, object]: ...
+
+    def launch_neovim(self, context_id: str) -> dict[str, object]: ...
+
+    def configure_neovim(
+        self,
+        context_id: str,
+        *,
+        enabled: bool,
+        executable: str,
+    ) -> dict[str, object]: ...
+
+    def record_csp_violation(
+        self,
+        context_id: str,
+        payload: object,
+    ) -> dict[str, object]: ...
+
+    def attach_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]: ...
+
+    def detach_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]: ...
+
+
 @dataclass(frozen=True)
 class ServiceServices:
     """The complete, typed dependency surface passed to plugins."""
@@ -317,6 +399,7 @@ class ServiceServices:
     sessions: SessionServices
     files: ProjectFileServices
     workflows: WorkflowServices
+    ide: IDEServices
 
 
 class ServiceRuntimeBackend(Protocol):
@@ -589,6 +672,88 @@ class ServiceRuntimeBackend(Protocol):
     ) -> dict[str, object]: ...
 
     def bind_workflow_registry(self, registry: WorkflowRegistry) -> None: ...
+
+    def ide_runtime_status(self) -> dict[str, object]: ...
+
+    def install_ide_runtime(self) -> dict[str, object]: ...
+
+    def start_ide(self, context_id: str) -> dict[str, object]: ...
+
+    def ide_status(self, context_id: str) -> dict[str, object]: ...
+
+    def stop_ide(
+        self,
+        context_id: str,
+        reason: str = "requested",
+    ) -> dict[str, object]: ...
+
+    def open_ide_location(
+        self,
+        context_id: str,
+        location: dict[str, object],
+    ) -> dict[str, object]: ...
+
+    def ide_diagnostics(self, context_id: str) -> dict[str, object]: ...
+
+    def record_ide_input_event(
+        self,
+        context_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]: ...
+
+    def ide_configuration(self, context_id: str) -> dict[str, object]: ...
+
+    def configure_ide(
+        self,
+        context_id: str,
+        values: dict[str, object],
+    ) -> dict[str, object]: ...
+
+    def ide_network_status(self, context_id: str) -> dict[str, object]: ...
+
+    def configure_ide_network(
+        self,
+        context_id: str,
+        *,
+        mode: str,
+        rules: object,
+        temporary_rules: object,
+        audit_acknowledged: bool,
+    ) -> dict[str, object]: ...
+
+    def clear_ide_network_events(self, context_id: str) -> dict[str, object]: ...
+
+    def record_ide_csp_violation(
+        self,
+        context_id: str,
+        payload: object,
+    ) -> dict[str, object]: ...
+
+    def ide_editor_context(self, context_id: str) -> dict[str, object] | None: ...
+
+    def ide_neovim_status(self, context_id: str) -> dict[str, object]: ...
+
+    def launch_ide_neovim(self, context_id: str) -> dict[str, object]: ...
+
+    def configure_ide_neovim(
+        self,
+        context_id: str,
+        *,
+        enabled: bool,
+        executable: str,
+    ) -> dict[str, object]: ...
+
+    def attach_ide_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]: ...
+
+    def detach_ide_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]: ...
 
 
 @dataclass(frozen=True)
@@ -1044,6 +1209,119 @@ class RuntimeWorkflowServices:
         self._registry = registry
 
 
+@dataclass(frozen=True)
+class RuntimeIDEServices:
+    runtime: ServiceRuntimeBackend
+
+    def runtime_status(self) -> dict[str, object]:
+        return self.runtime.ide_runtime_status()
+
+    def install(self) -> dict[str, object]:
+        return self.runtime.install_ide_runtime()
+
+    def start(self, context_id: str) -> dict[str, object]:
+        return self.runtime.start_ide(context_id)
+
+    def status(self, context_id: str) -> dict[str, object]:
+        return self.runtime.ide_status(context_id)
+
+    def stop(self, context_id: str, reason: str = "requested") -> dict[str, object]:
+        return self.runtime.stop_ide(context_id, reason)
+
+    def open_location(
+        self,
+        context_id: str,
+        location: dict[str, object],
+    ) -> dict[str, object]:
+        return self.runtime.open_ide_location(context_id, location)
+
+    def diagnostics(self, context_id: str) -> dict[str, object]:
+        return self.runtime.ide_diagnostics(context_id)
+
+    def record_input_event(
+        self,
+        context_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return self.runtime.record_ide_input_event(context_id, payload)
+
+    def configuration(self, context_id: str) -> dict[str, object]:
+        return self.runtime.ide_configuration(context_id)
+
+    def configure(
+        self,
+        context_id: str,
+        values: dict[str, object],
+    ) -> dict[str, object]:
+        return self.runtime.configure_ide(context_id, values)
+
+    def network_status(self, context_id: str) -> dict[str, object]:
+        return self.runtime.ide_network_status(context_id)
+
+    def configure_network(
+        self,
+        context_id: str,
+        *,
+        mode: str,
+        rules: object,
+        temporary_rules: object,
+        audit_acknowledged: bool,
+    ) -> dict[str, object]:
+        return self.runtime.configure_ide_network(
+            context_id,
+            mode=mode,
+            rules=rules,
+            temporary_rules=temporary_rules,
+            audit_acknowledged=audit_acknowledged,
+        )
+
+    def clear_network_events(self, context_id: str) -> dict[str, object]:
+        return self.runtime.clear_ide_network_events(context_id)
+
+    def editor_context(self, context_id: str) -> dict[str, object] | None:
+        return self.runtime.ide_editor_context(context_id)
+
+    def neovim_status(self, context_id: str) -> dict[str, object]:
+        return self.runtime.ide_neovim_status(context_id)
+
+    def launch_neovim(self, context_id: str) -> dict[str, object]:
+        return self.runtime.launch_ide_neovim(context_id)
+
+    def configure_neovim(
+        self,
+        context_id: str,
+        *,
+        enabled: bool,
+        executable: str,
+    ) -> dict[str, object]:
+        return self.runtime.configure_ide_neovim(
+            context_id,
+            enabled=enabled,
+            executable=executable,
+        )
+
+    def record_csp_violation(
+        self,
+        context_id: str,
+        payload: object,
+    ) -> dict[str, object]:
+        return self.runtime.record_ide_csp_violation(context_id, payload)
+
+    def attach_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]:
+        return self.runtime.attach_ide_view(context_id, view_id)
+
+    def detach_view(
+        self,
+        context_id: str,
+        view_id: str,
+    ) -> dict[str, object]:
+        return self.runtime.detach_ide_view(context_id, view_id)
+
+
 def build_service_services(
     runtime: ServiceRuntimeBackend,
     workflow_registry: WorkflowRegistry,
@@ -1056,4 +1334,5 @@ def build_service_services(
         sessions=RuntimeSessionServices(runtime),
         files=RuntimeProjectFileServices(runtime),
         workflows=RuntimeWorkflowServices(runtime, workflow_registry),
+        ide=RuntimeIDEServices(runtime),
     )

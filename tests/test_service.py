@@ -3,6 +3,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -13,8 +14,8 @@ import unittest
 from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
-from urllib.parse import urlencode
 from unittest import mock
+from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -273,6 +274,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["root"], str(root.resolve()))
         self.assertIn("agent_sessions", payload["modules"])
         self.assertIn("software", payload["workflows"])
+        self.assertIn("code-learner", payload["workflows"])
 
         self.assertIn("core-shell", payload["frontend_bundles"])
         module_plugins = {
@@ -290,6 +292,11 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(
             workflow_plugins["software"]["entry_point"],
             "electroboy.workflows.software.plugin:workflow",
+        )
+        self.assertTrue(workflow_plugins["code-learner"]["provider"])
+        self.assertEqual(
+            workflow_plugins["code-learner"]["entry_point"],
+            "electroboy.workflows.code_learner.plugin:workflow",
         )
 
     def test_frontend_debug_endpoint_records_jsonl(self) -> None:
@@ -545,12 +552,20 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("frontend_debug", core_handlers)
         self.assertIn("software", workflows)
         self.assertIn("creative-writing", workflows)
+        self.assertIn("code-learner", workflows)
         self.assertIn("agent_sessions", workflows["software"]["modules"])
         self.assertIn("mind_map", workflows["software"]["modules"])
         self.assertIn("mind_map", workflows["creative-writing"]["modules"])
+        self.assertIn("agent_sessions", workflows["code-learner"]["modules"])
+        self.assertIn("file_browser", workflows["code-learner"]["modules"])
+        self.assertIn("progress", workflows["code-learner"]["modules"])
         self.assertIn(
             "mind-map",
             {stage["id"] for stage in workflows["software"]["stages"]},
+        )
+        self.assertEqual(
+            {stage["id"] for stage in workflows["code-learner"]["stages"]},
+            {"project", "course"},
         )
         self.assertIn("core-shell", frontend_bundles)
         self.assertIn("index.html", frontend_bundles["core-shell"]["assets"])
@@ -586,8 +601,21 @@ class ServiceTests(unittest.TestCase):
             "js/core/terminal-behavior.js",
             frontend_bundles["core-shell"]["assets"],
         )
+        self.assertIn(
+            "js/core/mermaid.js",
+            frontend_bundles["core-shell"]["assets"],
+        )
         self.assertIn("software-workflow", frontend_bundles)
         self.assertIn("creative-writing-workflow", frontend_bundles)
+        self.assertIn("code-learner-workflow", frontend_bundles)
+        self.assertIn(
+            "js/workflows/code-learner.js",
+            frontend_bundles["code-learner-workflow"]["assets"],
+        )
+        self.assertIn(
+            "css/workflows/code-learner.css",
+            frontend_bundles["code-learner-workflow"]["assets"],
+        )
         self.assertIn("agent-sessions", frontend_bundles)
         self.assertIn(
             "js/modules/agent-pane-tools.js",
@@ -623,6 +651,10 @@ class ServiceTests(unittest.TestCase):
             frontend_bundles["pane-window"]["assets"],
         )
         self.assertIn(
+            "js/core/mermaid.js",
+            frontend_bundles["pane-window"]["assets"],
+        )
+        self.assertIn(
             "js/modules/document-navigation.js",
             frontend_bundles["documents"]["assets"],
         )
@@ -648,7 +680,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             payload["workflow_config"]["enabled_builtins"],
-            ["software", "creative-writing"],
+            ["software", "creative-writing", "code-learner"],
         )
 
     def test_frontend_contributions_own_workflow_and_module_behavior(self) -> None:
@@ -1573,6 +1605,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("runtime.layout.showProgressPane(true, options)", progress)
         self.assertIn("function renderBackgroundTask(runtime, task)", progress)
         self.assertIn("backgroundActivityIds", progress)
+        self.assertIn("function renderProgressStateIncrementally(", progress)
+        self.assertIn("progressStateExtends(latestProgressState, nextState)", progress)
         self.assertIn("async function startProjectShell(runtime)", project_shell)
         self.assertIn(
             'window.open("", popupName, SHELL_POPUP_FEATURES)',
@@ -1736,13 +1770,19 @@ class ServiceTests(unittest.TestCase):
             runtime,
         )
         self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
-        self.assertIn(
-            '"agent",\n      "artifact",\n      "corkboard",\n      "agenda",\n'
-            '      "assignments",\n      "calendar",\n'
-            '      "mind-map",\n      "scratch",\n'
-            '      "status"',
-            runtime,
-        )
+        for pane_kind in (
+            "agent",
+            "artifact",
+            "corkboard",
+            "agenda",
+            "assignments",
+            "calendar",
+            "code-learner",
+            "mind-map",
+            "scratch",
+            "status",
+        ):
+            self.assertIn(f'"{pane_kind}",', runtime)
         availability_start = runtime.index("function paneLayoutKindAvailable(")
         availability_end = runtime.index(
             "function markPaneLayoutControl(",
@@ -2191,6 +2231,7 @@ class ServiceTests(unittest.TestCase):
         workflows = build_workflow_registry(modules)
         software = workflows.get("software").payload()
         creative = workflows.get("creative-writing").payload()
+        code_learner = workflows.get("code-learner").payload()
 
         self.assertIn(
             "implementation-plan",
@@ -2222,6 +2263,14 @@ class ServiceTests(unittest.TestCase):
             creative["document_schemas"][0]["source_format"],
             "markdown",
         )
+        self.assertIn(
+            "code-tutor",
+            {role["id"] for role in code_learner["runtime_roles"]},
+        )
+        self.assertEqual(
+            [stage["id"] for stage in code_learner["stages"]],
+            ["project", "course"],
+        )
 
         page = render_service_index(
             read_service_text_asset("index.html"),
@@ -2241,6 +2290,10 @@ class ServiceTests(unittest.TestCase):
             page.index("js/core/runtime.js"),
         )
         self.assertLess(
+            page.index("js/workflows/code-learner.js"),
+            page.index("js/core/runtime.js"),
+        )
+        self.assertLess(
             page.index("js/core/pane-layout-drag.js"),
             page.index("js/core/runtime.js"),
         )
@@ -2250,6 +2303,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("css/workflows/software.css", page)
         self.assertIn("css/workflows/creative-writing.css", page)
+        self.assertIn("css/workflows/code-learner.css", page)
 
         empty_modules = build_module_registry(())
         empty_workflows = build_workflow_registry(empty_modules, ())
@@ -2260,8 +2314,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertNotIn("js/workflows/software.js", core_page)
         self.assertNotIn("js/workflows/creative-writing.js", core_page)
+        self.assertNotIn("js/workflows/code-learner.js", core_page)
         self.assertNotIn("css/workflows/software.css", core_page)
         self.assertNotIn("css/workflows/creative-writing.css", core_page)
+        self.assertNotIn("css/workflows/code-learner.css", core_page)
         self.assertNotIn('data-stage="requirements"', core_page)
         self.assertNotIn("Creative writing", core_page)
 
@@ -2342,6 +2398,7 @@ class ServiceTests(unittest.TestCase):
             sessions=dependency,
             files=dependency,
             workflows=dependency,
+            ide=dependency,
         )
         definition = WorkflowDefinition(
             id="sample",
@@ -2393,6 +2450,7 @@ class ServiceTests(unittest.TestCase):
                     sessions=object(),
                     files=object(),
                     workflows=object(),
+                    ide=object(),
                 )
             )
 
@@ -2545,6 +2603,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("/assets/service/js/core/pane-sync.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-tools.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/terminal-behavior.js", INDEX_HTML)
+        self.assertIn("/assets/service/js/core/mermaid.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/runtime.js", INDEX_HTML)
         self.assertIn('id="artifactPaneToolsToggle"', INDEX_HTML)
         self.assertIn('id="artifactPaneToolsShelf"', INDEX_HTML)
@@ -2616,6 +2675,10 @@ class ServiceTests(unittest.TestCase):
                     server,
                     "/assets/service/js/core/terminal-behavior.js",
                 )
+                mermaid_status, mermaid_body, mermaid_type, _ = request_bytes(
+                    server,
+                    "/assets/service/js/core/mermaid.js",
+                )
                 file_tools_status, file_tools_body, file_tools_type, _ = request_bytes(
                     server,
                     "/assets/service/js/modules/file-pane-tools.js",
@@ -2658,6 +2721,24 @@ class ServiceTests(unittest.TestCase):
                         server,
                         "/assets/service/css/workflows/creative-writing.css",
                     )
+                )
+                (
+                    code_learner_status,
+                    code_learner_body,
+                    code_learner_type,
+                    _code_learner_headers,
+                ) = request_bytes(
+                    server,
+                    "/assets/service/js/workflows/code-learner.js",
+                )
+                (
+                    code_learner_css_status,
+                    code_learner_css_body,
+                    code_learner_css_type,
+                    _,
+                ) = request_bytes(
+                    server,
+                    "/assets/service/css/workflows/code-learner.css",
                 )
             finally:
                 server.shutdown()
@@ -2714,6 +2795,10 @@ class ServiceTests(unittest.TestCase):
             "application/javascript; charset=utf-8",
         )
         self.assertIn(b"window.ElectroBoyTerminalBehavior", terminal_behavior_body)
+        self.assertEqual(mermaid_status, 200)
+        self.assertEqual(mermaid_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"window.ElectroBoyMermaid", mermaid_body)
+        self.assertIn(b"function openMermaidPopup(diagram)", mermaid_body)
         self.assertEqual(file_tools_status, 200)
         self.assertEqual(file_tools_type, "application/javascript; charset=utf-8")
         self.assertIn(b"window.ElectroBoyFilePaneTools", file_tools_body)
@@ -2736,6 +2821,15 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(creative_css_status, 200)
         self.assertEqual(creative_css_type, "text/css; charset=utf-8")
         self.assertIn(b".creative-binder", creative_css_body)
+        self.assertEqual(code_learner_status, 200)
+        self.assertEqual(
+            code_learner_type,
+            "application/javascript; charset=utf-8",
+        )
+        self.assertIn(b'const WORKFLOW_ID = "code-learner"', code_learner_body)
+        self.assertEqual(code_learner_css_status, 200)
+        self.assertEqual(code_learner_css_type, "text/css; charset=utf-8")
+        self.assertIn(b".code-learner-pane", code_learner_css_body)
 
     def test_creative_splash_image_endpoint_serves_packaged_png(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3641,62 +3735,69 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('<pre><code class="language-bash">mkdir -p qhpc', page)
         self.assertIn('<div class="mermaid">sequenceDiagram', page)
-        self.assertIn("mermaid@10", page)
-        self.assertIn("function openMermaidPopup(diagram)", page)
-        self.assertIn("URL.createObjectURL(new Blob", page)
-        self.assertIn("function diagramMarkup(diagram)", page)
-        self.assertIn("function initializeDiagramPopup(title)", page)
-        self.assertIn("function contentBox(svg)", page)
-        self.assertIn("function updateBaseSize()", page)
-        self.assertIn("availableWidth / naturalWidth", page)
-        self.assertIn(r".split(/\\s+/)", page)
-        self.assertIn('"viewBox"', page)
-        self.assertIn('"preserveAspectRatio"', page)
-        self.assertIn('id="sequenceHeader"', page)
-        self.assertIn("function isSequenceDiagram(svg)", page)
-        self.assertIn("function buildSequenceHeader()", page)
-        self.assertIn("function syncSequenceHeader()", page)
-        self.assertIn('svg.querySelector("text.actor")', page)
-        self.assertIn('svg.querySelector(".actor-line")', page)
-        self.assertIn('querySelectorAll("text.actor, .actor text")', page)
-        self.assertIn('className = "sequence-header-actor"', page)
-        self.assertIn(r'return text.replace(/\\s+/g, " ");', page)
-        self.assertIn("overflow-wrap: anywhere;", page)
-        self.assertIn("white-space: normal;", page)
-        self.assertIn('candidate.matches?.("rect.actor")', page)
-        self.assertIn("function sequenceDiagramScale(svg)", page)
-        self.assertIn("rect.width / naturalWidth", page)
-        self.assertIn("function sequenceHeaderMetrics(", page)
-        self.assertIn("fontSize: Math.max(1, fontSize * scale),", page)
-        self.assertIn("headerHeight: renderedHeight + 14 * scale,", page)
+        self.assertIn(
+            '<script src="/assets/service/js/core/mermaid.js"></script>',
+            page,
+        )
+        self.assertIn("window.ElectroBoyMermaid.render(document);", page)
+        self.assertNotIn("function openMermaidPopup(diagram)", page)
+        mermaid = read_service_text_asset("js/core/mermaid.js")
+        self.assertIn("mermaid@11", mermaid)
+        self.assertIn("function openMermaidPopup(diagram)", mermaid)
+        self.assertIn("URL.createObjectURL(new Blob", mermaid)
+        self.assertIn("function diagramMarkup(diagram)", mermaid)
+        self.assertIn("function initializeDiagramPopup(title)", mermaid)
+        self.assertIn("function contentBox(svg)", mermaid)
+        self.assertIn("function updateBaseSize()", mermaid)
+        self.assertIn("availableWidth / naturalWidth", mermaid)
+        self.assertIn(r".split(/\\s+/)", mermaid)
+        self.assertIn('"viewBox"', mermaid)
+        self.assertIn('"preserveAspectRatio"', mermaid)
+        self.assertIn('id="sequenceHeader"', mermaid)
+        self.assertIn("function isSequenceDiagram(svg)", mermaid)
+        self.assertIn("function buildSequenceHeader()", mermaid)
+        self.assertIn("function syncSequenceHeader()", mermaid)
+        self.assertIn('svg.querySelector("text.actor")', mermaid)
+        self.assertIn('svg.querySelector(".actor-line")', mermaid)
+        self.assertIn('querySelectorAll("text.actor, .actor text")', mermaid)
+        self.assertIn('className = "sequence-header-actor"', mermaid)
+        self.assertIn(r'return text.replace(/\\s+/g, " ");', mermaid)
+        self.assertIn("overflow-wrap: anywhere;", mermaid)
+        self.assertIn("white-space: normal;", mermaid)
+        self.assertIn('candidate.matches?.("rect.actor")', mermaid)
+        self.assertIn("function sequenceDiagramScale(svg)", mermaid)
+        self.assertIn("rect.width / naturalWidth", mermaid)
+        self.assertIn("function sequenceHeaderMetrics(", mermaid)
+        self.assertIn("fontSize: Math.max(1, fontSize * scale),", mermaid)
+        self.assertIn("headerHeight: renderedHeight + 14 * scale,", mermaid)
         self.assertIn(
             "const boxRect = actor.sourceBox?.getBoundingClientRect();",
-            page,
+            mermaid,
         )
         self.assertIn(
             'sequenceHeader.style.height = headerHeight + "px";',
-            page,
+            mermaid,
         )
-        self.assertIn('actor.label.style.left = centerX + "px";', page)
-        self.assertIn('actor.label.style.fontSize = metrics.fontSize + "px";', page)
-        self.assertIn('actor.label.style.width = metrics.width + "px";', page)
-        self.assertIn("window.requestAnimationFrame", page)
-        self.assertIn("const wheelZoomFactor = 1.1;", page)
-        self.assertIn("function zoomTo(nextZoom, clientX = null, clientY = null)", page)
-        self.assertIn("viewport.scrollLeft += rect.left", page)
-        self.assertIn("function handleWheelZoom(event)", page)
-        self.assertIn("function startPan(event)", page)
-        self.assertIn("event.button !== 1", page)
-        self.assertIn("viewport.scrollLeft", page)
+        self.assertIn('actor.label.style.left = centerX + "px";', mermaid)
+        self.assertIn('actor.label.style.fontSize = metrics.fontSize + "px";', mermaid)
+        self.assertIn('actor.label.style.width = metrics.width + "px";', mermaid)
+        self.assertIn("window.requestAnimationFrame", mermaid)
+        self.assertIn("const wheelZoomFactor = 1.1;", mermaid)
+        self.assertIn("function zoomTo(nextZoom, clientX = null, clientY = null)", mermaid)
+        self.assertIn("viewport.scrollLeft += rect.left", mermaid)
+        self.assertIn("function handleWheelZoom(event)", mermaid)
+        self.assertIn("function startPan(event)", mermaid)
+        self.assertIn("event.button !== 1", mermaid)
+        self.assertIn("viewport.scrollLeft", mermaid)
         self.assertIn(
             'viewport.addEventListener("wheel", handleWheelZoom, { passive: false });',
-            page,
+            mermaid,
         )
-        self.assertIn('viewport.addEventListener("scroll", syncSequenceHeader);', page)
-        self.assertIn('viewport.addEventListener("pointerdown", startPan);', page)
-        self.assertIn('viewport.addEventListener("auxclick", (event) => {', page)
-        self.assertIn('securityLevel: "strict"', page)
-        self.assertIn('querySelector: ".mermaid"', page)
+        self.assertIn('viewport.addEventListener("scroll", syncSequenceHeader);', mermaid)
+        self.assertIn('viewport.addEventListener("pointerdown", startPan);', mermaid)
+        self.assertIn('viewport.addEventListener("auxclick", (event) => {', mermaid)
+        self.assertIn('securityLevel: "strict"', mermaid)
+        self.assertIn("await mermaid.run({ nodes: pending });", mermaid)
 
     def test_document_target_renderer_renders_markdown_inside_details(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -4196,6 +4297,9 @@ class ServiceTests(unittest.TestCase):
         creative = read_service_text_asset(
             "js/workflows/creative-writing.js", modules, workflows
         )
+        code_learner = read_service_text_asset(
+            "js/workflows/code-learner.js", modules, workflows
+        )
         core_styles = read_service_text_asset("css/shell.css")
 
         self.assertIn('fetch("/api/health"', runtime)
@@ -4231,6 +4335,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('data-creative-control="project-menu"', creative)
         self.assertIn("function renderNavigation(container, runtime)", creative)
         self.assertIn('navigation: "sidebar"', creative)
+        self.assertIn('const WORKFLOW_ID = "code-learner"', code_learner)
+        self.assertIn("function renderNavigation(container, runtime)", code_learner)
+        self.assertIn('kind: "code-learner"', code_learner)
 
         self.assertIn('id="projectPanel"', template)
         self.assertIn('id="fileBrowser"', template)
@@ -8341,6 +8448,88 @@ class ServiceTests(unittest.TestCase):
             {item["session_id"] for item in shell_payloads},
             {session.session_id, second_session.session_id},
         )
+
+    def test_project_shell_editors_are_independent_of_ide_and_cleaned_up(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            check_script = project_root / "terminal-editor-check.sh"
+            commands = [
+                "set -eu",
+                "vim --clean -Nu NONE -n -es +'qa!'",
+                "printf '__VIM_OK__\\n'",
+                (
+                    "tmux -L electroboy-terminal-test new-session -d "
+                    "'sleep 5'"
+                ),
+                "tmux -L electroboy-terminal-test list-sessions >/dev/null",
+                "tmux -L electroboy-terminal-test kill-server",
+                "printf '__TMUX_OK__\\n'",
+            ]
+            if shutil.which("nvim"):
+                commands.extend(
+                    [
+                        "nvim --clean -u NONE -n --headless +'qa!'",
+                        "printf '__NVIM_OK__\\n'",
+                    ]
+                )
+            else:
+                commands.append("printf '__NVIM_UNAVAILABLE__\\n'")
+            commands.append("printf '__TERMINAL_CHECK_DONE__\\n'")
+            check_script.write_text("\n".join(commands) + "\n", encoding="utf-8")
+
+            with mock.patch.dict(
+                os.environ,
+                {"ELECTROBOY_IDE_RUNTIME_MODE": "disabled"},
+            ):
+                state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session, _ = state.start_project_shell(context_id)
+
+            try:
+                self.assertEqual(state.ide_runtime_status()["status"], "disabled")
+                state.send_project_shell_input(
+                    context_id,
+                    f"/bin/bash {check_script}\n",
+                    session.session_id,
+                )
+                deadline = time.monotonic() + 10
+                output = ""
+                while time.monotonic() < deadline:
+                    output = "".join(
+                        str(event.get("terminal", event.get("text", "")))
+                        for event in session.events()
+                    )
+                    if "__TERMINAL_CHECK_DONE__" in output:
+                        break
+                    time.sleep(0.05)
+
+                self.assertIn("__VIM_OK__", output)
+                self.assertIn("__TMUX_OK__", output)
+                expected_neovim = (
+                    "__NVIM_OK__" if shutil.which("nvim") else "__NVIM_UNAVAILABLE__"
+                )
+                self.assertIn(expected_neovim, output)
+                state.deactivate_project(context_id, terminate_agents=True)
+                self.assertFalse(session.is_active())
+                self.assertEqual(
+                    state.contexts[context_id].project_shell_sessions,
+                    {},
+                )
+            finally:
+                if session.is_active():
+                    session.terminate()
+                subprocess.run(
+                    ["tmux", "-L", "electroboy-terminal-test", "kill-server"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                state.ide_service.close()
 
     def test_project_payload_clears_stale_selected_session_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

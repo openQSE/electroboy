@@ -612,6 +612,9 @@
       if (!message.trim()) {
         return;
       }
+      const preparedMessage = await Promise.resolve(
+        creativePromptMessage(message),
+      );
       runtimeApi.input.history.record(message);
       runtimeApi.elements.agentInput.value = "";
       publishAgentInputState();
@@ -621,7 +624,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           session_id: session.session_id,
-          message: creativePromptMessage(message),
+          message: preparedMessage,
         }),
       });
       if (!response.ok) {

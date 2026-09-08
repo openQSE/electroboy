@@ -12,7 +12,7 @@ from .registry import WorkflowDefinition, installed_workflow_factories
 
 ENTRY_POINT_FACTORY_PREFIX = "entry-point:"
 
-DEFAULT_WORKFLOW_IDS = ("software", "creative-writing")
+DEFAULT_WORKFLOW_IDS = ("software", "creative-writing", "code-learner")
 WORKFLOW_CONFIG_RELATIVE_PATH = Path(".electroboy") / "service" / "workflows.json"
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import threading
 from collections.abc import Callable
@@ -24,7 +25,12 @@ class GenericCliRuntime(AgentRuntime):
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
         command = self._command(invocation)
         prompt = self._build_prompt(invocation)
-        if invocation.progress_path or invocation.activity_callback:
+        if (
+            invocation.progress_path
+            or invocation.activity_callback
+            or invocation.event_callback
+            or invocation.cancel_event is not None
+        ):
             return self._invoke_with_progress_monitor(command, prompt, invocation)
         try:
             run_kwargs: dict[str, object] = {
@@ -71,6 +77,7 @@ class GenericCliRuntime(AgentRuntime):
                 text=True,
                 cwd=self.root,
                 env=self._runtime_env(),
+                start_new_session=True,
             )
         except (FileNotFoundError, OSError) as error:
             return AgentResult(
@@ -88,15 +95,57 @@ class GenericCliRuntime(AgentRuntime):
             stderr_chunks,
             invocation,
         )
-        process.wait()
+        cancelled = False
+        while process.poll() is None:
+            if invocation.cancel_event is not None and invocation.cancel_event.wait(
+                0.1
+            ):
+                cancelled = True
+                self._stop_process(process)
+                break
+            try:
+                process.wait(timeout=0.1)
+            except subprocess.TimeoutExpired:
+                continue
         for thread in threads:
             thread.join()
+        if cancelled:
+            error = "Agent invocation aborted."
+            events: list[dict[str, object]] = []
+            if stdout_chunks:
+                events.append({"stream": "stdout", "text": "".join(stdout_chunks)})
+            if stderr_chunks:
+                events.append({"stream": "stderr", "text": "".join(stderr_chunks)})
+            return AgentResult(
+                ok=False,
+                final_message=error,
+                raw_events=events,
+                commands=[" ".join(command)],
+                error=error,
+            )
         return self._result_from_process(
             command,
             process.returncode or 0,
             "".join(stdout_chunks),
             "".join(stderr_chunks),
         )
+
+    def _stop_process(self, process: subprocess.Popen[str]) -> None:
+        try:
+            if os.name == "posix":
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.terminate()
+            process.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+                process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                return
 
     def _start_io_threads(
         self,
@@ -115,6 +164,7 @@ class GenericCliRuntime(AgentRuntime):
                         process.stdout,
                         stdout_chunks,
                         invocation.activity_callback,
+                        invocation.event_callback,
                     ),
                     daemon=True,
                 )
@@ -123,7 +173,12 @@ class GenericCliRuntime(AgentRuntime):
             threads.append(
                 threading.Thread(
                     target=self._collect_stream,
-                    args=(process.stderr, stderr_chunks),
+                    args=(
+                        process.stderr,
+                        stderr_chunks,
+                        "stderr",
+                        invocation.event_callback,
+                    ),
                     daemon=True,
                 )
             )
@@ -144,15 +199,14 @@ class GenericCliRuntime(AgentRuntime):
         stream: TextIO,
         chunks: list[str],
         activity_callback: Callable[[str], None] | None,
+        event_callback: Callable[[dict[str, object]], None] | None,
     ) -> None:
-        if activity_callback is None:
-            self._collect_stream(stream, chunks)
-            return
         try:
             for line in stream:
                 chunks.append(line)
+                self._emit_stream_event("stdout", line, event_callback)
                 activity = self._activity_from_stdout_line(line)
-                if not activity:
+                if not activity or activity_callback is None:
                     continue
                 try:
                     activity_callback(activity)
@@ -180,14 +234,41 @@ class GenericCliRuntime(AgentRuntime):
                 return " ".join(value.split())[:240]
         return ""
 
-    def _collect_stream(self, stream: TextIO, chunks: list[str]) -> None:
+    def _collect_stream(
+        self,
+        stream: TextIO,
+        chunks: list[str],
+        stream_name: str,
+        event_callback: Callable[[dict[str, object]], None] | None,
+    ) -> None:
         try:
-            for chunk in iter(lambda: stream.read(4096), ""):
-                if not chunk:
-                    break
-                chunks.append(chunk)
+            for line in stream:
+                chunks.append(line)
+                self._emit_stream_event(stream_name, line, event_callback)
         finally:
             stream.close()
+
+    def _emit_stream_event(
+        self,
+        stream_name: str,
+        line: str,
+        event_callback: Callable[[dict[str, object]], None] | None,
+    ) -> None:
+        if event_callback is None or not line.strip():
+            return
+        event: dict[str, object] = {"stream": stream_name, "text": line.rstrip()}
+        if stream_name == "stdout":
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                pass
+            else:
+                if isinstance(payload, dict):
+                    event = {"stream": stream_name, "event": payload}
+        try:
+            event_callback(event)
+        except Exception:
+            return
 
     def _write_stdin(self, stream: TextIO, prompt: str) -> None:
         try:

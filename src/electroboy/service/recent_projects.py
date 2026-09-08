@@ -9,6 +9,14 @@ from electroboy.models import utc_now
 
 RECENT_PROJECTS_RELATIVE_PATH = Path(".electroboy") / "service" / "recent-projects.json"
 RECENT_PROJECT_LIMIT = 12
+RECENT_PROJECT_KINDS = frozenset(
+    {
+        "code-learner",
+        "creative",
+        "meta",
+        "project",
+    }
+)
 
 
 def recent_projects_path(service_root: Path | str) -> Path:
@@ -42,7 +50,7 @@ def save_recent_projects(service_root: Path | str, data: dict[str, object]) -> N
 
 def _recent_project_key(entry: dict[str, object]) -> tuple[str, str]:
     kind = str(entry.get("kind") or "project").strip()
-    if kind not in {"project", "meta", "creative"}:
+    if kind not in RECENT_PROJECT_KINDS:
         kind = "project"
     path = str(entry.get("path") or "").strip()
     return kind, path
@@ -84,7 +92,7 @@ def recent_project_entries(service_root: Path | str) -> list[dict[str, object]]:
         if not project_path:
             continue
         kind = str(entry.get("kind") or "project").strip()
-        if kind not in {"project", "meta", "creative"}:
+        if kind not in RECENT_PROJECT_KINDS:
             kind = "project"
         label = str(entry.get("label") or Path(project_path).name or project_path)
         entries.append(
@@ -104,7 +112,7 @@ def remember_recent_project(
     kind: str,
 ) -> None:
     project_path = str(Path(project_root).expanduser().resolve())
-    if kind not in {"project", "meta", "creative"}:
+    if kind not in RECENT_PROJECT_KINDS:
         kind = "project"
     data = load_recent_projects(service_root)
     existing = [

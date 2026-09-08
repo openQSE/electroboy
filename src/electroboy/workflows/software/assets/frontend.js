@@ -1550,7 +1550,8 @@
         "Plan project ideas in editable mind maps with linked files and documents.",
       ],
     },
-    recentProjectFilter: (project) => project.kind !== "creative",
+    recentProjectFilter: (project) =>
+      project.kind === "project" || project.kind === "meta",
     activate(runtime) {
       bindRuntime(runtime);
       restoreSoftwareWorkspace();

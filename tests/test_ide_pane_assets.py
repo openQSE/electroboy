@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import unittest
+from importlib.resources import files
+
+from electroboy.modules.ide import module
+from electroboy.service.app import pane_window_html
+from electroboy.service.frontend import read_service_text_asset
+from electroboy.service.registry import build_module_registry, build_workflow_registry
+
+
+class IDEPaneAssetTests(unittest.TestCase):
+    def test_module_registers_reusable_ide_pane(self) -> None:
+        definition = module()
+        script = files("electroboy.modules").joinpath("assets", "ide.js").read_text()
+
+        self.assertEqual(definition.assets, ("ide.css", "ide.js"))
+        self.assertIn('id: "ide"', script)
+        self.assertIn('label: "IDE"', script)
+        self.assertIn("panes: [", script)
+        self.assertIn("window.ElectroBoyIDEPane = { mount }", script)
+        self.assertIn("options.popOut?.()", script)
+        self.assertIn("/api/ide/views/attach", script)
+        self.assertIn("/api/ide/views/detach", script)
+        self.assertIn("window.ElectroBoyIDE = { openLocation }", script)
+        self.assertIn('type: "electroboy:pane-recover-workspace"', script)
+        self.assertIn('reason: "ide-startup"', script)
+        self.assertIn('report("request-start"', script)
+        self.assertIn('report("request-response"', script)
+        self.assertIn('report("start-failed"', script)
+        self.assertIn('contextUrl("/api/ide/input-events")', script)
+        self.assertIn("function installInputTelemetry()", script)
+        self.assertIn('targetWindow.addEventListener("keydown"', script)
+        self.assertIn('"electroboy-keybinding-resolution"', script)
+        self.assertIn('"electroboy-keybinding-command"', script)
+        self.assertIn('"electroboy-command-route"', script)
+        self.assertIn("function recordKeybindingResolution(event)", script)
+        self.assertIn("function recordKeybindingCommand(event)", script)
+        self.assertIn("function recordCommandRoute(event)", script)
+        self.assertIn("key.length > 1 ? key : null", script)
+
+    def test_core_discovers_contributed_panes_and_mounts_ide(self) -> None:
+        modules = build_module_registry()
+        workflows = build_workflow_registry(modules)
+        runtime = read_service_text_asset("js/core/runtime.js", modules, workflows)
+        pane_window = read_service_text_asset("pane-window.html", modules, workflows)
+
+        self.assertIn("module.panes", runtime)
+        self.assertIn("PANE_LAYOUT_KINDS[kind]", runtime)
+        self.assertIn('PANE_KIND === "ide"', pane_window)
+        self.assertIn("window.ElectroBoyIDEPane.mount", pane_window)
+        self.assertIn('message.type === "electroboy:pane-open-kind"', runtime)
+        self.assertIn(
+            'message.type === "electroboy:pane-recover-workspace"',
+            runtime,
+        )
+        self.assertIn(
+            'refreshPaneLayoutInstanceFrames("workspace-recovered")',
+            runtime,
+        )
+
+    def test_rendered_ide_pane_loads_contributed_module_assets(self) -> None:
+        modules = build_module_registry()
+        workflows = build_workflow_registry(modules)
+
+        pane_window = pane_window_html("ide", workflows)
+
+        self.assertIn(
+            '<link rel="stylesheet" href="/assets/service/ide.css">',
+            pane_window,
+        )
+        self.assertIn('<script src="/assets/service/ide.js"></script>', pane_window)
+
+    def test_pane_has_explicit_lifecycle_and_context_controls(self) -> None:
+        script = files("electroboy.modules").joinpath("assets", "ide.js").read_text()
+        stylesheet = (
+            files("electroboy.modules").joinpath("assets", "ide.css").read_text()
+        )
+
+        for state in ("Starting IDE", "IDE ready", "IDE stopped", "IDE failed"):
+            self.assertIn(state, script)
+        for action in ("IDE configuration", "Diagnostics", "Restart IDE", "Stop IDE"):
+            self.assertIn(action, script)
+        self.assertIn("Network access", script)
+        self.assertIn('"ide-configuration"', script)
+        self.assertIn('"ide-neovim"', script)
+        self.assertIn('"ide-mode", "Mode"', script)
+        self.assertIn('"ide-view"', script)
+        self.assertIn('"/api/ide/configuration"', script)
+        self.assertIn('"/api/ide/configure"', script)
+        self.assertNotIn('"Open IDE tools menu"', script)
+        self.assertIn("payload.view_path", script)
+        self.assertIn("folder=${encodeURIComponent(active)}", script)
+        self.assertIn("applyZoom", script)
+        self.assertIn("Pop out", script)
+        self.assertIn("VSCode Neovim", script)
+        self.assertIn("Launch with VSCode Neovim", script)
+        self.assertIn("Use standard editor", script)
+        self.assertIn("setEditorMode", script)
+        self.assertIn('button.setAttribute("role", "radio")', script)
+        self.assertIn('button.setAttribute("aria-checked"', script)
+        self.assertIn("/api/ide/neovim/launch", script)
+        self.assertIn("/api/ide/network/configure", script)
+        self.assertIn("/api/ide/network/events/clear", script)
+        self.assertIn("Audit mode permits", script)
+        self.assertIn(".ide-frame", stylesheet)
+        self.assertIn(".ide-context-menu", stylesheet)
+        self.assertIn(".ide-zoom-row", stylesheet)
+        self.assertIn(".ide-mode-choices", stylesheet)
+
+    def test_file_and_learner_panes_use_shared_ide_navigation(self) -> None:
+        file_tools = (
+            files("electroboy.modules")
+            .joinpath("assets", "file-pane-tools.js")
+            .read_text()
+        )
+        learner = (
+            files("electroboy.workflows.code_learner")
+            .joinpath("assets", "frontend.js")
+            .read_text()
+        )
+
+        self.assertIn("window.ElectroBoyIDE.openLocation", file_tools)
+        self.assertIn("window.ElectroBoyIDE.openLocation", learner)
+        self.assertIn("data-code-learner-open-ide", learner)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from electroboy.ide.domain import IDERuntime, IDERuntimeOrigin
+from electroboy.ide.keybinding_telemetry import (
+    COMMAND_EVENT,
+    RESOLUTION_EVENT,
+    ROUTE_EVENT,
+    instrument_keybinding_resolver,
+)
+
+
+class IDEKeybindingTelemetryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.executable = self.root / "bin/openvscode-server"
+        self.executable.parent.mkdir()
+        self.executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        self.bundle = self.root / "out/vs/code/browser/workbench/workbench.js"
+        self.bundle.parent.mkdir(parents=True)
+        self.html = self.bundle.with_name("workbench.html")
+        self.html.write_text(
+            '<script type="module" '
+            'src="{{WORKBENCH_WEB_BASE_URL}}/out/vs/code/browser/workbench/'
+            'workbench.js"></script>\n',
+            encoding="utf-8",
+        )
+        self.extension_host = (
+            self.root / "out/vs/workbench/api/node/extensionHostProcess.js"
+        )
+        self.extension_host.parent.mkdir(parents=True)
+        self.extension_host.write_text(
+            "$executeContributedCommand(t,...i){this.d.trace("
+            '"ExtHostCommands#$executeContributedCommand",t);'
+            "const s=this.b.get(t);return s?(i=i.map(r=>this.f.reduce("
+            "(n,o)=>o.processArgument(n,s.extension),r)),this.h(t,i,!0)):"
+            "Promise.reject(new Error(`Contributed command '${t}' does not "
+            "exist.`))}",
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def runtime(self, origin: IDERuntimeOrigin) -> IDERuntime:
+        return IDERuntime(
+            "openvscode",
+            "1.109.5",
+            "linux",
+            "x86_64",
+            self.executable,
+            origin,
+        )
+
+    def test_instruments_managed_resolver_once(self) -> None:
+        self.bundle.write_text(
+            "const r=this.s.getContext(e),a=s.getLabel(),"
+            "l=this.z().resolve(r,o,n);switch(l.kind){};"
+            'typeof l.commandArgs>"u"?this.t.executeCommand(l.commandId)'
+            ".then(void 0,c=>this.w.warn(c)):this.t.executeCommand("
+            "l.commandId,l.commandArgs).then(void 0,c=>this.w.warn(c));"
+            "$registerCommand(e){this.a.set(e,Fe.registerCommand(e,"
+            "(t,...i)=>this.c.$executeContributedCommand(e,...i).then("
+            "n=>ko(n))))}",
+            encoding="utf-8",
+        )
+        runtime = self.runtime(IDERuntimeOrigin.MANAGED)
+
+        self.assertTrue(instrument_keybinding_resolver(runtime))
+        first = self.bundle.read_text(encoding="utf-8")
+        self.assertTrue(instrument_keybinding_resolver(runtime))
+
+        self.assertEqual(self.bundle.read_text(encoding="utf-8"), first)
+        self.assertIn(RESOLUTION_EVENT, first)
+        self.assertIn(COMMAND_EVENT, first)
+        self.assertIn(ROUTE_EVENT, first)
+        self.assertIn("resolved_command", first)
+        self.assertIn("command_args", first)
+        self.assertIn("trace_id:$ebTraceId", first)
+        self.assertIn('neovim_init:$ebValue("neovim.init")', first)
+        self.assertIn(
+            "workbench.js?electroboy-keybinding-telemetry=4",
+            self.html.read_text(encoding="utf-8"),
+        )
+        extension_host = self.extension_host.read_text(encoding="utf-8")
+        self.assertIn("extension-host-received", extension_host)
+        self.assertIn("contributed-command-lookup", extension_host)
+        self.assertIn("contributed-command-invoking", extension_host)
+        self.assertTrue(
+            self.root.joinpath(".electroboy-keybinding-telemetry.json").is_file()
+        )
+
+    def test_rejects_unknown_managed_resolver_bundle(self) -> None:
+        self.bundle.write_text("unknown bundle", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "resolver anchor"):
+            instrument_keybinding_resolver(self.runtime(IDERuntimeOrigin.MANAGED))
+
+    def test_does_not_modify_system_runtime(self) -> None:
+        self.bundle.write_text("system bundle", encoding="utf-8")
+
+        self.assertFalse(
+            instrument_keybinding_resolver(self.runtime(IDERuntimeOrigin.SYSTEM))
+        )
+        self.assertEqual(self.bundle.read_text(encoding="utf-8"), "system bundle")

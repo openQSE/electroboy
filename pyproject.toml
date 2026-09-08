@@ -31,6 +31,7 @@ binder = "electroboy.modules.binder:module"
 calendar = "electroboy.modules.calendar:module"
 corkboard = "electroboy.modules.corkboard:module"
 file_browser = "electroboy.modules.file_browser:module"
+ide = "electroboy.modules.ide:module"
 markdown_documents = "electroboy.modules.markdown_documents:module"
 mind_map = "electroboy.modules.mind_map:module"
 progress = "electroboy.modules.progress:module"
@@ -42,6 +43,7 @@ structured_documents = "electroboy.modules.structured_documents:module"
 [project.entry-points."electroboy.workflows"]
 software = "electroboy.workflows.software.plugin:workflow"
 creative-writing = "electroboy.workflows.creative_writing.plugin:workflow"
+code-learner = "electroboy.workflows.code_learner.plugin:workflow"
 
 [project.entry-points."electroboy.cli"]
 software = "electroboy.workflows.software.cli:command_provider"
@@ -58,8 +60,25 @@ electroboy = [
   "assets/service/js/core/*.js",
 ]
 "electroboy.modules" = ["assets/*.js", "assets/*.css"]
+"electroboy.ide" = [
+  "THIRD_PARTY-NOTICES.md",
+  "runtime-artifacts.json",
+  "neovim-runtime-artifacts.json",
+  "extension-artifacts.json",
+  "extensions/*/*.json",
+  "extensions/*/*/*.json",
+  "extensions/*/*.js",
+]
 "electroboy.workflows.software" = ["assets/*.js", "assets/*.css"]
 "electroboy.workflows.creative_writing" = ["assets/*.js", "assets/*.css"]
+"electroboy.workflows.code_learner" = [
+  "assets/*.js",
+  "assets/*.css",
+  "THIRD_PARTY-NOTICES.md",
+  "schemas/*.json",
+  "skills/*/SKILL.md",
+  "skills/*/references/*.md",
+]
 
 [tool.black]
 line-length = 88

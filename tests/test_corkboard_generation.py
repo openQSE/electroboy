@@ -292,6 +292,7 @@ class CorkboardGenerationTests(unittest.TestCase):
                 sessions=dependency,
                 files=dependency,
                 workflows=dependency,
+                ide=dependency,
             )
             provider = FakeProvider()
             started = manager.start(
@@ -364,6 +365,7 @@ class CorkboardGenerationTests(unittest.TestCase):
                 sessions=dependency,
                 files=dependency,
                 workflows=dependency,
+                ide=dependency,
             )
             provider = FakeProvider()
 
@@ -443,6 +445,7 @@ class CorkboardGenerationTests(unittest.TestCase):
                 sessions=dependency,
                 files=dependency,
                 workflows=dependency,
+                ide=dependency,
             )
             provider = FakeProvider()
             started = manager.start(
@@ -486,6 +489,7 @@ class CorkboardGenerationTests(unittest.TestCase):
                 sessions=dependency,
                 files=dependency,
                 workflows=dependency,
+                ide=dependency,
             )
             started = manager.start(
                 services,

@@ -138,6 +138,23 @@
     const pop = button("Pop", () => {
       runAction("pop", () => {});
     });
+    const openInIDE = button("Open in IDE", () => {
+      const current = target();
+      if (!current.path || !window.ElectroBoyIDE) return;
+      runAction("openInIDE", () => window.ElectroBoyIDE.openLocation(
+        contextUrl,
+        { path: current.path },
+        {
+          openPane: () => {
+            const recipient = window.parent !== window ? window.parent : window.opener;
+            recipient?.postMessage(
+              { type: "electroboy:pane-open-kind", kind: "ide" },
+              window.location.origin,
+            );
+          },
+        },
+      ));
+    });
 
     const fileMenu = menu("File", "pane-tool-file-menu");
     const open = menuButton("Open", () => {
@@ -187,6 +204,7 @@
     actionsBody.append(
       startAgent,
       pop,
+      openInIDE,
       fileMenu.details,
       modeMenu.details,
       exportMenu.details,
