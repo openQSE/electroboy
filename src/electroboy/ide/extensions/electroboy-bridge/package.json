@@ -2,7 +2,7 @@
   "name": "electroboy-bridge",
   "displayName": "ElectroBoy IDE Bridge",
   "description": "Workspace context and navigation bridge for ElectroBoy.",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "publisher": "electroboy",
   "engines": {
     "vscode": "^1.109.0"

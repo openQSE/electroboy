@@ -112,14 +112,10 @@ class IDEBridge:
             for record in _read_jsonl(registration.directory / "responses.jsonl")
             if self._authenticated(record, registration)
         ]
-        completed = {
-            str(response.get("request_id") or "") for response in responses
-        }
+        completed = {str(response.get("request_id") or "") for response in responses}
         input_events = [
             _public_input_event(record)
-            for record in _read_jsonl(
-                registration.directory / "input-events.jsonl"
-            )
+            for record in _read_jsonl(registration.directory / "input-events.jsonl")
             if self._authenticated(record, registration)
         ]
         return {
@@ -169,9 +165,7 @@ class IDEBridge:
         if not self._authenticated(payload, registration):
             return None
         cursor = (
-            payload.get("cursor")
-            if isinstance(payload.get("cursor"), dict)
-            else {}
+            payload.get("cursor") if isinstance(payload.get("cursor"), dict) else {}
         )
         selection = (
             payload.get("selection")
@@ -179,9 +173,7 @@ class IDEBridge:
             else {}
         )
         start = (
-            selection.get("start")
-            if isinstance(selection.get("start"), dict)
-            else {}
+            selection.get("start") if isinstance(selection.get("start"), dict) else {}
         )
         end = selection.get("end") if isinstance(selection.get("end"), dict) else {}
         return IDEEditorContext(
@@ -272,8 +264,7 @@ def _append_bounded_jsonl(
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     temporary.write_text(
         "".join(
-            f"{json.dumps(record, separators=(',', ':'))}\n"
-            for record in retained
+            f"{json.dumps(record, separators=(',', ':'))}\n" for record in retained
         ),
         encoding="utf-8",
     )
@@ -315,6 +306,7 @@ def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, objec
         "pointerdown",
         "keybinding-resolution",
         "keybinding-command",
+        "command-route",
     }:
         event_type = "unknown"
     key_group = str(payload.get("key_group") or "")
@@ -361,13 +353,12 @@ def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, objec
             context = {}
         kind = _optional_int(payload.get("resolution_kind"))
         event.update(
+            trace_id=str(payload.get("trace_id") or "")[:64] or None,
             key_label=str(payload.get("key_label") or "")[:32] or None,
             dispatch_chord=(str(payload.get("dispatch_chord") or "")[:64] or None),
             resolution_kind=kind if kind in {0, 1, 2} else None,
             resolved_command=(str(payload.get("resolved_command") or "")[:160] or None),
-            command_argument=(
-                str(payload.get("command_argument") or "")[:80] or None
-            ),
+            command_argument=(str(payload.get("command_argument") or "")[:80] or None),
             context={
                 name: _sanitize_context_value(context.get(name))
                 for name in (
@@ -383,16 +374,29 @@ def _sanitize_browser_input_event(payload: dict[str, object]) -> dict[str, objec
     elif event_type == "keybinding-command":
         status = str(payload.get("command_status") or "")
         event.update(
+            trace_id=str(payload.get("trace_id") or "")[:64] or None,
             resolved_command=(str(payload.get("resolved_command") or "")[:160] or None),
-            command_argument=(
-                str(payload.get("command_argument") or "")[:80] or None
+            command_argument=(str(payload.get("command_argument") or "")[:80] or None),
+            command_status=(status if status in {"completed", "rejected"} else None),
+            command_error=(str(payload.get("command_error") or "")[:240] or None),
+        )
+    elif event_type == "command-route":
+        stage = str(payload.get("command_stage") or "")
+        event.update(
+            trace_id=str(payload.get("trace_id") or "")[:64] or None,
+            command_stage=(
+                stage
+                if stage
+                in {
+                    "main-thread-forward",
+                    "main-thread-completed",
+                    "main-thread-rejected",
+                }
+                else None
             ),
-            command_status=(
-                status if status in {"completed", "rejected"} else None
-            ),
-            command_error=(
-                str(payload.get("command_error") or "")[:240] or None
-            ),
+            resolved_command=(str(payload.get("resolved_command") or "")[:160] or None),
+            command_argument=(str(payload.get("command_argument") or "")[:80] or None),
+            command_error=(str(payload.get("command_error") or "")[:240] or None),
         )
     return event
 

@@ -151,10 +151,7 @@ class IDENeovimTests(unittest.TestCase):
             settings["vscode-neovim.neovimExecutablePaths.linux"],
             str(executable),
         )
-        self.assertEqual(
-            settings["extensions.experimental.affinity"],
-            {"asvetliakov.vscode-neovim": 1},
-        )
+        self.assertNotIn("extensions.experimental.affinity", settings)
         self.assertTrue(settings["vscode-neovim.neovimClean"])
         self.assertFalse(settings["editor.editContext"])
         self.assertEqual(self.downloads.events()[-1]["status"], "verified")

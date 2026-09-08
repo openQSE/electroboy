@@ -8,6 +8,7 @@ from electroboy.ide.domain import IDERuntime, IDERuntimeOrigin
 from electroboy.ide.keybinding_telemetry import (
     COMMAND_EVENT,
     RESOLUTION_EVENT,
+    ROUTE_EVENT,
     instrument_keybinding_resolver,
 )
 
@@ -26,6 +27,19 @@ class IDEKeybindingTelemetryTests(unittest.TestCase):
             '<script type="module" '
             'src="{{WORKBENCH_WEB_BASE_URL}}/out/vs/code/browser/workbench/'
             'workbench.js"></script>\n',
+            encoding="utf-8",
+        )
+        self.extension_host = (
+            self.root / "out/vs/workbench/api/node/extensionHostProcess.js"
+        )
+        self.extension_host.parent.mkdir(parents=True)
+        self.extension_host.write_text(
+            "$executeContributedCommand(t,...i){this.d.trace("
+            '"ExtHostCommands#$executeContributedCommand",t);'
+            "const s=this.b.get(t);return s?(i=i.map(r=>this.f.reduce("
+            "(n,o)=>o.processArgument(n,s.extension),r)),this.h(t,i,!0)):"
+            "Promise.reject(new Error(`Contributed command '${t}' does not "
+            "exist.`))}",
             encoding="utf-8",
         )
 
@@ -48,7 +62,10 @@ class IDEKeybindingTelemetryTests(unittest.TestCase):
             "l=this.z().resolve(r,o,n);switch(l.kind){};"
             'typeof l.commandArgs>"u"?this.t.executeCommand(l.commandId)'
             ".then(void 0,c=>this.w.warn(c)):this.t.executeCommand("
-            "l.commandId,l.commandArgs).then(void 0,c=>this.w.warn(c))",
+            "l.commandId,l.commandArgs).then(void 0,c=>this.w.warn(c));"
+            "$registerCommand(e){this.a.set(e,Fe.registerCommand(e,"
+            "(t,...i)=>this.c.$executeContributedCommand(e,...i).then("
+            "n=>ko(n))))}",
             encoding="utf-8",
         )
         runtime = self.runtime(IDERuntimeOrigin.MANAGED)
@@ -60,13 +77,19 @@ class IDEKeybindingTelemetryTests(unittest.TestCase):
         self.assertEqual(self.bundle.read_text(encoding="utf-8"), first)
         self.assertIn(RESOLUTION_EVENT, first)
         self.assertIn(COMMAND_EVENT, first)
+        self.assertIn(ROUTE_EVENT, first)
         self.assertIn("resolved_command", first)
         self.assertIn("command_args", first)
+        self.assertIn("trace_id:$ebTraceId", first)
         self.assertIn('neovim_init:$ebValue("neovim.init")', first)
         self.assertIn(
-            "workbench.js?electroboy-keybinding-telemetry=3",
+            "workbench.js?electroboy-keybinding-telemetry=4",
             self.html.read_text(encoding="utf-8"),
         )
+        extension_host = self.extension_host.read_text(encoding="utf-8")
+        self.assertIn("extension-host-received", extension_host)
+        self.assertIn("contributed-command-lookup", extension_host)
+        self.assertIn("contributed-command-invoking", extension_host)
         self.assertTrue(
             self.root.joinpath(".electroboy-keybinding-telemetry.json").is_file()
         )

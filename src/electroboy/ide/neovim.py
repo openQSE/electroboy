@@ -150,12 +150,10 @@ class NeovimProfileManager:
         configure_managed_profile(
             profile,
             {
-                "extensions.experimental.affinity": {
-                    self.artifact.id: 1,
-                },
                 f"vscode-neovim.neovimExecutablePaths.{self.platform}": executable,
                 "vscode-neovim.neovimClean": True,
             },
+            removed_settings=("extensions.experimental.affinity",),
         )
         status = {**status, "installed": True}
         self._last_status = status

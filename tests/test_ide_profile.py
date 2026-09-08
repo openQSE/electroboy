@@ -67,7 +67,7 @@ class IDEProfileTests(unittest.TestCase):
             )
             self.assertEqual(
                 registered["electroboy.electroboy-bridge"]["version"],
-                "1.5.0",
+                "1.5.1",
             )
             self.assertTrue(
                 (
@@ -91,6 +91,31 @@ class IDEProfileTests(unittest.TestCase):
                 theme["colors"]["quickInputList.focusBackground"],
                 "#1F6F8B",
             )
+
+    def test_profile_removes_retired_managed_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            profile = IDEProfile(
+                root=root,
+                user_data=root / "user-data",
+                extensions=root / "extensions",
+                server_data=root / "server-data",
+                logs=root / "logs",
+            )
+            settings_path = profile.user_data / "User" / "settings.json"
+            settings_path.parent.mkdir(parents=True)
+            settings_path.write_text(
+                json.dumps({"retired.setting": True, "user.setting": "kept"})
+            )
+
+            configure_managed_profile(
+                profile,
+                removed_settings=("retired.setting",),
+            )
+
+            settings = json.loads(settings_path.read_text())
+            self.assertNotIn("retired.setting", settings)
+            self.assertEqual(settings["user.setting"], "kept")
 
 
 if __name__ == "__main__":

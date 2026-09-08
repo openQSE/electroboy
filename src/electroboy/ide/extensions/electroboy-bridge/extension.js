@@ -71,27 +71,10 @@ async function activate(context) {
       vscode.extensions.getExtension("asvetliakov.vscode-neovim"),
     ),
   });
-  focusNeovimEditor();
   scheduleContextUpdate();
   pollCommands();
   pollingTimer = setInterval(pollCommands, POLL_INTERVAL_MS);
   context.subscriptions.push({ dispose: deactivate });
-}
-
-async function focusNeovimEditor() {
-  const extension = vscode.extensions.getExtension("asvetliakov.vscode-neovim");
-  if (!extension) return;
-  try {
-    await extension.activate();
-    await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
-    recordInputEffect("editor-focus-request", {
-      active_editor: Boolean(vscode.window.activeTextEditor),
-    });
-  } catch (error) {
-    recordInputEffect("editor-focus-error", {
-      error: String(error.message || error).slice(0, 240),
-    });
-  }
 }
 
 async function applyManagedWorkbenchSettings() {

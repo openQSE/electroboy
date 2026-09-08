@@ -130,6 +130,7 @@
         event_type: "keybinding-resolution",
         sequence: inputSequence,
         occurred_at: new Date().toISOString(),
+        trace_id: String(detail.trace_id || "").slice(0, 64) || null,
         key_label: String(detail.key_label || "").slice(0, 32) || null,
         dispatch_chord: String(detail.dispatch_chord || "").slice(0, 64) || null,
         resolution_kind: Number(detail.resolution_kind),
@@ -151,10 +152,27 @@
         event_type: "keybinding-command",
         sequence: inputSequence,
         occurred_at: new Date().toISOString(),
+        trace_id: String(detail.trace_id || "").slice(0, 64) || null,
         resolved_command:
           String(detail.resolved_command || "").slice(0, 160) || null,
         command_argument: summarizeCommandArgument(detail.command_args),
         command_status: String(detail.status || "").slice(0, 16) || null,
+        command_error: String(detail.error || "").slice(0, 240) || null,
+      });
+    }
+
+    function recordCommandRoute(event) {
+      if (!telemetry || !workspaceId || disposed) return;
+      const detail = event?.detail || {};
+      inputSequence += 1;
+      submitInputEvent({
+        event_type: "command-route",
+        sequence: inputSequence,
+        occurred_at: new Date().toISOString(),
+        trace_id: String(detail.trace_id || "").slice(0, 64) || null,
+        command_stage: String(detail.stage || "").slice(0, 40) || null,
+        resolved_command: String(detail.command || "").slice(0, 160) || null,
+        command_argument: summarizeCommandArgument(detail.command_args),
         command_error: String(detail.error || "").slice(0, 240) || null,
       });
     }
@@ -187,6 +205,7 @@
         const pointerEvent = (event) => recordInputEvent("pointerdown", event);
         const keybindingEvent = (event) => recordKeybindingResolution(event);
         const keybindingCommand = (event) => recordKeybindingCommand(event);
+        const commandRoute = (event) => recordCommandRoute(event);
         const focused = () => recordInputEvent("frame-focus");
         const blurred = () => recordInputEvent("frame-blur");
         targetWindow.addEventListener("keydown", keyEvent, true);
@@ -200,6 +219,7 @@
           "electroboy-keybinding-command",
           keybindingCommand,
         );
+        targetWindow.addEventListener("electroboy-command-route", commandRoute);
         targetWindow.addEventListener("focus", focused, true);
         targetWindow.addEventListener("blur", blurred, true);
         inputTelemetryCleanup = () => {
@@ -213,6 +233,10 @@
           targetWindow.removeEventListener(
             "electroboy-keybinding-command",
             keybindingCommand,
+          );
+          targetWindow.removeEventListener(
+            "electroboy-command-route",
+            commandRoute,
           );
           targetWindow.removeEventListener("focus", focused, true);
           targetWindow.removeEventListener("blur", blurred, true);

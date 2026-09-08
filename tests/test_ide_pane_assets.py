@@ -33,8 +33,10 @@ class IDEPaneAssetTests(unittest.TestCase):
         self.assertIn('targetWindow.addEventListener("keydown"', script)
         self.assertIn('"electroboy-keybinding-resolution"', script)
         self.assertIn('"electroboy-keybinding-command"', script)
+        self.assertIn('"electroboy-command-route"', script)
         self.assertIn("function recordKeybindingResolution(event)", script)
         self.assertIn("function recordKeybindingCommand(event)", script)
+        self.assertIn("function recordCommandRoute(event)", script)
         self.assertIn("key.length > 1 ? key : null", script)
 
     def test_core_discovers_contributed_panes_and_mounts_ide(self) -> None:

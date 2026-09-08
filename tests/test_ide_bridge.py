@@ -198,6 +198,25 @@ class IDEBridgeTests(unittest.TestCase):
         self.assertEqual(event["command_status"], "rejected")
         self.assertEqual(event["command_error"], "command failed")
 
+    def test_command_route_is_sanitized(self) -> None:
+        event = self.bridge.record_input_event(
+            self.instance,
+            {
+                "event_type": "command-route",
+                "sequence": 11,
+                "trace_id": "trace-123",
+                "command_stage": "main-thread-forward",
+                "resolved_command": "vscode-neovim.send",
+                "command_argument": "<up>",
+            },
+        )
+
+        self.assertEqual(event["event_type"], "command-route")
+        self.assertEqual(event["trace_id"], "trace-123")
+        self.assertEqual(event["command_stage"], "main-thread-forward")
+        self.assertEqual(event["resolved_command"], "vscode-neovim.send")
+        self.assertEqual(event["command_argument"], "<up>")
+
     def test_vsix_build_is_reproducible_and_contains_extension(self) -> None:
         source = (
             Path(__file__).resolve().parents[1]
@@ -239,12 +258,18 @@ class IDEBridgeTests(unittest.TestCase):
         self.assertIn('recordInputEffect("selection-change"', source)
         self.assertIn('recordInputEffect("document-change"', source)
         self.assertIn("event.contentChanges.length", source)
-        self.assertIn(
-            'executeCommand("workbench.action.focusActiveEditorGroup")', source
-        )
         self.assertIn('executeCommand("_getNeovimClient")', source)
         self.assertIn('recordInputEffect("neovim-state"', source)
         self.assertNotIn("contentChange.text", source)
+
+    def test_extension_does_not_force_neovim_activation(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "src/electroboy/ide/extensions/electroboy-bridge/extension.js"
+        ).read_text()
+
+        self.assertNotIn("extension.activate()", source)
+        self.assertNotIn("focusNeovimEditor", source)
 
     def test_extension_does_not_compete_with_neovim_keybindings(self) -> None:
         extension_root = (

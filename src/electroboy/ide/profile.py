@@ -30,16 +30,31 @@ _EXTENSION_REGISTRY_LOCK = threading.Lock()
 def configure_managed_profile(
     profile: IDEProfile,
     additional_settings: dict[str, object] | None = None,
+    *,
+    removed_settings: tuple[str, ...] = (),
 ) -> None:
     """Apply privacy-preserving defaults without reading user VS Code state."""
 
     settings = {**MANAGED_IDE_SETTINGS, **(additional_settings or {})}
-    _merge_settings(profile.user_data / "User" / "settings.json", settings)
-    _merge_settings(profile.user_data / "Machine" / "settings.json", settings)
+    _merge_settings(
+        profile.user_data / "User" / "settings.json",
+        settings,
+        removed_settings=removed_settings,
+    )
+    _merge_settings(
+        profile.user_data / "Machine" / "settings.json",
+        settings,
+        removed_settings=removed_settings,
+    )
     _install_bundled_extensions(profile.extensions)
 
 
-def _merge_settings(settings_path: Path, settings: dict[str, object]) -> None:
+def _merge_settings(
+    settings_path: Path,
+    settings: dict[str, object],
+    *,
+    removed_settings: tuple[str, ...] = (),
+) -> None:
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     existing: dict[str, object] = {}
     if settings_path.is_file():
@@ -49,6 +64,8 @@ def _merge_settings(settings_path: Path, settings: dict[str, object]) -> None:
                 existing = value
         except (OSError, json.JSONDecodeError):
             existing = {}
+    for setting in removed_settings:
+        existing.pop(setting, None)
     existing.update(settings)
     settings_path.write_text(
         json.dumps(existing, indent=2, sort_keys=True) + "\n",
