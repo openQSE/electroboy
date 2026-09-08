@@ -361,6 +361,24 @@ if (!draggingScroll || draggingScroll[0] !== "line" || draggingScroll[1] !== 70)
   throw new Error("active scrollbar drag did not preserve its latest viewport");
 }
 
+const nearTailScrollTerminal = fakeTerminal();
+nearTailScrollTerminal.buffer.active.cursorY = 10;
+behavior.install(nearTailScrollTerminal);
+behavior.write(nearTailScrollTerminal, "streamed output", () => {});
+nearTailScrollTerminal.emit("wheel");
+nearTailScrollTerminal.emitScroll(92);
+nearTailScrollTerminal.buffer.active.baseY = 108;
+nearTailScrollTerminal.buffer.active.viewportY = 108;
+nearTailScrollTerminal.completeWrite();
+const nearTailScroll = nearTailScrollTerminal.scrollCalls.at(-1);
+if (
+  !nearTailScroll ||
+  nearTailScroll[0] !== "line" ||
+  nearTailScroll[1] !== 92
+) {
+  throw new Error("user scroll near the live tail did not preserve its viewport");
+}
+
 const visibleTailTerminal = fakeTerminal();
 visibleTailTerminal.buffer.active.cursorY = 10;
 visibleTailTerminal.buffer.active.viewportY = 92;

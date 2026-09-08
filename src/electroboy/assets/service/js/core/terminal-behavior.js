@@ -83,7 +83,7 @@
 
   function refreshViewportLock(terminal, state = writeStateFor(terminal)) {
     state.viewportScrollPending = false;
-    const snapshot = viewportSnapshot(terminal);
+    const snapshot = viewportSnapshot(terminal, true);
     if (!snapshot) {
       clearViewportLock(state);
       return null;
@@ -221,7 +221,7 @@
     return cursorLine >= buffer.viewportY && cursorLine < buffer.viewportY + rows;
   }
 
-  function viewportSnapshot(terminal) {
+  function viewportSnapshot(terminal, preserveViewportLine = false) {
     const buffer = activeBuffer(terminal);
     if (!buffer) {
       return null;
@@ -229,9 +229,14 @@
     const baseY = buffer.baseY;
     const viewportY = buffer.viewportY;
     const atBottom = viewportY >= baseY;
-    const tailVisible = liveTailVisible(terminal, buffer);
+    const tailVisible =
+      !preserveViewportLine && liveTailVisible(terminal, buffer);
     let marker = null;
-    if (!tailVisible && typeof terminal.registerMarker === "function") {
+    if (
+      !atBottom &&
+      !tailVisible &&
+      typeof terminal.registerMarker === "function"
+    ) {
       marker = terminal.registerMarker(viewportY - (baseY + buffer.cursorY));
     }
     return {
