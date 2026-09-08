@@ -99,13 +99,15 @@
       }
       if (node.type === "leaf") {
         const requestedKind = String(node.kind || "empty");
-        const duplicateAgent = requestedKind === "agent" && seenKinds.has("agent");
-        const kind = !duplicateAgent &&
+        const definition = kindMap.get(requestedKind);
+        const duplicateSingleton = Boolean(definition?.singleton)
+          && seenKinds.has(requestedKind);
+        const kind = !duplicateSingleton &&
             (requestedKind === "empty" || kindMap.has(requestedKind))
           ? requestedKind
           : "empty";
-        if (kind === "agent") seenKinds.add("agent");
         const item = leaf(kind);
+        if (kindMap.get(kind)?.singleton) seenKinds.add(kind);
         if (hasOwnContent(node)) {
           item.content = cloneContent(node.content);
         }
@@ -221,8 +223,8 @@
         const option = document.createElement("option");
         option.value = kind.id;
         option.textContent = kind.label;
-        option.disabled = kind.id === "agent" &&
-          leaves().some((leafItem) => leafItem.kind === "agent" && leafItem !== item);
+        option.disabled = Boolean(kind.singleton) &&
+          leaves().some((leafItem) => leafItem.kind === kind.id && leafItem !== item);
         select.append(option);
       }
       select.value = item.kind;
@@ -671,10 +673,8 @@
     function changeKind(id, kind) {
       const item = leafById(id);
       if (!item || (kind !== "empty" && !kindMap.has(kind))) return;
-      if (
-        kind === "agent" &&
-        leaves().some((leafItem) => leafItem.kind === "agent" && leafItem !== item)
-      ) return;
+      if (kindMap.get(kind)?.singleton &&
+          leaves().some((leafItem) => leafItem.kind === kind && leafItem !== item)) return;
       if (item.kind === kind) return;
       if (item.kind !== kind) {
         delete item.content;

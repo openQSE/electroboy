@@ -1036,6 +1036,26 @@
     const IS_ARTIFACT_PANE =
       PANE_KIND === "artifact" || PANE_KIND === "corkboard";
     const params = new URLSearchParams(window.location.search);
+    const workflowId = params.get("workflow_id") || "";
+    const workflowLabel = params.get("workflow_label") || "";
+    const workflowLayoutClass = params.get("workflow_layout_class") || "";
+    const defaultWorkspaceKinds = [
+      { id: "agent", label: "AI Agent" },
+      { id: "progress", label: "Progress", singleton: true },
+      { id: "artifact", label: "File" },
+      { id: "corkboard", label: "Corkboard", singleton: true },
+      { id: "agenda", label: "Agenda" },
+      { id: "assignments", label: "Assignments" },
+      { id: "calendar", label: "Calendar" },
+      { id: "code-learner", label: "Code Learner" },
+      { id: "ide", label: "IDE" },
+      { id: "mind-map", label: "Mind Map" },
+      { id: "shell", label: "Shell" },
+      { id: "scratch", label: "Scratch" },
+      { id: "status", label: "Status" },
+      { id: "input", label: "Agent input" },
+    ];
+    const workspaceKinds = workflowWorkspaceKinds();
     const EMBEDDED_PANE = params.get("embedded") === "1";
     const paneInstanceId = params.get("pane_instance_id") || "";
     let contextId = params.get("context_id") || "";
@@ -1098,6 +1118,7 @@
     let baseFontSize = storedBaseFontSize();
     let fontOffset = storedFontOffset();
     let fontSize = effectiveFontSize();
+    let mountedWorkflowPaneCleanup = null;
     const ARTIFACT_ZOOM_STEP = 10;
     const TERMINAL_OUTPUT_FLUSH_BUDGET_MS = 8;
     const TERMINAL_OUTPUT_FLUSH_CHARS = 65536;
@@ -1149,6 +1170,40 @@
     const agentInputResizeHandle =
       document.getElementById("agentInputResizeHandle");
     const agentInput = document.getElementById("agentInput");
+
+    function workflowWorkspaceKinds() {
+      try {
+        const records = JSON.parse(params.get("workflow_pane_kinds") || "[]");
+        const kinds = records.flatMap((record) => {
+          const id = String(record?.kind || "");
+          const label = String(record?.label || "");
+          return id && label
+            ? [{ id, label, singleton: Boolean(record.singleton) }]
+            : [];
+        });
+        return kinds.length ? kinds : defaultWorkspaceKinds;
+      } catch (error) {
+        return defaultWorkspaceKinds;
+      }
+    }
+
+    function installWorkflowPresentation() {
+      if (workflowLayoutClass) document.body.classList.add(workflowLayoutClass);
+      try {
+        const stylesheets = JSON.parse(
+          params.get("workflow_pane_stylesheets") || "[]",
+        );
+        stylesheets.forEach((path) => {
+          if (typeof path !== "string" || !path.startsWith("/assets/service/")) return;
+          const link = document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = path;
+          document.head.append(link);
+        });
+      } catch (error) {
+        return;
+      }
+    }
     const agentSendShortcut = document.getElementById("agentSendShortcut");
     const showInputHistory = document.getElementById("showInputHistory");
     const inputActions = document.getElementById("inputActions");
@@ -1483,6 +1538,8 @@
     }
 
     function titleForPane(kind) {
+      const configured = workspaceKinds.find((item) => item.id === kind);
+      if (configured) return configured.label;
       if (kind === "agent") return "AI Agent";
       if (kind === "artifact") {
         return "File";
@@ -1500,6 +1557,28 @@
       if (kind === "input") return "AI agent input";
       if (kind === "shell") return "Project shell";
       return "Pane";
+    }
+
+    function mountWorkflowPane() {
+      if (!workflowId) return false;
+      try {
+        const owner = window.top?.opener;
+        const frontend = owner?.ElectroBoyFrontend;
+        if (!frontend || typeof frontend.mountWorkflowPane !== "function") {
+          return false;
+        }
+        const mounted = frontend.mountWorkflowPane(
+          workflowId,
+          PANE_KIND,
+          paneContentSurface,
+          { paneInstanceId, embedded: EMBEDDED_PANE },
+        );
+        if (mounted === false) return false;
+        mountedWorkflowPaneCleanup = typeof mounted === "function" ? mounted : null;
+        return true;
+      } catch (error) {
+        return false;
+      }
     }
 
     function contextUrl(path) {
@@ -4695,10 +4774,24 @@
       return `/pane/${encodeURIComponent(kind)}?${paneParameters.toString()}`;
     }
 
+    function initialPaneWorkspaceLayout() {
+      if (PANE_KIND !== "agent") {
+        return null;
+      }
+      return {
+        type: "split",
+        direction: "column",
+        ratio: 0.72,
+        first: { type: "leaf", kind: "agent" },
+        second: { type: "leaf", kind: "input" },
+      };
+    }
+
     function initializePaneWorkspace() {
+      installWorkflowPresentation();
       directPaneWindow.hidden = true;
       workspaceWindow.hidden = false;
-      document.title = `ElectroBoy ${titleForPane(PANE_KIND)} workspace`;
+      document.title = `${workflowLabel || "ElectroBoy"} ${titleForPane(PANE_KIND)} workspace`;
       if (PANE_KIND === "shell" && disposableShell) {
         dockWorkspace.hidden = true;
       } else {
@@ -4708,25 +4801,9 @@
         root: workspaceLayout,
         resetButton: resetWorkspace,
         initialKind: PANE_KIND,
-        storageKey: `electroboy.paneWorkspaceLayout.v3.${PANE_KIND}`,
-        kinds: [
-          { id: "agent", label: "AI Agent" },
-          { id: "progress", label: "Progress" },
-          { id: "artifact", label: "File" },
-          { id: "corkboard", label: "Corkboard" },
-          { id: "agenda", label: "Agenda" },
-          { id: "calendar", label: "Calendar" },
-          { id: "code-learner", label: "Code Learner" },
-          { id: "mind-map", label: "Mind Map" },
-          { id: "shell", label: "Shell" },
-          { id: "scratch", label: "Scratch" },
-          { id: "status", label: "Status" },
-          ...(window.ElectroBoyFrontend?.listModules?.() || []).flatMap(
-            (module) => (Array.isArray(module.panes) ? module.panes : []).map(
-              (pane) => ({ id: pane.id, label: pane.label || pane.id }),
-            ),
-          ),
-        ],
+        initialLayout: initialPaneWorkspaceLayout(),
+        storageKey: `electroboy.paneWorkspaceLayout.v2.${workflowId || "default"}.${PANE_KIND}`,
+        kinds: workspaceKinds,
         paneUrl: workspacePaneUrl,
         onChange(layout, paneLeaves) {
           const count = paneLeaves.length;
@@ -5117,6 +5194,7 @@
       mindMapPaneTools.setEditable(Boolean(artifactMindMapPath));
     }
 
+    installWorkflowPresentation();
     paneTitle.textContent = titleForPane(PANE_KIND);
     if (PANE_KIND === "agenda") {
       refreshArtifactButton.title = "Refresh agenda";
@@ -5133,84 +5211,88 @@
     initializeContentSwitcher();
     exportPaneFormat.hidden = !IS_ARTIFACT_PANE;
     exportPaneOutput.hidden = Boolean(agentPaneTools) || !canExportPaneOutput();
-    if (PANE_KIND === "agent") {
-      showAgent();
-      refreshSessions()
-        .catch(() => {})
-        .then(() => {
-          if (selectedAgentSession()) {
-            connectAgentStream();
-          }
+    const workflowPaneMounted = mountWorkflowPane();
+    if (!workflowPaneMounted) {
+      if (PANE_KIND === "agent") {
+        showAgent();
+        refreshSessions()
+          .catch(() => {})
+          .then(() => {
+            if (selectedAgentSession()) {
+              connectAgentStream();
+            }
+          });
+      }
+      else if (PANE_KIND === "progress") connectProgressStream();
+      else if (
+        IS_ARTIFACT_PANE ||
+        PANE_KIND === "agenda" ||
+        PANE_KIND === "assignments" ||
+        PANE_KIND === "calendar" ||
+        PANE_KIND === "mind-map"
+      ) {
+        connectArtifactStream();
+      }
+      else if (PANE_KIND === "scratch") showScratchPad();
+      else if (PANE_KIND === "status") showStatus();
+      else if (PANE_KIND === "input") showInput();
+      else if (PANE_KIND === "shell") connectShellStream();
+      else if (
+        PANE_KIND === "code-learner" &&
+        window.ElectroBoyCodeLearnerPane
+      ) {
+        paneToolsTitle.textContent = "Code Learner tools";
+        codeLearnerPane = window.ElectroBoyCodeLearnerPane.mount({
+          host: paneContentSurface,
+          toolbarHost: paneActions,
+          toolsController: paneToolsController,
+          fontControl: paneFontControls,
+          canPop: EMBEDDED_PANE && params.get("popped") !== "1",
+          popOut: requestCurrentPanePopOut,
+          setTitle: (title) => {
+            paneTitle.textContent = title;
+          },
+          contextUrl,
+          paneInstanceId,
+          postMessage: (message) => {
+            if (window.parent !== window) {
+              window.parent.postMessage(message, window.location.origin);
+            } else if (window.opener && !window.opener.closed) {
+              window.opener.postMessage(message, window.location.origin);
+            }
+          },
         });
-    }
-    else if (PANE_KIND === "progress") connectProgressStream();
-    else if (
-      IS_ARTIFACT_PANE ||
-      PANE_KIND === "agenda" ||
-      PANE_KIND === "assignments" ||
-      PANE_KIND === "calendar" ||
-      PANE_KIND === "mind-map"
-    ) {
-      connectArtifactStream();
-    }
-    else if (PANE_KIND === "scratch") showScratchPad();
-    else if (PANE_KIND === "status") showStatus();
-    else if (PANE_KIND === "input") showInput();
-    else if (PANE_KIND === "shell") connectShellStream();
-    else if (
-      PANE_KIND === "code-learner" &&
-      window.ElectroBoyCodeLearnerPane
-    ) {
-      paneToolsTitle.textContent = "Code Learner tools";
-      codeLearnerPane = window.ElectroBoyCodeLearnerPane.mount({
-        host: paneContentSurface,
-        toolbarHost: paneActions,
-        toolsController: paneToolsController,
-        fontControl: paneFontControls,
-        canPop: EMBEDDED_PANE && params.get("popped") !== "1",
-        popOut: requestCurrentPanePopOut,
-        setTitle: (title) => {
-          paneTitle.textContent = title;
-        },
-        contextUrl,
-        paneInstanceId,
-        postMessage: (message) => {
-          if (window.parent !== window) {
-            window.parent.postMessage(message, window.location.origin);
-          } else if (window.opener && !window.opener.closed) {
-            window.opener.postMessage(message, window.location.origin);
-          }
-        },
-      });
-    }
-    else if (PANE_KIND === "ide" && window.ElectroBoyIDEPane) {
-      paneToolsTitle.textContent = "IDE tools";
-      idePane = window.ElectroBoyIDEPane.mount({
-        host: paneContentSurface,
-        toolbarHost: paneActions,
-        toolsController: paneToolsController,
-        contextUrl,
-        paneInstanceId,
-        canPop: EMBEDDED_PANE && params.get("popped") !== "1",
-        popOut: requestCurrentPanePopOut,
-        setTitle: (title) => {
-          paneTitle.textContent = title;
-        },
-        postMessage: (message) => {
-          if (window.parent !== window) {
-            window.parent.postMessage(message, window.location.origin);
-          } else if (window.opener && !window.opener.closed) {
-            window.opener.postMessage(message, window.location.origin);
-          }
-        },
-        telemetry: telemetryPageId ? {
-          pageId: telemetryPageId,
-          tabId: telemetryTabId,
-        } : null,
-      });
+      }
+      else if (PANE_KIND === "ide" && window.ElectroBoyIDEPane) {
+        paneToolsTitle.textContent = "IDE tools";
+        idePane = window.ElectroBoyIDEPane.mount({
+          host: paneContentSurface,
+          toolbarHost: paneActions,
+          toolsController: paneToolsController,
+          contextUrl,
+          paneInstanceId,
+          canPop: EMBEDDED_PANE && params.get("popped") !== "1",
+          popOut: requestCurrentPanePopOut,
+          setTitle: (title) => {
+            paneTitle.textContent = title;
+          },
+          postMessage: (message) => {
+            if (window.parent !== window) {
+              window.parent.postMessage(message, window.location.origin);
+            } else if (window.opener && !window.opener.closed) {
+              window.opener.postMessage(message, window.location.origin);
+            }
+          },
+          telemetry: telemetryPageId ? {
+            pageId: telemetryPageId,
+            tabId: telemetryTabId,
+          } : null,
+        });
+      }
     }
 
     window.addEventListener("beforeunload", () => {
+      if (mountedWorkflowPaneCleanup) mountedWorkflowPaneCleanup();
       stopDisposableShell();
       if (sharedPaneSync) sharedPaneSync.close();
       if (agentSessionSync) agentSessionSync.close();

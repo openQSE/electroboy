@@ -112,6 +112,13 @@
       }
       return handler(runtime, ...args);
     },
+    mountWorkflowPane(id, kind, target, options = {}) {
+      const workflow = this.workflowForSelection(id);
+      if (!workflow || typeof workflow.mountPane !== "function") {
+        return false;
+      }
+      return workflow.mountPane(kind, target, runtime, options);
+    },
     listWorkflows() {
       return [...workflows].sort((left, right) => {
         const leftOrder = Number.isFinite(left.order) ? left.order : 1000;

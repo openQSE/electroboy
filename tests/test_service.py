@@ -2323,7 +2323,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("reconcile: reconcilePaneLayout", runtime)
         self.assertIn("runtimeApi.layout.assignArtifact(nextItems[0]);", documents)
         self.assertIn("runtime.layout.assignWorkspacePane", agenda)
-        self.assertIn('kind === "agent" &&', workspace)
+        self.assertIn("kindMap.get(kind)?.singleton", workspace)
         self.assertIn(".pane-layout-leaf.active::before", styles)
         self.assertIn(
             ".pane-layout-toolbar {\n      position: relative;\n      z-index: 20;",
@@ -2352,6 +2352,11 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("leafId: leaf.id,", runtime)
         self.assertIn("setPanePoppedOut(kind, true, popoutOptions.leafId);", runtime)
+        self.assertIn("function workflowPanePopoutMode(kind", runtime)
+        self.assertIn(
+            'if (workflowPanePopoutMode(kind) === "mirror")',
+            runtime,
+        )
         self.assertIn(
             "popoutOptions.leafId ? false : hasPoppedPaneKind(kind)",
             runtime,
@@ -3148,7 +3153,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="dockWorkspace"', page)
         self.assertIn('params.get("embedded") === "1"', page)
         self.assertIn("ElectroBoyPaneWorkspace.create", page)
-        self.assertIn("electroboy.paneWorkspaceLayout.v3.${PANE_KIND}", page)
+        self.assertIn(
+            'electroboy.paneWorkspaceLayout.v2.${workflowId || "default"}.${PANE_KIND}',
+            page,
+        )
+        self.assertIn('params.get("workflow_pane_kinds")', page)
+        self.assertIn("kinds: workspaceKinds", page)
+        self.assertIn("mountWorkflowPane()", page)
+        self.assertIn("if (!workflowPaneMounted)", page)
+        self.assertNotIn(
+            "if (workflowPaneMounted) {\n      paneFontControls.hidden = true;",
+            page,
+        )
         self.assertIn('/assets/service/js/core/pane-workspace.js', page)
         self.assertIn('/assets/service/css/selects.css', page)
         self.assertIn('/assets/service/js/core/select-menu.js', page)
@@ -3192,11 +3208,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("projectRoot: activeProjectRoot || \"\"", page)
         self.assertIn('type: "electroboy:pane-close"', page)
         self.assertIn('{ id: "agent", label: "AI Agent" }', page)
-        self.assertNotIn('{ id: "input", label: "Agent input" }', page)
-        self.assertNotIn('function initialPaneWorkspaceLayout()', page)
-        self.assertNotIn('initialLayout:', page)
+        self.assertIn('{ id: "input", label: "Agent input" }', page)
+        self.assertIn('function initialPaneWorkspaceLayout()', page)
+        self.assertIn('initialLayout: initialPaneWorkspaceLayout()', page)
         self.assertIn('{ id: "mind-map", label: "Mind Map" }', page)
-        self.assertIn('{ id: "corkboard", label: "Corkboard" }', page)
+        self.assertIn(
+            '{ id: "corkboard", label: "Corkboard", singleton: true }',
+            page,
+        )
         self.assertIn("function hasNonEmptyLeaf(node)", workspace)
         self.assertIn("return defaultLayout();", workspace)
         self.assertIn('function splitLeaf(', workspace)
@@ -3223,6 +3242,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("if (!renderIncrementalLeaf(item))", workspace)
         self.assertIn('function moveLeaf(', workspace)
         self.assertIn('item.kind = kind;', workspace)
+        self.assertIn("definition?.singleton", workspace)
         self.assertIn('const paneFrames = new Map();', workspace)
         self.assertIn('const existing = cloneLeaf(item);', workspace)
         self.assertIn('canDetach: false', workspace)
