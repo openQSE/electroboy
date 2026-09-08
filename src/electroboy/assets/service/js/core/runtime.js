@@ -488,6 +488,7 @@
           return [];
         }
         return [{
+          ...(typeof item === "string" ? {} : item),
           kind,
           label: typeof item === "string"
             ? PANE_LAYOUT_KINDS[kind].label
@@ -498,6 +499,12 @@
 
     function workflowPaneKind(kind, mode = workflowMode) {
       return workflowPaneKinds(mode).find((item) => item.kind === kind) || null;
+    }
+
+    function workflowPanePopoutMode(kind, mode = workflowMode) {
+      return workflowPaneKind(kind, mode)?.popoutMode === "mirror"
+        ? "mirror"
+        : "detach";
     }
 
     function applyWorkflowPaneLabels(mode = workflowMode) {
@@ -5439,6 +5446,21 @@
 
     function paneUrl(kind, requestedArtifactItem = undefined, options = {}) {
       const parameters = new URLSearchParams();
+      const workflow = activeWorkflowContribution();
+      if (workflow) {
+        parameters.set("workflow_id", String(workflow.id || workflowMode));
+        parameters.set("workflow_label", String(workflow.label || "ElectroBoy"));
+        parameters.set("workflow_pane_kinds", JSON.stringify(workflowPaneKinds()));
+        if (workflow.layoutClass) {
+          parameters.set("workflow_layout_class", String(workflow.layoutClass));
+        }
+        if (Array.isArray(workflow.paneStylesheets)) {
+          parameters.set(
+            "workflow_pane_stylesheets",
+            JSON.stringify(workflow.paneStylesheets),
+          );
+        }
+      }
       if (contextId) {
         parameters.set("context_id", contextId);
         parameters.set("workspace_id", contextId);
@@ -5651,6 +5673,10 @@
     }
 
     function setPanePoppedOut(kind, poppedOut, leafId = "") {
+      if (workflowPanePopoutMode(kind) === "mirror") {
+        scheduleFitTerminal();
+        return;
+      }
       if (leafId) {
         if (poppedOut) {
           poppedPaneLeafIds.add(leafId);
