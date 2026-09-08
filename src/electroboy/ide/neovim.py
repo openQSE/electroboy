@@ -110,7 +110,7 @@ class NeovimProfileManager:
         status = self.status(configuration)
         destination = profile.extensions / self.extension_directory_name
         if (
-            status["status"] == "unavailable"
+            status["status"] in {"unavailable", "incompatible"}
             and configuration.enabled
             and not configuration.executable
         ):
@@ -239,12 +239,12 @@ class NeovimProfileManager:
                 if os.access(candidate, os.X_OK) and candidate.is_file()
                 else (None, None)
             )
-        discovered = shutil.which("nvim")
-        if discovered:
-            return Path(discovered).resolve(), "system"
         managed = self.runtime_installer.installed_runtime()
         if managed is not None:
             return managed.executable, "managed"
+        discovered = shutil.which("nvim")
+        if discovered:
+            return Path(discovered).resolve(), "system"
         return None, None
 
     def _cached_extension(self) -> Path:

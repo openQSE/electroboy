@@ -10,6 +10,7 @@ import unittest
 import zipfile
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 from electroboy.ide import IDEProfile
 from electroboy.ide.artifacts import RuntimeArtifact, RuntimeArtifactManifest
@@ -157,7 +158,11 @@ class IDENeovimTests(unittest.TestCase):
         self.assertEqual(self.downloads.events()[-1]["status"], "verified")
 
     def test_missing_old_and_disabled_states_do_not_block_profile(self) -> None:
-        missing = self.manager.status()
+        with mock.patch(
+            "electroboy.ide.neovim.shutil.which",
+            return_value=None,
+        ):
+            missing = self.manager.status()
         old = self.root / "old-nvim"
         fake_nvim(old, "0.9.5")
         self.manager.configure(enabled=True, executable=str(old))
@@ -168,6 +173,24 @@ class IDENeovimTests(unittest.TestCase):
         self.assertEqual(incompatible["status"], "incompatible")
         self.assertEqual(disabled["status"], "disabled")
         self.assertEqual(self.downloads.events(), [])
+
+    def test_compatible_system_neovim_avoids_managed_runtime_download(self) -> None:
+        system = self.root / "system-nvim"
+        fake_nvim(system, "0.12.5")
+
+        with mock.patch(
+            "electroboy.ide.neovim.shutil.which",
+            return_value=str(system),
+        ):
+            status = self.manager.prepare(self.profile)
+
+        self.assertEqual(status["status"], "enabled")
+        self.assertEqual(status["origin"], "system")
+        self.assertEqual(status["executable"], str(system))
+        self.assertEqual(
+            [event["status"] for event in self.downloads.events()],
+            ["verified"],
+        )
 
     def test_disabling_neovim_removes_its_profile_registration(self) -> None:
         executable = self.root / "nvim"
@@ -254,7 +277,11 @@ class IDENeovimTests(unittest.TestCase):
             sha256=hashlib.sha256(self.archive).hexdigest(),
         )
 
-        status = manager.prepare(self.profile)
+        with mock.patch(
+            "electroboy.ide.neovim.shutil.which",
+            return_value=None,
+        ):
+            status = manager.prepare(self.profile)
 
         self.assertEqual(status["status"], "enabled")
         self.assertEqual(status["origin"], "managed")
@@ -263,6 +290,55 @@ class IDENeovimTests(unittest.TestCase):
             [event["status"] for event in downloads.events()],
             ["verified", "verified"],
         )
+
+    def test_prepare_replaces_incompatible_system_neovim_with_managed(self) -> None:
+        runtime = neovim_archive()
+        old_system = self.root / "system-nvim"
+        fake_nvim(old_system, "0.6.1")
+        runtime_artifact = RuntimeArtifact(
+            platform="linux",
+            architecture="x86_64",
+            url="https://example.invalid/neovim.tar.gz",
+            sha256=hashlib.sha256(runtime).hexdigest(),
+            size=len(runtime),
+            archive_format="tar.gz",
+            archive_root="nvim-test",
+            executable="bin/nvim",
+        )
+        manager = NeovimProfileManager(
+            self.root,
+            AuditedDownloadClient(
+                open_url=lambda request, **_kwargs: Response(
+                    runtime
+                    if str(request.full_url).endswith("neovim.tar.gz")
+                    else self.archive
+                )
+            ),
+            architecture="x86_64",
+            runtime_manifest=RuntimeArtifactManifest(
+                1,
+                "neovim",
+                "0.12.5",
+                (runtime_artifact,),
+            ),
+        )
+        manager.artifact = replace(
+            manager.artifact,
+            url="https://example.invalid/vscode-neovim.vsix",
+            size=len(self.archive),
+            sha256=hashlib.sha256(self.archive).hexdigest(),
+        )
+
+        with mock.patch(
+            "electroboy.ide.neovim.shutil.which",
+            return_value=str(old_system),
+        ):
+            status = manager.prepare(self.profile)
+
+        self.assertEqual(status["status"], "enabled")
+        self.assertEqual(status["origin"], "managed")
+        self.assertEqual(status["version"], "0.12.5")
+        self.assertNotEqual(status["executable"], str(old_system))
 
     def test_managed_neovim_failure_keeps_profile_available(self) -> None:
         runtime = neovim_archive()
@@ -288,7 +364,11 @@ class IDENeovimTests(unittest.TestCase):
             ),
         )
 
-        status = manager.prepare(self.profile)
+        with mock.patch(
+            "electroboy.ide.neovim.shutil.which",
+            return_value=None,
+        ):
+            status = manager.prepare(self.profile)
 
         self.assertEqual(status["status"], "unavailable")
         self.assertIn("managed Neovim installation failed", status["reason"])
