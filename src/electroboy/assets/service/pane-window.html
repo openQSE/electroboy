@@ -4320,10 +4320,6 @@
         reportPaneError("select an agent session first");
         return false;
       }
-      const actionLabel = session.status === "running" ? "Terminate" : "Close";
-      if (!window.confirm(`${actionLabel} ${session.kind || "agent"} session?`)) {
-        return false;
-      }
       const response = await fetch(contextUrl("/api/sessions/terminate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },

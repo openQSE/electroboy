@@ -1250,6 +1250,29 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("function chooseRunningSession()", agent_pane_tools)
         self.assertIn("Terminate agent", agent_pane_tools)
+        self.assertIn(
+            "function confirmTerminateSession(candidate)", agent_pane_tools
+        )
+        self.assertIn("agent-terminate-dialog", agent_pane_tools)
+        self.assertIn("agent-terminate-session-submit", pane_css)
+        terminate_active_start = sessions.index(
+            "async function terminateActiveAgent()"
+        )
+        terminate_active = sessions[
+            terminate_active_start : sessions.index(
+                "function startActiveWorkflowAgent", terminate_active_start
+            )
+        ]
+        self.assertNotIn("window.confirm", terminate_active)
+        terminate_pane_start = pane_window.index(
+            "async function terminateAgentSession()"
+        )
+        terminate_pane = pane_window[
+            terminate_pane_start : pane_window.index(
+                "function insertTextAtCursor", terminate_pane_start
+            )
+        ]
+        self.assertNotIn("window.confirm", terminate_pane)
         self.assertIn('controls.font.classList.add("pane-tool-font-row")', agent_pane_tools)
         self.assertIn("controls.exportButton.hidden = true", agent_pane_tools)
         self.assertIn("AGENT_OUTPUT_FLUSH_BUDGET_MS", app)
@@ -1853,6 +1876,26 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("let shouldRenderRestoredPaneLayout = false;", runtime)
         self.assertIn("shouldRenderRestoredPaneLayout = paneLayoutIsMounted();", runtime)
         self.assertIn('bumpFrontendDebugCounter("paneLayout.hydrateRender")', runtime)
+        self.assertIn("const shouldHydrateWorkspaceState =", runtime)
+        self.assertIn("if (shouldHydrateWorkspaceState) {", runtime)
+        self.assertIn("const paneLayoutChanged =", runtime)
+        self.assertEqual(
+            runtime.count("updateProjectState(payload, { workspaceAttach: true });"),
+            2,
+        )
+        update_project_start = runtime.index("function updateProjectState(payload")
+        update_project = runtime[
+            update_project_start : runtime.index(
+                "function activeProjectMenuLabel", update_project_start
+            )
+        ]
+        self.assertNotIn(
+            "if (previousWorkspaceId !== contextId) {\n"
+            "        loadPaneLayoutForWorkflow();\n"
+            "        renderPaneLayout();",
+            update_project,
+        )
+        self.assertEqual(update_project.count("applyWorkspaceClientState(payload);"), 1)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(kind)", runtime)
         self.assertIn("buildPaneLayoutInstanceFrame(node)", runtime)
         self.assertIn(

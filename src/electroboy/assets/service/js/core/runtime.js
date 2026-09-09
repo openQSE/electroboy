@@ -1934,8 +1934,12 @@
             normalizePaneLayoutNode(state.pane_layout, new Set()),
           );
           if (restored) {
-            paneLayout = restored;
-            shouldRenderRestoredPaneLayout = paneLayoutIsMounted();
+            const paneLayoutChanged =
+              JSON.stringify(restored) !== JSON.stringify(paneLayout);
+            if (paneLayoutChanged) {
+              paneLayout = restored;
+              shouldRenderRestoredPaneLayout = paneLayoutIsMounted();
+            }
             shouldPersistRestoredState = true;
             workspacePresentationStorage().setItem(
               paneLayoutStorageKey(),
@@ -6495,7 +6499,7 @@
       workspaceLeaseToken = payload.lease_token || "";
       saveContextId(contextId);
       saveWorkspaceLease(workspaceLeaseToken);
-      updateProjectState(payload);
+      updateProjectState(payload, { workspaceAttach: true });
     }
 
     function stopWorkspaceHeartbeat() {
@@ -6619,7 +6623,7 @@
       workspaceLeaseToken = payload.lease_token || workspaceLeaseToken;
       saveContextId(contextId);
       saveWorkspaceLease(workspaceLeaseToken);
-      updateProjectState(payload);
+      updateProjectState(payload, { workspaceAttach: true });
       const session = selectedSession();
       if (session && session.status === "running") {
         const isInteractive = Boolean(session.interactive);
@@ -6676,7 +6680,15 @@
         creativeTreePayload = null;
         restoredScratchContextId = "";
       }
-      applyWorkspaceClientState(payload);
+      const shouldHydrateWorkspaceState =
+        previousWorkspaceId !== contextId ||
+        !paneLayoutIsMounted() ||
+        options.workspaceAttach === true ||
+        options.workspaceRecovery === true ||
+        options.workspaceSwitch === true;
+      if (shouldHydrateWorkspaceState) {
+        applyWorkspaceClientState(payload);
+      }
       activeRepositoryName = payload.active_repository_name || "";
       registeredRepositories = Array.isArray(payload.registered_repositories)
         ? payload.registered_repositories
@@ -6733,7 +6745,6 @@
       refreshPaneLayoutInstanceFrames();
       if (previousWorkspaceId !== contextId) {
         loadPaneLayoutForWorkflow();
-        renderPaneLayout();
       }
       window.ElectroBoyFrontend.invokeModuleOptional(
         "corkboard",

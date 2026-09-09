@@ -284,6 +284,77 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_agent_termination_uses_in_app_confirmation(tmp_path: Path) -> None:
+    agent_tools = (
+        Path(__file__).resolve().parents[1]
+        / "src/electroboy/modules/assets/agent-pane-tools.js"
+    ).read_text(encoding="utf-8")
+    page = (
+        "<!doctype html><html><body><div id='tools'></div><script>"
+        + agent_tools
+        + "</script><script>"
+        + r"""
+let terminateCalls = 0;
+const tools = document.getElementById("tools");
+window.ElectroBoyAgentPaneTools.mount({
+  controller: {
+    addSection() {
+      const section = document.createElement("div");
+      tools.append(section);
+      return section;
+    },
+    setEnabled() {},
+  },
+  getSession: () => ({
+    session_id: "session-one",
+    name: "Draft helper",
+    kind: "creative",
+    status: "running",
+  }),
+  getSessions: () => [],
+  displayLabel: (session) => session.name,
+  actions: {
+    terminate() {
+      terminateCalls += 1;
+      return true;
+    },
+  },
+});
+Array.from(document.querySelectorAll("button")).find(
+  (button) => button.textContent === "Terminate agent",
+).click();
+const dialog = document.querySelector(".agent-terminate-dialog");
+const callWasDeferred = terminateCalls === 0;
+const sessionName = dialog.querySelector(
+  ".agent-focus-session-header p",
+).textContent;
+dialog.querySelector("form").requestSubmit();
+window.setTimeout(() => {
+  const result = document.createElement("div");
+  result.id = "agentTerminateProbe";
+  result.dataset.dialogOpened = String(Boolean(dialog));
+  result.dataset.callWasDeferred = String(callWasDeferred);
+  result.dataset.sessionName = sessionName;
+  result.dataset.confirmed = String(terminateCalls === 1);
+  result.dataset.dialogRemoved = String(!dialog.isConnected);
+  document.body.append(result);
+}, 0);
+"""
+        + "</script></body></html>"
+    )
+
+    completed = browser_page_dom(page, tmp_path / "agent-terminate-chrome-profile")
+
+    assert completed.returncode == 0, completed.stdout
+    assert (
+        '<div id="agentTerminateProbe" data-dialog-opened="true" '
+        'data-call-was-deferred="true" data-session-name="Draft helper" '
+        'data-confirmed="true" data-dialog-removed="true"></div>'
+        in completed.stdout
+    )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_stateful_dom_collapse_preserves_iframe_context(tmp_path: Path) -> None:
     asset = (
         Path(__file__).resolve().parents[1]

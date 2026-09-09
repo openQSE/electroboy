@@ -1008,10 +1008,6 @@
         appendOutput("select an agent session first\n", "error");
         return false;
       }
-      const actionLabel = sessionIsRunning(session) ? "Terminate" : "Close";
-      if (!window.confirm(`${actionLabel} ${agentSessionDisplayLabel(session)}?`)) {
-        return false;
-      }
       const response = await runtimeApi.http.fetch(contextUrl("/api/sessions/terminate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },

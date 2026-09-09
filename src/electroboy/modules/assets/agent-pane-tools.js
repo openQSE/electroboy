@@ -203,6 +203,80 @@
         });
     }
 
+    function confirmTerminateSession(candidate) {
+      const running = candidate && candidate.status === "running";
+      const action = running ? "Terminate" : "Close";
+      const dialog = document.createElement("dialog");
+      dialog.className = "agent-focus-session-dialog agent-terminate-dialog";
+      dialog.innerHTML = `
+        <form method="dialog" class="agent-focus-session-form">
+          <header class="agent-focus-session-header">
+            <div>
+              <h2>${action} agent?</h2>
+              <p></p>
+            </div>
+            <button
+              type="button"
+              class="agent-focus-session-close"
+              aria-label="Close"
+            >&times;</button>
+          </header>
+          <section class="agent-terminate-session-body">
+            <p>${running
+              ? "The running process will be stopped and its pane will be closed."
+              : "The completed session will be removed from this workspace."}</p>
+          </section>
+          <footer class="agent-focus-session-footer">
+            <button type="button" class="agent-focus-session-cancel">Cancel</button>
+            <button
+              type="submit"
+              class="agent-focus-session-submit agent-terminate-session-submit"
+            >${action}</button>
+          </footer>
+        </form>
+      `;
+      dialog.querySelector(".agent-focus-session-header p").textContent =
+        sessionLabel(candidate);
+      document.body.append(dialog);
+      return new Promise((resolve) => {
+        const finish = (confirmed) => {
+          dialog.close();
+          dialog.remove();
+          resolve(confirmed);
+        };
+        dialog.querySelector(".agent-focus-session-close").onclick = () => {
+          finish(false);
+        };
+        dialog.querySelector(".agent-focus-session-cancel").onclick = () => {
+          finish(false);
+        };
+        dialog.oncancel = (event) => {
+          event.preventDefault();
+          finish(false);
+        };
+        dialog.querySelector("form").onsubmit = (event) => {
+          event.preventDefault();
+          finish(true);
+        };
+        dialog.showModal();
+      });
+    }
+
+    function terminateSession() {
+      const candidate = session();
+      if (!candidate) {
+        setActionStatus("Select an agent session first", true);
+        return;
+      }
+      confirmTerminateSession(candidate)
+        .then((confirmed) => {
+          if (confirmed) runAction("terminate", () => {});
+        })
+        .catch((error) => {
+          setActionStatus(actionErrorMessage(error), true);
+        });
+    }
+
     const viewBody = controller.addSection("agent-view", "View");
     if (controls.font) {
       controls.font.hidden = false;
@@ -235,9 +309,7 @@
     const interrupt = menuButton("Interrupt", () => {
       runAction("interrupt", () => {});
     });
-    const terminate = menuButton("Terminate agent", () => {
-      runAction("terminate", () => {});
-    }, "danger");
+    const terminate = menuButton("Terminate agent", terminateSession, "danger");
     agentMenu.list.append(start, focus, interrupt, terminate);
 
     const actionStatus = document.createElement("div");

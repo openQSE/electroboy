@@ -477,3 +477,18 @@
   background: #12303b !important;
   color: #d5f4ff !important;
 }
+
+.agent-terminate-session-body {
+  padding: 18px 16px;
+  color: #c9d5e8;
+}
+
+.agent-terminate-session-body p {
+  margin: 0;
+}
+
+.agent-terminate-session-submit {
+  border-color: #9f3a38 !important;
+  background: #682625 !important;
+  color: #fff2f2 !important;
+}
