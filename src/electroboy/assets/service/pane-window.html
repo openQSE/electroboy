@@ -2115,6 +2115,7 @@
             type: "electroboy:pane-artifact-change",
             paneInstanceId,
             item,
+            projectRoot: activeProjectRoot || "",
           },
           window.location.origin,
         );
@@ -3631,6 +3632,7 @@
           type: "electroboy:pane-artifact-change",
           paneInstanceId,
           item,
+          projectRoot: activeProjectRoot || "",
         },
         window.location.origin,
       );
@@ -4293,12 +4295,156 @@
       }
     }
 
+    function clearWorkspacePaneArtifactParameters(parameters) {
+      for (const key of [
+        "artifact",
+        "document_path",
+        "document_title",
+        "artifact_path",
+        "artifact_title",
+        "folder_path",
+        "folder_title",
+        "corkboard_path",
+        "corkboard_id",
+        "corkboard_provider",
+        "corkboard_title",
+        "agenda_provider",
+        "agenda_style",
+        "calendar_provider",
+        "calendar_ids",
+        "calendar_ids_explicit",
+        "calendar_month",
+        "range_start",
+        "range_end",
+        "calendar_style",
+        "mind_map_provider",
+        "mind_map_style",
+        "mind_map_path",
+      ]) {
+        parameters.delete(key);
+      }
+    }
+
+    function workspacePaneContentForItem(item) {
+      const hasContent = Object.prototype.hasOwnProperty.call(item || {}, "content");
+      if (!hasContent) {
+        return { hasContent: false, content: null };
+      }
+      const projectRoot = String(item.projectRoot || "");
+      if (projectRoot && activeProjectRoot && projectRoot !== activeProjectRoot) {
+        return { hasContent: true, content: null };
+      }
+      return {
+        hasContent: true,
+        content: item.content && typeof item.content === "object" ? item.content : null,
+      };
+    }
+
+    function applyWorkspacePaneContentParameters(
+      parameters,
+      kind,
+      content,
+      hasContent,
+    ) {
+      if (kind === "agent") {
+        if (!hasContent) {
+          return;
+        }
+        const sessionId = String(content?.sessionId || "");
+        if (sessionId) {
+          parameters.set("session_id", sessionId);
+        } else {
+          parameters.delete("session_id");
+        }
+        return;
+      }
+      if (!hasContent) {
+        return;
+      }
+      clearWorkspacePaneArtifactParameters(parameters);
+      if (!content || typeof content !== "object") {
+        if (kind === "artifact" || kind === "corkboard") {
+          parameters.set("artifact", "empty");
+        }
+        return;
+      }
+      parameters.set("artifact", String(content.kind || "empty"));
+      if (content.kind === "document" && content.target) {
+        parameters.set("document_path", content.target.path);
+        parameters.set(
+          "document_title",
+          content.target.label || content.title || content.target.path,
+        );
+      } else if (content.kind === "route" && content.path) {
+        parameters.set("artifact_path", content.path);
+        parameters.set("artifact_title", content.title || content.path);
+      } else if (
+        content.kind === "corkboard" || content.kind === "creative-corkboard"
+      ) {
+        const board = content.board || content.folder || content.corkboard || {};
+        parameters.set("corkboard_id", board.id || board.path || "");
+        parameters.set("corkboard_title", board.label || content.title || "");
+        if (board.provider) {
+          parameters.set("corkboard_provider", board.provider);
+        }
+      } else if (content.kind === "agenda") {
+        const agenda = content.agenda || {};
+        if (agenda.provider) {
+          parameters.set("agenda_provider", agenda.provider);
+        }
+        if (agenda.style) {
+          parameters.set("agenda_style", agenda.style);
+        }
+      } else if (content.kind === "calendar") {
+        const calendar = content.calendar || {};
+        if (calendar.provider) {
+          parameters.set("calendar_provider", calendar.provider);
+        }
+        if (Array.isArray(calendar.calendarIds) && calendar.calendarIds.length) {
+          parameters.set("calendar_ids", calendar.calendarIds.join(","));
+        }
+        if (calendar.calendarIdsExplicit) {
+          parameters.set("calendar_ids_explicit", "1");
+        }
+        if (calendar.month) {
+          parameters.set("calendar_month", calendar.month);
+        }
+        if (calendar.rangeStart) {
+          parameters.set("range_start", calendar.rangeStart);
+        }
+        if (calendar.rangeEnd) {
+          parameters.set("range_end", calendar.rangeEnd);
+        }
+        if (calendar.style) {
+          parameters.set("calendar_style", calendar.style);
+        }
+      } else if (content.kind === "mind-map") {
+        const mindMap = content.mindMap || content.mind_map || {};
+        if (mindMap.provider) {
+          parameters.set("mind_map_provider", mindMap.provider);
+        }
+        if (mindMap.style) {
+          parameters.set("mind_map_style", mindMap.style);
+        }
+        if (mindMap.path) {
+          parameters.set("mind_map_path", mindMap.path);
+        }
+      }
+    }
+
     function workspacePaneUrl(kind, item = null) {
       const paneParameters = new URLSearchParams(params);
       paneParameters.set("embedded", "1");
       if (item && item.id) {
         paneParameters.set("pane_instance_id", item.id);
       }
+      const workspaceContent = workspacePaneContentForItem(item);
+      applyWorkspacePaneContentParameters(
+        paneParameters,
+        kind,
+        workspaceContent.content,
+        workspaceContent.hasContent,
+      );
       return `/pane/${encodeURIComponent(kind)}?${paneParameters.toString()}`;
     }
 

@@ -27,6 +27,43 @@
       return { type: "leaf", id: newId(), kind };
     }
 
+    function hasOwnContent(item) {
+      return Object.prototype.hasOwnProperty.call(item || {}, "content");
+    }
+
+    function cloneContent(content) {
+      if (!content || typeof content !== "object") {
+        return null;
+      }
+      try {
+        return JSON.parse(JSON.stringify(content));
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function cloneLeaf(item) {
+      const cloned = { ...item };
+      if (hasOwnContent(item)) {
+        cloned.content = cloneContent(item.content);
+      }
+      return cloned;
+    }
+
+    function assignLeafState(target, source) {
+      target.kind = source.kind;
+      if (hasOwnContent(source)) {
+        target.content = cloneContent(source.content);
+      } else {
+        delete target.content;
+      }
+      if (typeof source.projectRoot === "string" && source.projectRoot) {
+        target.projectRoot = source.projectRoot;
+      } else {
+        delete target.projectRoot;
+      }
+    }
+
     function split(direction, first, second, ratio = 0.5) {
       return {
         type: "split",
@@ -68,7 +105,14 @@
           ? requestedKind
           : "empty";
         if (kind === "agent") seenKinds.add("agent");
-        return leaf(kind);
+        const item = leaf(kind);
+        if (hasOwnContent(node)) {
+          item.content = cloneContent(node.content);
+        }
+        if (typeof node.projectRoot === "string" && node.projectRoot) {
+          item.projectRoot = node.projectRoot;
+        }
+        return item;
       }
       if (node.type !== "split") {
         return null;
@@ -384,15 +428,40 @@
       return handle;
     }
 
+    function paneFrameContentSignature(item) {
+      try {
+        return JSON.stringify({
+          hasContent: hasOwnContent(item),
+          content: hasOwnContent(item) ? item.content : null,
+        });
+      } catch (error) {
+        return "";
+      }
+    }
+
+    function updatePaneFrameSource(frame, item) {
+      const nextSource = options.paneUrl(item.kind, item);
+      const nextHref = new URL(nextSource, global.location.origin).href;
+      const nextSignature = paneFrameContentSignature(item);
+      if (
+        frame.dataset.paneContentSignature !== nextSignature ||
+        frame.src !== nextHref
+      ) {
+        frame.src = nextSource;
+      }
+      frame.dataset.paneContentSignature = nextSignature;
+    }
+
     function paneFrame(item) {
       const existing = paneFrames.get(item.id);
       if (existing && existing.kind === item.kind) {
+        updatePaneFrameSource(existing.frame, item);
         return existing.frame;
       }
       const frame = document.createElement("iframe");
       frame.className = "workspace-pane-frame";
       frame.title = `${kindMap.get(item.kind).label} pane`;
-      frame.src = options.paneUrl(item.kind, item);
+      updatePaneFrameSource(frame, item);
       paneFrames.set(item.id, { kind: item.kind, frame });
       return frame;
     }
@@ -463,7 +532,7 @@
     function splitLeaf(id, direction, ratio = 0.5, emptyFirst = false) {
       const item = leafById(id);
       if (!item) return;
-      const existing = { ...item };
+      const existing = cloneLeaf(item);
       const empty = leaf();
       layout = replaceNode(
         layout,
@@ -486,6 +555,10 @@
         kind === "agent" &&
         leaves().some((leafItem) => leafItem.kind === "agent" && leafItem !== item)
       ) return;
+      if (item.kind !== kind) {
+        delete item.content;
+        delete item.projectRoot;
+      }
       item.kind = kind;
       saveLayout();
       render();
@@ -503,11 +576,12 @@
       const target = leafById(targetId);
       if (!source || !target || source === target) return;
       if (position === "center") {
-        const kind = source.kind;
-        source.kind = target.kind;
-        target.kind = kind;
+        const sourceState = cloneLeaf(source);
+        const targetState = cloneLeaf(target);
+        assignLeafState(source, targetState);
+        assignLeafState(target, sourceState);
       } else {
-        const moved = { ...source };
+        const moved = cloneLeaf(source);
         layout = removeLeaf(layout, sourceId);
         const remainingTarget = leafById(targetId);
         if (!remainingTarget) return;
@@ -567,10 +641,30 @@
         return;
       }
       const data = event.data || {};
-      if (data.type !== "electroboy:pane-close") {
+      if (data.type === "electroboy:pane-close") {
+        closeLeaf(String(data.paneInstanceId || ""));
         return;
       }
-      closeLeaf(String(data.paneInstanceId || ""));
+      const item = leafById(String(data.paneInstanceId || ""));
+      if (!item) {
+        return;
+      }
+      if (data.type === "electroboy:pane-artifact-change") {
+        item.content = cloneContent(data.item);
+        if (typeof data.projectRoot === "string" && data.projectRoot) {
+          item.projectRoot = data.projectRoot;
+        }
+        saveLayout();
+        return;
+      }
+      if (
+        data.type === "electroboy:pane-agent-session-change" &&
+        item.kind === "agent"
+      ) {
+        const sessionId = String(data.sessionId || "");
+        item.content = sessionId ? { sessionId } : null;
+        saveLayout();
+      }
     }
 
     if (options.resetButton) {
