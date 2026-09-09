@@ -132,7 +132,10 @@
     const FRONTEND_DEBUG_ENDPOINT = "/api/frontend/debug";
     const FRONTEND_DEBUG_STORAGE_KEY = "electroboy.frontendDebug.last";
     const FRONTEND_DEBUG_HEARTBEAT_ID = "electroboyFrontendDebugHeartbeat";
-    const FRONTEND_TELEMETRY_STORAGE_KEY = "electroboy.telemetry.enabled.v1";
+    const FRONTEND_TELEMETRY_STORAGE_KEY = "electroboy.telemetry.enabled.v2";
+    const LEGACY_FRONTEND_TELEMETRY_STORAGE_KEYS = [
+      "electroboy.telemetry.enabled.v1",
+    ];
     const DEFAULT_FRONTEND_TELEMETRY_ENABLED = false;
     const FRONTEND_TELEMETRY_QUERY_KEYS = [
       "telemetry",
@@ -231,6 +234,8 @@
     let paneCornerSplitCancel = null;
     let terminalResizeObserver = null;
     let fitTerminalFrame = 0;
+    let frontendResumeRecoveryFrame = 0;
+    let frontendResumeRecoveryTimer = 0;
     let frontendTelemetryEnabled = storedFrontendTelemetryEnabled();
     let frontendDebugDiagnosticsStarted = false;
     let frontendDebugFrameInstrumented = false;
@@ -790,6 +795,9 @@
 
     function storedFrontendTelemetryEnabled() {
       try {
+        for (const key of LEGACY_FRONTEND_TELEMETRY_STORAGE_KEYS) {
+          window.localStorage.removeItem(key);
+        }
         const stored = parseFrontendTelemetryPreference(
           window.localStorage.getItem(FRONTEND_TELEMETRY_STORAGE_KEY),
         );
@@ -827,7 +835,7 @@
     function applyFrontendTelemetryUrlPreference() {
       const preference = frontendTelemetryPreferenceFromUrl();
       if (preference !== null) {
-        setFrontendTelemetryEnabled(preference);
+        setFrontendTelemetryEnabled(preference, { persist: false });
       }
     }
 
@@ -880,6 +888,17 @@
           return callback(timestamp);
         });
       };
+    }
+
+    function restoreFrontendDebugFrames() {
+      if (!frontendDebugFrameInstrumented) {
+        return;
+      }
+      if (frontendDebugNativeRequestAnimationFrame) {
+        window.requestAnimationFrame = frontendDebugNativeRequestAnimationFrame;
+      }
+      frontendDebugNativeRequestAnimationFrame = null;
+      frontendDebugFrameInstrumented = false;
     }
 
     function ensureFrontendDebugPaintMarker() {
@@ -1181,6 +1200,17 @@
           },
         );
       };
+    }
+
+    function restoreFrontendDebugFetch() {
+      if (!frontendDebugFetchInstrumented) {
+        return;
+      }
+      if (frontendDebugNativeFetch) {
+        window.fetch = frontendDebugNativeFetch;
+      }
+      frontendDebugNativeFetch = null;
+      frontendDebugFetchInstrumented = false;
     }
 
     function frontendDebugResponseBodyPayload() {
@@ -1790,6 +1820,8 @@
         frontendDebugLongTaskObserver.disconnect();
         frontendDebugLongTaskObserver = null;
       }
+      restoreFrontendDebugFrames();
+      restoreFrontendDebugFetch();
       unbindFrontendDebugListeners();
       if (frontendDebugPaintMarker) {
         frontendDebugPaintMarker.remove();
@@ -6569,12 +6601,45 @@
       return true;
     }
 
+    function runFrontendResumeRecovery() {
+      const pendingFrame = frontendResumeRecoveryFrame;
+      const pendingTimer = frontendResumeRecoveryTimer;
+      frontendResumeRecoveryFrame = 0;
+      frontendResumeRecoveryTimer = 0;
+      if (pendingFrame && typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(pendingFrame);
+      }
+      if (pendingTimer) {
+        window.clearTimeout(pendingTimer);
+      }
+      bumpFrontendDebugCounter("resumeRecovery.run");
+      refreshPaneLayoutVisibility();
+      reconcilePaneLayout();
+      applySidePaneVisibility();
+      scheduleFitTerminal();
+    }
+
+    function scheduleFrontendResumeRecovery() {
+      if (frontendResumeRecoveryFrame || frontendResumeRecoveryTimer) {
+        return;
+      }
+      bumpFrontendDebugCounter("resumeRecovery.scheduled");
+      const requestFrame = frontendDebugNativeRequestAnimationFrame ||
+        window.requestAnimationFrame.bind(window);
+      frontendResumeRecoveryFrame = requestFrame(runFrontendResumeRecovery);
+      frontendResumeRecoveryTimer = window.setTimeout(
+        runFrontendResumeRecovery,
+        160,
+      );
+    }
+
     async function resumeWorkspaceAttachment() {
       if (!contextId || !workspaceLeaseToken) {
         return;
       }
       if (await sendWorkspaceHeartbeat()) {
         startWorkspaceHeartbeat();
+        scheduleFrontendResumeRecovery();
       }
     }
 

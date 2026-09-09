@@ -1972,9 +1972,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("if (paneIsVisible(projectShellPane))", runtime)
         self.assertIn('const FRONTEND_DEBUG_ENDPOINT = "/api/frontend/debug";', runtime)
         self.assertIn(
-            'const FRONTEND_TELEMETRY_STORAGE_KEY = "electroboy.telemetry.enabled.v1";',
+            'const FRONTEND_TELEMETRY_STORAGE_KEY = "electroboy.telemetry.enabled.v2";',
             runtime,
         )
+        self.assertIn('"electroboy.telemetry.enabled.v1"', runtime)
         self.assertIn("const DEFAULT_FRONTEND_TELEMETRY_ENABLED = false;", runtime)
         self.assertIn('"telemetry",\n      "frontend_telemetry",\n      "frontend_debug"', runtime)
         self.assertIn("let frontendTelemetryEnabled = storedFrontendTelemetryEnabled();", runtime)
@@ -1984,6 +1985,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("function setFrontendTelemetryEnabled(enabled, options = {})", runtime)
         self.assertIn("function applyFrontendTelemetryUrlPreference()", runtime)
+        self.assertIn(
+            "setFrontendTelemetryEnabled(preference, { persist: false });",
+            runtime,
+        )
         self.assertIn("if (!frontendTelemetryEnabled) {\n        return;\n      }", runtime)
         self.assertIn("if (!frontendTelemetryEnabled) {\n        return false;\n      }", runtime)
         self.assertIn(
@@ -1991,6 +1996,10 @@ class ServiceTests(unittest.TestCase):
             runtime,
         )
         self.assertIn("function stopFrontendDebugDiagnostics()", runtime)
+        self.assertIn("function restoreFrontendDebugFrames()", runtime)
+        self.assertIn("function restoreFrontendDebugFetch()", runtime)
+        self.assertIn("restoreFrontendDebugFrames();", runtime)
+        self.assertIn("restoreFrontendDebugFetch();", runtime)
         self.assertIn("frontendDebugRafPulseActive = false;", runtime)
         self.assertIn("telemetry: frontendTelemetryRuntime,", runtime)
         self.assertIn("enable() {\n        return setFrontendTelemetryEnabled(true);", runtime)
@@ -2060,6 +2069,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("rawEventSource: createDebugEventSourceForUrl,", runtime)
         self.assertNotIn("window.requestAnimationFrame(fitTerminal)", runtime)
         self.assertIn('window.addEventListener("resize", scheduleFitTerminal);', runtime)
+        self.assertIn("function scheduleFrontendResumeRecovery()", runtime)
+        self.assertIn("function runFrontendResumeRecovery()", runtime)
+        self.assertIn("scheduleFrontendResumeRecovery();", runtime)
+        self.assertIn('bumpFrontendDebugCounter("resumeRecovery.run")', runtime)
         self.assertIn("fitAll: scheduleFitTerminal,", runtime)
         self.assertIn(
             "terminalResizeObserver = new window.ResizeObserver((entries) => {",
