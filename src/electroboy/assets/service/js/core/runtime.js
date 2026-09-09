@@ -782,6 +782,11 @@
         Boolean(outputWorkbench.firstElementChild);
     }
 
+    function paneLayoutRootIsMounted() {
+      const root = outputWorkbench.firstElementChild;
+      return Boolean(root && root.classList.contains("pane-layout-root"));
+    }
+
     function parseFrontendTelemetryPreference(value) {
       const normalized = String(value || "").trim().toLowerCase();
       if (["1", "true", "yes", "on", "enable", "enabled"].includes(normalized)) {
@@ -6613,8 +6618,12 @@
         window.clearTimeout(pendingTimer);
       }
       bumpFrontendDebugCounter("resumeRecovery.run");
+      if (paneLayout && !paneLayoutRootIsMounted()) {
+        bumpFrontendDebugCounter("resumeRecovery.renderMissingRoot");
+        renderPaneLayout();
+        return;
+      }
       refreshPaneLayoutVisibility();
-      reconcilePaneLayout();
       applySidePaneVisibility();
       scheduleFitTerminal();
     }

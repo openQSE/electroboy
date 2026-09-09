@@ -2073,6 +2073,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function runFrontendResumeRecovery()", runtime)
         self.assertIn("scheduleFrontendResumeRecovery();", runtime)
         self.assertIn('bumpFrontendDebugCounter("resumeRecovery.run")', runtime)
+        resume_recovery_start = runtime.index("function runFrontendResumeRecovery()")
+        resume_recovery_end = runtime.index(
+            "function scheduleFrontendResumeRecovery()",
+            resume_recovery_start,
+        )
+        resume_recovery = runtime[resume_recovery_start:resume_recovery_end]
+        self.assertIn("paneLayoutRootIsMounted()", resume_recovery)
+        self.assertIn("renderPaneLayout();", resume_recovery)
+        self.assertNotIn("reconcilePaneLayout();", resume_recovery)
         self.assertIn("fitAll: scheduleFitTerminal,", runtime)
         self.assertIn(
             "terminalResizeObserver = new window.ResizeObserver((entries) => {",
