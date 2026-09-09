@@ -4,12 +4,15 @@
   let runtimeApi = null;
   let runtimeState = null;
   let inputPaneSync = null;
+  let agentSessionSync = null;
   let inputSyncQueue = Promise.resolve();
+  let applyingAgentSessionSync = false;
   let agentEventStreamVersion = 0;
   let agentEventSource = null;
   const agentEventLastIds = new Map();
   const inputDrafts = new Map();
   let agentPaneTools = null;
+  let renameSessionDialog = null;
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
@@ -249,6 +252,65 @@
       return runtimeState.agentSessions.find((session) => session.session_id === runtimeState.selectedSessionId) || null;
     }
 
+    function cloneAgentSessions(sessions) {
+      return sessions.map((session) => ({
+        ...session,
+        metadata: session.metadata && typeof session.metadata === "object"
+          ? { ...session.metadata }
+          : {},
+      }));
+    }
+
+    function agentSessionState() {
+      return {
+        sessions: cloneAgentSessions(runtimeState.agentSessions),
+        selectedSessionId: runtimeState.selectedSessionId || "",
+        activeProjectRoot: runtimeState.activeProjectRoot ||
+          runtimeState.activationRoot || "",
+      };
+    }
+
+    function publishAgentSessionState() {
+      if (
+        applyingAgentSessionSync ||
+        !agentSessionSync ||
+        !agentSessionSync.available
+      ) {
+        return;
+      }
+      agentSessionSync.publish(agentSessionState());
+    }
+
+    function applySharedAgentSessionState(state) {
+      if (!state || !Array.isArray(state.sessions)) {
+        return;
+      }
+      applyingAgentSessionSync = true;
+      try {
+        runtimeState.agentSessions = cloneAgentSessions(state.sessions);
+        const incomingSessionId = String(state.selectedSessionId || "");
+        const incomingSelectedSession = runtimeState.agentSessions.find(
+          (session) => session.session_id === incomingSessionId && session.selected,
+        );
+        const currentSelectionExists = runtimeState.agentSessions.some(
+          (session) => session.session_id === runtimeState.selectedSessionId,
+        );
+        if (incomingSelectedSession) {
+          runtimeState.selectedSessionId = incomingSelectedSession.session_id;
+        } else if (!currentSelectionExists) {
+          const fallback = runtimeState.agentSessions.find(
+            (session) => session.selected,
+          ) || runtimeState.agentSessions[0];
+          runtimeState.selectedSessionId = fallback ? fallback.session_id : "";
+        }
+        syncOpenDocumentTargetsFromSessions();
+        renderSessionSwitcher();
+        updateAgentControls();
+      } finally {
+        applyingAgentSessionSync = false;
+      }
+    }
+
     function sessionIsRunning(session) {
       return session && session.status === "running";
     }
@@ -321,6 +383,7 @@
         runtimeApi.elements.sessionSwitcher.disabled = true;
         runtimeApi.elements.renameAgentSession.disabled = true;
         updateSessionIndicator(null);
+        publishAgentSessionState();
         return;
       }
       if (runtimeState.agentSessions.length === 0 && remoteSessions.length > 0) {
@@ -363,6 +426,7 @@
       updateSessionIndicator(selectedSession());
       ensureRunningSessionStreams();
       ensureSelectedSessionStream();
+      publishAgentSessionState();
     }
 
     function selectAgentSessionLocally(sessionId, sessions = null, options = {}) {
@@ -390,6 +454,7 @@
       );
       updateAgentControls();
       sendTerminalResize();
+      publishAgentSessionState();
     }
 
     function ensureSelectedSessionStream(options = {}) {
@@ -465,10 +530,7 @@
       if (!session) {
         return;
       }
-      const name = window.prompt(
-        "Session name (leave blank to use the default label)",
-        String(session.name || ""),
-      );
+      const name = await promptRenameSessionName(session);
       if (name === null) {
         return;
       }
@@ -487,6 +549,95 @@
       }
       runtimeState.selectedSessionId = payload.selected_session_id || session.session_id;
       renderSessionSwitcher();
+    }
+
+    function ensureRenameSessionDialog() {
+      if (renameSessionDialog) {
+        return renameSessionDialog;
+      }
+      const dialog = document.createElement("dialog");
+      dialog.id = "agentSessionRenameDialog";
+      dialog.className = "ad-hoc-session-dialog agent-session-rename-dialog";
+      dialog.innerHTML = `
+        <form method="dialog" class="ad-hoc-session-form agent-session-rename-form">
+          <header class="ad-hoc-session-header">
+            <div>
+              <h2>Rename AI Agent session</h2>
+              <p>Set a display name for the selected agent session.</p>
+            </div>
+            <button
+              type="button"
+              class="ad-hoc-session-close agent-session-rename-close"
+              aria-label="Close"
+            >&times;</button>
+          </header>
+          <section class="agent-session-rename-body">
+            <label class="agent-session-rename-field">
+              <span>Name</span>
+              <input
+                class="agent-session-rename-name"
+                type="text"
+                autocomplete="off"
+                maxlength="120"
+                placeholder="Leave blank to use the default label"
+              >
+            </label>
+            <p class="agent-session-rename-help">
+              Leave blank to restore the default label.
+            </p>
+            <p
+              class="ad-hoc-session-error agent-session-rename-error"
+              role="alert"
+              hidden
+            ></p>
+          </section>
+          <footer class="ad-hoc-session-footer">
+            <button type="button" class="agent-session-rename-cancel">Cancel</button>
+            <button type="submit" class="ad-hoc-session-submit">Save</button>
+          </footer>
+        </form>
+      `;
+      document.body.append(dialog);
+      renameSessionDialog = dialog;
+      return dialog;
+    }
+
+    function promptRenameSessionName(session) {
+      const dialog = ensureRenameSessionDialog();
+      const input = dialog.querySelector(".agent-session-rename-name");
+      const error = dialog.querySelector(".agent-session-rename-error");
+      input.value = String(session.name || "");
+      error.hidden = true;
+      error.textContent = "";
+      return new Promise((resolve) => {
+        const finish = (value) => {
+          dialog.close();
+          resolve(value);
+        };
+        dialog.querySelector(".agent-session-rename-close").onclick = () => {
+          finish(null);
+        };
+        dialog.querySelector(".agent-session-rename-cancel").onclick = () => {
+          finish(null);
+        };
+        dialog.oncancel = (event) => {
+          event.preventDefault();
+          finish(null);
+        };
+        dialog.querySelector("form").onsubmit = (event) => {
+          event.preventDefault();
+          const name = input.value.trim();
+          if (name.length > 120) {
+            error.textContent = "Use 120 characters or fewer.";
+            error.hidden = false;
+            return;
+          }
+          finish(input.value);
+        };
+        dialog.showModal();
+        input.focus();
+        input.select();
+      });
     }
 
     async function refreshServiceSessions() {
@@ -569,6 +720,7 @@
       prepareTerminalStream(sessionId);
       ensureAgentEventStream();
       runtimeState.eventSource = agentEventSource;
+      publishAgentSessionState();
     }
 
     function closeAgentEventStream() {
@@ -954,7 +1106,18 @@
           });
       },
     });
-    window.addEventListener("pagehide", () => inputPaneSync.close(), { once: true });
+    agentSessionSync = runtime.sharedPanes.connect("agent-sessions", {
+      snapshot: agentSessionState,
+      receive: applySharedAgentSessionState,
+    });
+    window.addEventListener(
+      "pagehide",
+      () => {
+        inputPaneSync.close();
+        agentSessionSync.close();
+      },
+      { once: true },
+    );
     const shortcutController = window.ElectroBoyInputShortcut.bindRecorder(
       runtime.input.sendShortcut,
     );

@@ -68,7 +68,7 @@ def creative_session_history(
                     electroboy_session_id=str(
                         entry.get("electroboy_session_id") or ""
                     ),
-                    title=str(entry.get("title") or "Creative session"),
+                    title=str(entry.get("title") or "").strip() or None,
                 )
             )
         catalog["sessions"] = [*scoped_entries, *retained]
@@ -123,6 +123,47 @@ def remember_creative_session(
         _upsert_catalog_entry(catalog, entry)
         _save_catalog(service_root, catalog)
         return entry
+
+
+def rename_creative_session_title(
+    service_root: Path,
+    *,
+    electroboy_session_id: str = "",
+    provider_session_id: str = "",
+    title: str = "",
+) -> bool:
+    """Update a saved creative resume title after an ElectroBoy session rename."""
+
+    electroboy_session_id = electroboy_session_id.strip()
+    provider_session_id = provider_session_id.strip().lower()
+    title = " ".join(str(title or "").split())
+    if not electroboy_session_id and not provider_session_id:
+        return False
+    with _CATALOG_LOCK:
+        catalog = _load_catalog(service_root)
+        changed = False
+        for entry in catalog["sessions"]:
+            entry_provider_id = str(entry.get("provider_session_id") or "")
+            entry_electroboy_id = str(entry.get("electroboy_session_id") or "")
+            matches = (
+                electroboy_session_id
+                and entry_electroboy_id == electroboy_session_id
+            ) or (
+                provider_session_id
+                and entry_provider_id.strip().lower() == provider_session_id
+            )
+            if not matches:
+                continue
+            if title:
+                if entry.get("title") != title:
+                    entry["title"] = title
+                    changed = True
+            elif "title" in entry:
+                entry.pop("title", None)
+                changed = True
+        if changed:
+            _save_catalog(service_root, catalog)
+        return changed
 
 
 def resumable_creative_session(

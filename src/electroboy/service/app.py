@@ -1541,13 +1541,26 @@ class ServiceState:
         with self.lock:
             context = self._context_locked(context_id)
             session = self._session_by_id_locked(context, session_id)
-            session.name = normalize_session_name(name)
+            normalized_name = normalize_session_name(name)
+            session.name = normalized_name
             self._record_session_locked(context, session)
-            return {
+            provider_session_id = str(
+                (session.metadata or {}).get("provider_session_id") or ""
+            )
+            kind = str(getattr(session, "kind", ""))
+            payload = {
                 "context_id": context.context_id,
                 "selected_session_id": context.selected_session_id,
                 "sessions": _session_payloads(context),
             }
+        _rename_workflow_session_title(
+            self.state_root,
+            kind=kind,
+            electroboy_session_id=session_id,
+            provider_session_id=provider_session_id,
+            title=normalized_name,
+        )
+        return payload
 
     def attach_session(self, context_id: str, session_id: str) -> dict[str, object]:
         with self.lock:
@@ -2514,6 +2527,38 @@ def _session_display_label(session: AgentSession) -> str:
     label = str(getattr(session, "label", "") or "")
     kind = str(getattr(session, "kind", "") or "")
     return name or label or kind or "agent"
+
+
+def _rename_workflow_session_title(
+    service_root: Path,
+    *,
+    kind: str,
+    electroboy_session_id: str,
+    provider_session_id: str = "",
+    title: str = "",
+) -> None:
+    if kind == "ad-hoc":
+        from electroboy.workflows.software.ad_hoc import (
+            rename_ad_hoc_session_title,
+        )
+
+        rename_ad_hoc_session_title(
+            service_root,
+            electroboy_session_id=electroboy_session_id,
+            provider_session_id=provider_session_id,
+            title=title,
+        )
+    elif kind == "creative-writing":
+        from electroboy.workflows.creative_writing.sessions import (
+            rename_creative_session_title,
+        )
+
+        rename_creative_session_title(
+            service_root,
+            electroboy_session_id=electroboy_session_id,
+            provider_session_id=provider_session_id,
+            title=title,
+        )
 
 
 def _limited_session_replay_events(

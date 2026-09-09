@@ -1122,7 +1122,9 @@
     let contentRefreshTimer = null;
     let disposableShellStopped = false;
     let sharedPaneSync = null;
+    let agentSessionSync = null;
     let contentCatalogSync = null;
+    let applyingAgentSessionSync = false;
     let paneToolsController = null;
     let agentPaneTools = null;
     let filePaneTools = null;
@@ -1482,6 +1484,7 @@
         renderSessionSwitcher();
         connectAgentStream();
       }
+      publishAgentSessionState();
     }
 
     function paneDocumentAgentPayload(target) {
@@ -1564,7 +1567,7 @@
       const copy = document.createElement("span");
       copy.className = "pane-session-option-copy";
       const title = document.createElement("strong");
-      title.textContent = String(session.title || "Creative session");
+      title.textContent = String(session.name || session.title || "Creative session");
       const details = document.createElement("span");
       details.className = "pane-session-details";
       const status = String(session.status || "");
@@ -1843,7 +1846,95 @@
 
     function agentSessionDisplayLabel(session) {
       const status = session.status === "running" ? "running" : session.status || "done";
+      const name = String(session.name || "").trim();
+      if (name) {
+        return `${name} · ${session.kind || "agent"} · ${status}`;
+      }
+      const metadata = session.metadata && typeof session.metadata === "object"
+        ? session.metadata
+        : {};
+      const documentLabel = String(
+        metadata.document_label ||
+        metadata.document_path ||
+        metadata.target_path ||
+        "",
+      ).trim();
+      if (documentLabel) {
+        return `Document: ${documentLabel} · ${status}`;
+      }
       return `${session.kind || "agent"} · ${status}`;
+    }
+
+    function cloneAgentSessions(sessions) {
+      return sessions.map((session) => ({
+        ...session,
+        metadata: session.metadata && typeof session.metadata === "object"
+          ? { ...session.metadata }
+          : {},
+      }));
+    }
+
+    function agentSessionState() {
+      return {
+        sessions: cloneAgentSessions(agentSessions),
+        selectedSessionId: selectedSessionId || "",
+        activeProjectRoot,
+      };
+    }
+
+    function publishAgentSessionState() {
+      if (
+        applyingAgentSessionSync ||
+        !agentSessionSync ||
+        !agentSessionSync.available
+      ) {
+        return;
+      }
+      agentSessionSync.publish(agentSessionState());
+    }
+
+    function applySharedAgentSessionState(state) {
+      if (!state || !Array.isArray(state.sessions)) {
+        return;
+      }
+      const previousSessionId = selectedSessionId || "";
+      applyingAgentSessionSync = true;
+      try {
+        agentSessions = cloneAgentSessions(state.sessions);
+        activeProjectRoot = String(state.activeProjectRoot || activeProjectRoot || "");
+        const incomingSessionId = String(state.selectedSessionId || "");
+        const pinnedValid = pinnedAgentSessionId && agentSessions.some(
+          (session) => session.session_id === pinnedAgentSessionId,
+        );
+        if (PANE_KIND === "agent" && pinnedValid) {
+          selectedSessionId = pinnedAgentSessionId;
+        } else if (
+          incomingSessionId &&
+          agentSessions.some((session) => session.session_id === incomingSessionId)
+        ) {
+          selectedSessionId = incomingSessionId;
+          pinnedAgentSessionId = PANE_KIND === "agent"
+            ? selectedSessionId
+            : pinnedAgentSessionId;
+        }
+        if (
+          selectedSessionId &&
+          !agentSessions.some((session) => session.session_id === selectedSessionId)
+        ) {
+          selectedSessionId = "";
+          pinnedAgentSessionId = PANE_KIND === "agent" ? "" : pinnedAgentSessionId;
+        }
+        renderSessionSwitcher();
+      } finally {
+        applyingAgentSessionSync = false;
+      }
+      if (
+        PANE_KIND === "agent" &&
+        selectedSessionId &&
+        selectedSessionId !== previousSessionId
+      ) {
+        connectAgentStream();
+      }
     }
 
     function selectedInputHistoryScope() {
@@ -2462,6 +2553,7 @@
         notifyPaneAgentSessionChange();
       }
       renderSessionSwitcher();
+      publishAgentSessionState();
     }
 
     async function selectAgentSession(sessionId) {
@@ -2477,6 +2569,7 @@
         renderSessionSwitcher();
         connectAgentStream();
         notifyPaneAgentSessionChange();
+        publishAgentSessionState();
         return;
       }
       const response = await fetch(contextUrl("/api/sessions/select"), {
@@ -2492,6 +2585,7 @@
       agentSessions = Array.isArray(payload.sessions) ? payload.sessions : agentSessions;
       selectedSessionId = payload.selected_session_id || sessionId;
       renderSessionSwitcher();
+      publishAgentSessionState();
       if (PANE_KIND === "input") {
         agentInput.focus();
       }
@@ -2573,6 +2667,18 @@
     }
 
     function initializeSharedPaneSync() {
+      if (
+        window.ElectroBoyPaneSync &&
+        ["agent", "input"].includes(PANE_KIND)
+      ) {
+        agentSessionSync = window.ElectroBoyPaneSync.connect({
+          pane: "agent-sessions",
+          context: () => `${contextId}:${connectionId}`,
+          priority: 10,
+          snapshot: agentSessionState,
+          receive: applySharedAgentSessionState,
+        });
+      }
       if (!["scratch", "progress", "status", "input"].includes(PANE_KIND)) {
         return;
       }
@@ -4211,6 +4317,7 @@
       selectedSessionId = payload.selected_session_id || "";
       pinnedAgentSessionId = PANE_KIND === "agent" ? selectedSessionId : pinnedAgentSessionId;
       renderSessionSwitcher();
+      publishAgentSessionState();
       if (selectedAgentSession()) {
         connectAgentStream();
       } else if (PANE_KIND === "agent") {
@@ -4956,6 +5063,7 @@
     window.addEventListener("beforeunload", () => {
       stopDisposableShell();
       if (sharedPaneSync) sharedPaneSync.close();
+      if (agentSessionSync) agentSessionSync.close();
       if (contentCatalogSync) contentCatalogSync.close();
       replacePaneEventSource();
       if (artifactEventSource) artifactEventSource.close();

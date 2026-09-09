@@ -1477,6 +1477,8 @@ class ServiceTests(unittest.TestCase):
             file_pane_tools,
         )
         self.assertIn('runtime.sharedPanes.connect("input"', sessions)
+        self.assertIn('runtime.sharedPanes.connect("agent-sessions"', sessions)
+        self.assertIn("function publishAgentSessionState()", sessions)
         self.assertIn('runtime.sharedPanes.connect("progress"', progress)
         self.assertNotIn('sharedPanes.connect("input"', app)
         self.assertNotIn('sharedPanes.connect("progress"', app)
@@ -1655,11 +1657,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/agents/ad-hoc/sessions")', software)
         self.assertIn("function ensureAdHocSessionDialog()", software)
         self.assertIn('class="ad-hoc-session-name"', software)
+        self.assertIn('session.name || session.title || "Ad-hoc session"', software)
+        self.assertIn('session.name || session.title || "Creative session"', creative)
+        self.assertIn('session.name || session.title || "Creative session"', PANE_WINDOW_HTML)
         self.assertIn("provider_session_id: choice.providerSessionId", ad_hoc_start)
         self.assertIn('name: choice.name || ""', ad_hoc_start)
         self.assertIn('contextUrl("/api/sessions/rename")', sessions)
         self.assertIn("function renameSelectedSession()", sessions)
         self.assertIn('String(session.name || "").trim()', sessions)
+        self.assertIn("function promptRenameSessionName(session)", sessions)
+        self.assertIn('id = "agentSessionRenameDialog"', sessions)
+        self.assertNotIn("window.prompt", sessions)
+        self.assertIn(".agent-session-rename-dialog", shell_css)
         self.assertNotIn("Focus ad-hoc", software)
         self.assertNotIn("runtimeApi.getState().adHocRunning", ad_hoc_start)
         self.assertIn("async function startGenericStageAgent(", software)
@@ -1836,6 +1845,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function bindPaneLayoutCommand(button, handler)", runtime)
         self.assertIn("bindPaneLayoutCommand(close, () => closePaneLayoutLeaf(leaf.id));", runtime)
         self.assertIn('bumpFrontendDebugCounter("paneLayout.closeSkippedMissingLeaf")', runtime)
+        self.assertIn("function renderPaneLayoutIncrementalSplit(", runtime)
+        self.assertIn("parent.insertBefore(splitElement, preservedElement);", runtime)
+        self.assertIn("if (!renderPaneLayoutIncrementalSplit(replacement, existingLeaf.id))", runtime)
         self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
         self.assertIn("function ensureActivePaneLayoutLeaf(preferredKind = \"\")", runtime)
         self.assertIn("ensureActivePaneLayoutLeaf();\n      const root = renderPaneLayoutNode(paneLayout);", runtime)
@@ -2972,6 +2984,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function cloneLeaf(item)", workspace)
         self.assertIn("function paneFrameContentSignature(item)", workspace)
         self.assertIn("frame.dataset.paneContentSignature", workspace)
+        self.assertIn("function renderIncrementalSplit(", workspace)
+        self.assertIn("parent.insertBefore(element, preservedElement);", workspace)
+        self.assertIn("if (!renderIncrementalSplit(replacement, existing.id))", workspace)
         self.assertIn('function moveLeaf(', workspace)
         self.assertIn('item.kind = kind;', workspace)
         self.assertIn('const paneFrames = new Map();', workspace)
@@ -3316,6 +3331,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('startAgent: startPaneDocumentAgent', PANE_WINDOW_HTML)
         self.assertIn("function refreshSessions()", PANE_WINDOW_HTML)
         self.assertIn("function selectAgentSession(sessionId)", PANE_WINDOW_HTML)
+        self.assertIn('pane: "agent-sessions"', PANE_WINDOW_HTML)
+        self.assertIn("function applySharedAgentSessionState(state)", PANE_WINDOW_HTML)
+        self.assertIn('String(session.name || "").trim()', PANE_WINDOW_HTML)
         self.assertIn("function scratchPadStorageKey()", PANE_WINDOW_HTML)
         self.assertIn("`${SCRATCH_PAD_STORAGE_KEY}.${contextId}`", PANE_WINDOW_HTML)
         self.assertIn("window.localStorage.getItem(storageKey)", PANE_WINDOW_HTML)
@@ -7355,6 +7373,7 @@ class ServiceTests(unittest.TestCase):
                     active_document="chapters/chapter-01.md",
                     provider_session_id=provider_session_id,
                 )
+                state.rename_session(context_id, session.session_id, "Opening rewrite")
                 resumed_again, resumed_again_started = (
                     state.start_creative_writing_agent(
                         context_id,
@@ -7384,6 +7403,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(resumed_again.command[-2:], ["resume", provider_session_id])
         self.assertEqual(session.metadata["provider_session_id"], provider_session_id)
         self.assertTrue(session.metadata["resumed_session"])
+        self.assertEqual(resumed_again.metadata["title"], "Opening rewrite")
         self.assertEqual(session.metadata["creative_scope"], "document")
         self.assertEqual(session.metadata["document_path"], "chapters/chapter-01.md")
         self.assertEqual(history["scope"], "document")
@@ -7391,7 +7411,7 @@ class ServiceTests(unittest.TestCase):
             history["sessions"][0]["provider_session_id"],
             provider_session_id,
         )
-        self.assertEqual(history["sessions"][0]["title"], "Revise the opening scene.")
+        self.assertEqual(history["sessions"][0]["title"], "Opening rewrite")
         self.assertEqual(catalog["schema_version"], 1)
         self.assertEqual(
             catalog["sessions"][0]["provider_session_id"],
@@ -7401,6 +7421,7 @@ class ServiceTests(unittest.TestCase):
             catalog["sessions"][0]["scope_key"],
             "document:chapters/chapter-01.md",
         )
+        self.assertEqual(catalog["sessions"][0]["title"], "Opening rewrite")
 
     def test_creative_agent_imports_unscoped_codex_session_by_id(self) -> None:
         provider_session_id = "019f99e8-c540-7503-a821-806d11807fda"
@@ -8011,6 +8032,11 @@ class ServiceTests(unittest.TestCase):
                         context_id,
                         provider_session_id,
                     )
+                    state.rename_session(
+                        context_id,
+                        session.session_id,
+                        "Import service follow-up",
+                    )
                     duplicate, duplicate_started = controller.start_ad_hoc_agent(
                         context_id,
                         provider_session_id,
@@ -8046,6 +8072,7 @@ class ServiceTests(unittest.TestCase):
             provider_session_id,
         )
         self.assertTrue(session.metadata["resumed_session"])
+        self.assertEqual(session.name, "Import service follow-up")
         self.assertEqual(
             catalog["sessions"][0]["provider_session_id"],
             provider_session_id,
@@ -8057,7 +8084,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             catalog["sessions"][0]["title"],
-            "Prototype the import service.",
+            "Import service follow-up",
         )
 
     def test_ad_hoc_resume_rejects_session_from_another_project(self) -> None:

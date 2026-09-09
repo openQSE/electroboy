@@ -287,6 +287,48 @@
       filter: brightness(0.95);
     }
 
+    .agent-session-rename-dialog {
+      width: min(480px, calc(100vw - 40px));
+    }
+
+    .agent-session-rename-form {
+      grid-template-rows: auto auto auto;
+    }
+
+    .agent-session-rename-body {
+      display: grid;
+      gap: 8px;
+      padding: 16px 18px;
+    }
+
+    .agent-session-rename-field {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: var(--ui-small-font-size);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .agent-session-rename-name {
+      width: 100%;
+      min-width: 0;
+      height: 34px;
+      padding: 6px 9px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--panel);
+      color: var(--ink);
+      font: inherit;
+      text-transform: none;
+    }
+
+    .agent-session-rename-help {
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--ui-small-font-size);
+    }
+
     .splash-overlay {
       position: fixed;
       inset: 0;

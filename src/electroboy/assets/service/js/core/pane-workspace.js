@@ -264,6 +264,21 @@
       }
     }
 
+    function splitDivider(node, splitElement) {
+      const divider = document.createElement("div");
+      divider.className = `workspace-pane-divider ${node.direction}`;
+      divider.setAttribute("role", "separator");
+      divider.setAttribute(
+        "aria-orientation",
+        node.direction === "column" ? "horizontal" : "vertical",
+      );
+      divider.setAttribute("aria-label", "Resize split panes");
+      divider.addEventListener("pointerdown", (event) => {
+        startResize(event, node, splitElement, divider);
+      });
+      return divider;
+    }
+
     function startResize(event, node, splitElement, divider) {
       event.preventDefault();
       const pointerId = event.pointerId;
@@ -497,17 +512,7 @@
       element.className = `workspace-pane-split ${node.direction}`;
       element.dataset.workspacePaneId = node.id;
       const first = renderNode(node.first);
-      const divider = document.createElement("div");
-      divider.className = `workspace-pane-divider ${node.direction}`;
-      divider.setAttribute("role", "separator");
-      divider.setAttribute(
-        "aria-orientation",
-        node.direction === "column" ? "horizontal" : "vertical",
-      );
-      divider.setAttribute("aria-label", "Resize split panes");
-      divider.addEventListener("pointerdown", (event) => {
-        startResize(event, node, element, divider);
-      });
+      const divider = splitDivider(node, element);
       element.append(first, divider, renderNode(node.second));
       applySplitTemplate(element, node);
       return element;
@@ -529,23 +534,77 @@
       }
     }
 
+    function leafElementById(id) {
+      return Array.from(root.querySelectorAll(".workspace-pane-leaf")).find(
+        (candidate) => candidate.dataset.workspacePaneId === id,
+      ) || null;
+    }
+
+    function refreshLeafToolbar(item) {
+      const element = leafElementById(item.id);
+      if (!element) return;
+      element.dataset.paneKind = item.kind;
+      const existingToolbar = Array.from(element.children).find((child) =>
+        child.classList.contains("workspace-pane-toolbar")
+      );
+      if (existingToolbar) {
+        existingToolbar.replaceWith(toolbar(item));
+      }
+    }
+
+    function renderIncrementalSplit(replacement, preservedLeafId) {
+      const preservedElement = leafElementById(preservedLeafId);
+      const parent = preservedElement?.parentElement || null;
+      if (!preservedElement || !parent || replacement.type !== "split") {
+        return false;
+      }
+      const firstIsPreserved = replacement.first.id === preservedLeafId;
+      const secondIsPreserved = replacement.second.id === preservedLeafId;
+      if (!firstIsPreserved && !secondIsPreserved) {
+        return false;
+      }
+      const element = document.createElement("div");
+      element.className = `workspace-pane-split ${replacement.direction}`;
+      element.dataset.workspacePaneId = replacement.id;
+      if (parent === root) {
+        element.classList.add("workspace-pane-root");
+        preservedElement.classList.remove("workspace-pane-root");
+      }
+      parent.insertBefore(element, preservedElement);
+      const firstElement = firstIsPreserved
+        ? preservedElement
+        : renderNode(replacement.first);
+      const divider = splitDivider(replacement, element);
+      const secondElement = secondIsPreserved
+        ? preservedElement
+        : renderNode(replacement.second);
+      element.append(firstElement, divider, secondElement);
+      applySplitTemplate(element, replacement);
+      refreshLeafToolbar(replacement.first);
+      refreshLeafToolbar(replacement.second);
+      if (typeof options.onChange === "function") {
+        options.onChange(layout, leaves());
+      }
+      return true;
+    }
+
     function splitLeaf(id, direction, ratio = 0.5, emptyFirst = false) {
       const item = leafById(id);
       if (!item) return;
+      if (cornerSplitCancel) cornerSplitCancel();
       const existing = cloneLeaf(item);
       const empty = leaf();
-      layout = replaceNode(
-        layout,
-        id,
-        split(
-          direction,
-          emptyFirst ? empty : existing,
-          emptyFirst ? existing : empty,
-          ratio,
-        ),
+      const replacement = split(
+        direction,
+        emptyFirst ? empty : existing,
+        emptyFirst ? existing : empty,
+        ratio,
       );
+      layout = replaceNode(layout, id, replacement);
       saveLayout();
-      render();
+      if (!renderIncrementalSplit(replacement, existing.id)) {
+        render();
+      }
     }
 
     function changeKind(id, kind) {

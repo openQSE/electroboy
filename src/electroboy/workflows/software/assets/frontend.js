@@ -1133,7 +1133,7 @@
       const copy = document.createElement("span");
       copy.className = "ad-hoc-session-option-copy";
       const title = document.createElement("strong");
-      title.textContent = String(session.title || "Ad-hoc session");
+      title.textContent = String(session.name || session.title || "Ad-hoc session");
       input.dataset.sessionName = title.textContent;
       const details = document.createElement("span");
       details.className = "ad-hoc-session-details";

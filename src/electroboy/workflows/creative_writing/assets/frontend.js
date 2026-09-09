@@ -1083,7 +1083,7 @@
       const copy = document.createElement("span");
       copy.className = "ad-hoc-session-option-copy";
       const title = document.createElement("strong");
-      title.textContent = String(session.title || "Creative session");
+      title.textContent = String(session.name || session.title || "Creative session");
       const details = document.createElement("span");
       details.className = "ad-hoc-session-details";
       const date = creativeSessionDate(session);

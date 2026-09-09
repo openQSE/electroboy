@@ -2186,6 +2186,21 @@
       }
     }
 
+    function buildPaneLayoutDivider(node, splitElement) {
+      const divider = document.createElement("div");
+      divider.className = `pane-layout-divider ${node.direction}`;
+      divider.setAttribute("role", "separator");
+      divider.setAttribute(
+        "aria-orientation",
+        node.direction === "column" ? "horizontal" : "vertical",
+      );
+      divider.setAttribute("aria-label", "Resize split panes");
+      divider.addEventListener("pointerdown", (event) => {
+        startPaneLayoutResize(event, node, splitElement, divider);
+      });
+      return divider;
+    }
+
     function startPaneLayoutResize(event, node, splitElement, divider) {
       event.preventDefault();
       const pointerId = event.pointerId;
@@ -2757,17 +2772,7 @@
       split.className = `pane-layout-split ${node.direction}`;
       split.dataset.paneLayoutId = node.id;
       const first = renderPaneLayoutNode(node.first, renderedKinds);
-      const divider = document.createElement("div");
-      divider.className = `pane-layout-divider ${node.direction}`;
-      divider.setAttribute("role", "separator");
-      divider.setAttribute(
-        "aria-orientation",
-        node.direction === "column" ? "horizontal" : "vertical",
-      );
-      divider.setAttribute("aria-label", "Resize split panes");
-      divider.addEventListener("pointerdown", (event) => {
-        startPaneLayoutResize(event, node, split, divider);
-      });
+      const divider = buildPaneLayoutDivider(node, split);
       const second = renderPaneLayoutNode(node.second, renderedKinds);
       split.append(first, divider, second);
       applyPaneLayoutSplitTemplate(split, node);
@@ -2823,6 +2828,58 @@
       scheduleFitTerminal();
     }
 
+    function refreshPaneLayoutLeafToolbar(leaf) {
+      const element = paneLayoutLeafElementById(leaf.id);
+      if (!element) {
+        return;
+      }
+      element.dataset.paneKind = leaf.kind;
+      element.classList.toggle("active", leaf.id === activePaneLayoutLeafId);
+      const toolbar = Array.from(element.children).find((child) =>
+        child.classList.contains("pane-layout-toolbar")
+      );
+      if (toolbar) {
+        toolbar.replaceWith(buildPaneLayoutToolbar(leaf));
+      }
+    }
+
+    function renderPaneLayoutIncrementalSplit(replacement, preservedLeafId) {
+      const preservedElement = paneLayoutLeafElementById(preservedLeafId);
+      const parent = preservedElement?.parentElement || null;
+      if (!preservedElement || !parent || replacement.type !== "split") {
+        return false;
+      }
+      const firstIsPreserved = replacement.first.id === preservedLeafId;
+      const secondIsPreserved = replacement.second.id === preservedLeafId;
+      if (!firstIsPreserved && !secondIsPreserved) {
+        return false;
+      }
+      const splitElement = document.createElement("div");
+      splitElement.className = `pane-layout-split ${replacement.direction}`;
+      splitElement.dataset.paneLayoutId = replacement.id;
+      if (parent === outputWorkbench) {
+        splitElement.classList.add("pane-layout-root");
+        preservedElement.classList.remove("pane-layout-root");
+      }
+      parent.insertBefore(splitElement, preservedElement);
+      const renderedKinds = new Set();
+      const firstElement = firstIsPreserved
+        ? preservedElement
+        : renderPaneLayoutNode(replacement.first, renderedKinds);
+      const divider = buildPaneLayoutDivider(replacement, splitElement);
+      const secondElement = secondIsPreserved
+        ? preservedElement
+        : renderPaneLayoutNode(replacement.second, renderedKinds);
+      splitElement.append(firstElement, divider, secondElement);
+      applyPaneLayoutSplitTemplate(splitElement, replacement);
+      refreshPaneLayoutLeafToolbar(replacement.first);
+      refreshPaneLayoutLeafToolbar(replacement.second);
+      refreshPaneLayoutVisibility();
+      scheduleFitTerminal();
+      bumpFrontendDebugCounter("paneLayout.incrementalSplit");
+      return true;
+    }
+
     function recordPaneLayoutReconciliation(reason, before, after, rendered) {
       frontendDebugLastPaneLayoutReconciliation = {
         reason,
@@ -2873,6 +2930,9 @@
       if (!leaf) {
         return;
       }
+      if (paneCornerSplitCancel) {
+        paneCornerSplitCancel();
+      }
       const existingLeaf = { ...leaf };
       const emptyLeaf = paneLayoutLeaf();
       const replacement = paneLayoutSplit(
@@ -2883,7 +2943,9 @@
       );
       paneLayout = replacePaneLayoutNode(paneLayout, id, replacement);
       savePaneLayout();
-      renderPaneLayout();
+      if (!renderPaneLayoutIncrementalSplit(replacement, existingLeaf.id)) {
+        renderPaneLayout();
+      }
     }
 
     function changePaneLayoutKind(id, kind) {

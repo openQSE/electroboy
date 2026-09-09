@@ -29,7 +29,6 @@ from electroboy.service.recent_projects import (
 from electroboy.service.sessions import AgentSession, AgentSessionError
 from electroboy.service.services import ServiceServices
 from electroboy.service.workflow_controller import BoundWorkflowController
-from electroboy.state_store import StateError
 
 from .corkboard_provider import CreativeWritingCorkboardProvider
 from .sessions import (
@@ -391,7 +390,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         payload["document_path"] = str(metadata.get("document_path") or "")
         payload["target_type"] = str(metadata.get("target_type") or "")
         payload["target_path"] = str(metadata.get("target_path") or "")
-        payload["title"] = str(metadata.get("title") or session.label)
+        payload["title"] = str(session.name or metadata.get("title") or session.label)
         payload["resumable"] = bool(metadata.get("provider_session_id"))
         return payload
 
