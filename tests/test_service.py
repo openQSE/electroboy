@@ -1237,6 +1237,17 @@ class ServiceTests(unittest.TestCase):
             agent_pane_tools,
         )
         self.assertIn("Focus session", agent_pane_tools)
+        self.assertIn("Start agent", agent_pane_tools)
+        self.assertIn('runAction("start", () => {})', agent_pane_tools)
+        self.assertIn("startActiveWorkflowAgent", sessions)
+        self.assertIn('invokeWorkflow(workflow.id, "startAgent")', sessions)
+        self.assertIn('type: "electroboy:pane-start-agent"', pane_window)
+        self.assertIn('start: requestStartAgent', pane_window)
+        self.assertIn('message.type === "electroboy:pane-start-agent"', app)
+        self.assertIn(
+            'startAgent: (runtime, ...args) => invoke(runtime, startAdHocAgent, args)',
+            software,
+        )
         self.assertIn("function chooseRunningSession()", agent_pane_tools)
         self.assertIn("Terminate agent", agent_pane_tools)
         self.assertIn('controls.font.classList.add("pane-tool-font-row")', agent_pane_tools)
@@ -1657,11 +1668,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/agents/ad-hoc/sessions")', software)
         self.assertIn("function ensureAdHocSessionDialog()", software)
         self.assertIn('class="ad-hoc-session-name"', software)
+        self.assertIn('class="ad-hoc-session-name"', creative)
         self.assertIn('session.name || session.title || "Ad-hoc session"', software)
         self.assertIn('session.name || session.title || "Creative session"', creative)
         self.assertIn('session.name || session.title || "Creative session"', PANE_WINDOW_HTML)
         self.assertIn("provider_session_id: choice.providerSessionId", ad_hoc_start)
         self.assertIn('name: choice.name || ""', ad_hoc_start)
+        self.assertIn('name: choice.name || ""', creative)
         self.assertIn('contextUrl("/api/sessions/rename")', sessions)
         self.assertIn("function renameSelectedSession()", sessions)
         self.assertIn('String(session.name || "").trim()', sessions)
@@ -2661,6 +2674,10 @@ class ServiceTests(unittest.TestCase):
                     server,
                     "/assets/service/css/selects.css",
                 )
+                select_menu_status, select_menu_body, select_menu_type, _ = request_bytes(
+                    server,
+                    "/assets/service/js/core/select-menu.js",
+                )
                 js_status, js_body, js_type, _js_headers = request_bytes(
                     server,
                     "/assets/service/js/core/runtime.js",
@@ -2784,7 +2801,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(b".ad-hoc-session-dialog", css_body)
         self.assertEqual(select_css_status, 200)
         self.assertEqual(select_css_type, "text/css; charset=utf-8")
-        self.assertIn(b"appearance: base-select", select_css_body)
+        self.assertIn(b".electroboy-select-menu", select_css_body)
+        self.assertEqual(select_menu_status, 200)
+        self.assertEqual(select_menu_type, "application/javascript; charset=utf-8")
+        self.assertIn(b"function enhanceSelect(select)", select_menu_body)
         self.assertEqual(pane_css_status, 200)
         self.assertEqual(pane_css_type, "text/css; charset=utf-8")
         self.assertIn(b".pane-tool-menu", pane_css_body)
@@ -2958,9 +2978,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("electroboy.paneWorkspaceLayout.v3.${PANE_KIND}", page)
         self.assertIn('/assets/service/js/core/pane-workspace.js', page)
         self.assertIn('/assets/service/css/selects.css', page)
+        self.assertIn('/assets/service/js/core/select-menu.js', page)
         self.assertIn('class="pane-service-page"', page)
-        self.assertIn("appearance: base-select", select_styles)
-        self.assertIn("select::picker(select)", select_styles)
+        self.assertIn(".electroboy-select-menu", select_styles)
         self.assertIn("color-scheme: dark", select_styles)
         self.assertIn('/assets/service/js/core/split-resize.js', page)
         self.assertIn('/assets/service/js/core/stateful-dom.js', page)
@@ -4054,6 +4074,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn('"mode": "structured"', page)
         self.assertIn('/assets/service/css/selects.css', page)
+        self.assertIn('/assets/service/js/core/select-menu.js', page)
         self.assertIn('<body class="pane-service-page">', page)
         self.assertIn('"jsonl_path": "docs/requirements.jsonl"', page)
         self.assertIn("Markdown body", page)
@@ -5957,6 +5978,7 @@ class ServiceTests(unittest.TestCase):
         page, status = render_agenda_html(snapshot)
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn('/assets/service/css/selects.css', page)
+        self.assertIn('/assets/service/js/core/select-menu.js', page)
         self.assertIn('<body class="agenda-style-default">', page)
         self.assertIn('id="agendaControls"', page)
         self.assertIn(
@@ -6547,6 +6569,7 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn('/assets/service/css/selects.css', page)
+        self.assertIn('/assets/service/js/core/select-menu.js', page)
         self.assertIn('<body class="pane-service-page">', page)
         self.assertIn('aria-label="Mind map context tools"', page)
         self.assertIn('data-action="child"', page)
@@ -7330,6 +7353,7 @@ class ServiceTests(unittest.TestCase):
                 first, first_started = state.start_creative_writing_agent(
                     context_id,
                     scope="general",
+                    name="Opening exploration",
                 )
                 first.process = mock.Mock()
                 first.process.poll.return_value = None
@@ -7337,10 +7361,22 @@ class ServiceTests(unittest.TestCase):
                     context_id,
                     scope="general",
                 )
+                history = state.creative_agent_sessions(
+                    context_id,
+                    scope="general",
+                )
 
         self.assertTrue(first_started)
         self.assertTrue(second_started)
         self.assertNotEqual(first.session_id, second.session_id)
+        self.assertEqual(first.name, "Opening exploration")
+        first_entry = next(
+            entry
+            for entry in history["sessions"]
+            if entry["electroboy_session_id"] == first.session_id
+        )
+        self.assertEqual(first_entry["name"], "Opening exploration")
+        self.assertEqual(first_entry["title"], "Opening exploration")
 
     def test_creative_document_agent_resumes_codex_provider_session(self) -> None:
         provider_session_id = "019f3cb6-60c3-7320-896b-e5eb9a6a8dd2"

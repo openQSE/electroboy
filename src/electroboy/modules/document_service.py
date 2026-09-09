@@ -1176,6 +1176,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     <div id="status" class="status"></div>
     <section id="records" class="records"></section>
   </main>
+  <script src="/assets/service/js/core/select-menu.js"></script>
   <script>
     const EDIT_DATA = {data_json};
     const LIST_FIELDS = new Set(EDIT_DATA.list_fields || []);

@@ -131,6 +131,7 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
                 "js/core/input-shortcut.js",
                 "js/core/pane-sync.js",
                 "js/core/pane-tools.js",
+                "js/core/select-menu.js",
                 "js/core/runtime.js",
             ),
         ),
@@ -234,6 +235,7 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
                 "js/core/input-shortcut.js",
                 "js/core/pane-sync.js",
                 "js/core/pane-tools.js",
+                "js/core/select-menu.js",
             ),
         ),
         FrontendBundle(

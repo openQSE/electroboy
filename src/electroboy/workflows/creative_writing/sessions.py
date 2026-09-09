@@ -211,6 +211,7 @@ def start_creative_session_tracking(
     document_path: str = "",
     target_type: str = "",
     target_path: str = "",
+    title: str | None = None,
     on_registered: Callable[[CodexSessionSummary], None] | None = None,
 ) -> threading.Thread:
     """Register the one Codex rollout created by a new creative launch."""
@@ -228,6 +229,7 @@ def start_creative_session_tracking(
             document_path,
             target_type,
             target_path,
+            title,
             on_registered,
         ),
         name=f"electroboy-creative-index-{electroboy_session_id[:8]}",
@@ -248,6 +250,7 @@ def _track_new_creative_session(
     document_path: str,
     target_type: str,
     target_path: str,
+    title: str | None,
     on_registered: Callable[[CodexSessionSummary], None] | None,
 ) -> None:
     resolved_root = project_root.expanduser().resolve()
@@ -270,6 +273,7 @@ def _track_new_creative_session(
                 target_type=target_type,
                 target_path=target_path,
                 electroboy_session_id=electroboy_session_id,
+                title=title,
             )
             if on_registered is not None:
                 on_registered(session)

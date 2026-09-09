@@ -3335,6 +3335,17 @@
         openPaneLayoutKind(requestedKind);
         return;
       }
+      if (message.type === "electroboy:pane-start-agent") {
+        Promise.resolve()
+          .then(() => window.ElectroBoyFrontend.invokeModule(
+            "agent-sessions",
+            "startActiveWorkflowAgent",
+          ))
+          .catch((error) => {
+            appendOutput(`${error.message || "agent start failed"}\n`, "error");
+          });
+        return;
+      }
       const leaf = paneLayoutLeafById(String(message.paneInstanceId || ""));
       if (!leaf) {
         return;

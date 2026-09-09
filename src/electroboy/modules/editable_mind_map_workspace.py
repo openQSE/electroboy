@@ -254,6 +254,7 @@ _PAGE = r"""<!doctype html>
     </section>
     <footer id="status" class="status">Ready</footer>
   </main>
+  <script src="/assets/service/js/core/select-menu.js"></script>
   <script>
   (() => {
     "use strict";

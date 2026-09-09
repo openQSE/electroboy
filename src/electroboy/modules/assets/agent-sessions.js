@@ -1038,6 +1038,17 @@
       return true;
     }
 
+    function startActiveWorkflowAgent() {
+      const state = runtimeApi.getState();
+      const workflow = window.ElectroBoyFrontend.workflowForSelection(
+        state.workflowMode,
+      );
+      if (!workflow || typeof workflow.actions?.startAgent !== "function") {
+        throw new Error("The active workflow does not provide an agent launcher.");
+      }
+      return window.ElectroBoyFrontend.invokeWorkflow(workflow.id, "startAgent");
+    }
+
     function mountAgentPaneTools(runtime) {
       const element = runtime.elements;
       if (
@@ -1070,8 +1081,10 @@
         getTarget: () => ({
           canPop: !runtime.layout.isPopped("agent"),
           canClosePane: runtime.layout.hasPane("agent"),
+          canStart: Boolean(runtimeState.activeProjectRoot),
         }),
         actions: {
+          start: startActiveWorkflowAgent,
           export: exportAgentSession,
           interrupt: interruptActiveAgent,
           terminate: terminateActiveAgent,
@@ -1198,6 +1211,7 @@
       renderSessionSwitcher: (runtime, ...args) => invoke(runtime, renderSessionSwitcher, args),
       selectAgentSession: (runtime, ...args) => invoke(runtime, selectAgentSession, args),
       renameSelectedSession: (runtime, ...args) => invoke(runtime, renameSelectedSession, args),
+      startActiveWorkflowAgent: (runtime, ...args) => invoke(runtime, startActiveWorkflowAgent, args),
       refreshServiceSessions: (runtime, ...args) => invoke(runtime, refreshServiceSessions, args),
       attachAgentSession: (runtime, ...args) => invoke(runtime, attachAgentSession, args),
       connectAgentEvents: (runtime, ...args) => invoke(runtime, connectAgentEvents, args),

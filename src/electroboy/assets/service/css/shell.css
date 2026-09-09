@@ -236,6 +236,29 @@
       font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;
     }
 
+    .ad-hoc-session-name-field {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 12px;
+      padding: 0 18px 14px;
+      color: var(--muted);
+      font-size: var(--ui-small-font-size);
+      font-weight: 600;
+    }
+
+    .ad-hoc-session-name {
+      min-width: 0;
+      height: 34px;
+      padding: 6px 9px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--panel);
+      color: var(--ink);
+      font: inherit;
+      font-weight: 400;
+    }
+
     .ad-hoc-session-error {
       margin: 0;
       padding: 9px 18px;

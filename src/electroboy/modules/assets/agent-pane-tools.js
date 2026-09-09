@@ -228,6 +228,9 @@
     paneMenu.list.append(pop, dock, closePane);
 
     const agentMenu = menu("Agent", "pane-tool-agent-session-menu");
+    const start = menuButton("Start agent", () => {
+      runAction("start", () => {});
+    });
     const focus = menuButton("Focus session", focusRunningSession);
     const interrupt = menuButton("Interrupt", () => {
       runAction("interrupt", () => {});
@@ -235,7 +238,7 @@
     const terminate = menuButton("Terminate agent", () => {
       runAction("terminate", () => {});
     }, "danger");
-    agentMenu.list.append(focus, interrupt, terminate);
+    agentMenu.list.append(start, focus, interrupt, terminate);
 
     const actionStatus = document.createElement("div");
     actionStatus.className = "pane-tool-status";
@@ -262,7 +265,10 @@
       const canPop = currentTarget.canPop !== false;
       const canDock = Boolean(currentTarget.canDock);
       const canClosePane = currentTarget.canClosePane !== false;
+      const canStart = typeof actions.start === "function"
+        && currentTarget.canStart !== false;
       exportButton.disabled = !hasSession;
+      start.disabled = !canStart;
       focus.disabled = runningSessionCount === 0;
       interrupt.disabled = !isRunning;
       terminate.disabled = !hasSession;
@@ -271,9 +277,10 @@
       closePane.hidden = !canClosePane;
       const paneMenuVisible = !pop.hidden || !dock.hidden || !closePane.hidden;
       paneMenu.details.hidden = !paneMenuVisible;
-      agentMenu.details.hidden = !hasSession && runningSessionCount === 0;
+      agentMenu.details.hidden = !canStart && !hasSession && runningSessionCount === 0;
       const hasControls = (
         Boolean(controls.font) ||
+        canStart ||
         hasSession ||
         runningSessionCount > 0 ||
         paneMenuVisible

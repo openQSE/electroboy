@@ -18,45 +18,87 @@ select {
   color-scheme: dark;
 }
 
-@supports (appearance: base-select) {
-  select,
-  select::picker(select) {
-    appearance: base-select;
-  }
+.electroboy-custom-select {
+  cursor: pointer;
+}
 
-  select::picker-icon {
-    color: currentcolor;
-  }
+.electroboy-custom-select:disabled {
+  cursor: default;
+}
 
-  select::picker(select) {
-    max-height: min(60vh, 420px);
-    margin-block: 4px;
-    overflow: auto;
-    border: 1px solid var(--electroboy-select-picker-border);
-    border-radius: 8px;
-    background: var(--electroboy-select-picker-bg);
-    color: var(--electroboy-select-picker-text);
-    box-shadow: 0 14px 34px rgb(15 31 48 / 24%);
-  }
+.electroboy-select-menu {
+  position: fixed;
+  z-index: 100000;
+  max-width: min(520px, calc(100vw - 16px));
+  max-height: min(60vh, 420px);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--electroboy-select-picker-border);
+  border-radius: 8px;
+  background: var(--electroboy-select-picker-bg);
+  color: var(--electroboy-select-picker-text);
+  box-shadow: 0 14px 34px rgb(15 31 48 / 24%);
+  color-scheme: dark;
+}
 
-  select option {
-    min-height: 30px;
-    padding: 6px 10px;
-    background: var(--electroboy-select-picker-bg);
-    color: var(--electroboy-select-picker-text);
-  }
+.electroboy-select-menu[hidden] {
+  display: none;
+}
 
-  select option:hover,
-  select option:focus-visible {
-    background: var(--electroboy-select-picker-hover);
-  }
+.electroboy-select-group {
+  padding: 7px 9px 4px;
+  color: color-mix(
+    in srgb,
+    var(--electroboy-select-picker-text) 68%,
+    transparent
+  );
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
-  select option:checked {
-    background: var(--electroboy-select-picker-selected);
-  }
+.electroboy-select-option {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 
-  select optgroup {
-    background: var(--electroboy-select-picker-bg);
-    color: var(--electroboy-select-picker-text);
-  }
+.electroboy-select-option:hover:not(:disabled),
+.electroboy-select-option:focus-visible {
+  outline: none;
+  background: var(--electroboy-select-picker-hover);
+}
+
+.electroboy-select-option[aria-selected="true"] {
+  background: var(--electroboy-select-picker-selected);
+}
+
+.electroboy-select-option:disabled {
+  opacity: 0.48;
+  cursor: default;
+}
+
+.electroboy-select-option-mark {
+  width: 14px;
+  flex: 0 0 14px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.electroboy-select-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

@@ -26,7 +26,11 @@ from electroboy.modules.creative_workspace import (
 from electroboy.service.recent_projects import (
     remember_recent_project as _remember_recent_project,
 )
-from electroboy.service.sessions import AgentSession, AgentSessionError
+from electroboy.service.sessions import (
+    AgentSession,
+    AgentSessionError,
+    normalize_session_name,
+)
 from electroboy.service.services import ServiceServices
 from electroboy.service.workflow_controller import BoundWorkflowController
 
@@ -459,9 +463,11 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         session_id: str | None = None,
         provider_session_id: str | None = None,
         start_new: bool = True,
+        name: str | None = None,
     ) -> tuple[AgentSession, bool]:
         requested_session_id = str(session_id or "").strip()
         requested_provider_session_id = str(provider_session_id or "").strip()
+        requested_name = normalize_session_name(name)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -491,6 +497,11 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 ):
                     requested_provider_session_id = existing_provider_id
                 else:
+                    if requested_name:
+                        with self.services.contexts.lock:
+                            context = self.services.contexts.require(context_id)
+                            existing.name = requested_name
+                            self.services.sessions.record(context, existing)
                     return existing, False
             requested_provider_session_id = (
                 requested_provider_session_id or requested_session_id
@@ -504,6 +515,11 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 require_active_provider=True,
             )
             if existing is not None:
+                if requested_name:
+                    with self.services.contexts.lock:
+                        context = self.services.contexts.require(context_id)
+                        existing.name = requested_name
+                        self.services.sessions.record(context, existing)
                 return existing, False
         elif not start_new:
             with self.services.contexts.lock:
@@ -516,6 +532,8 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                             scope_key=scope_key,
                         )
                     ):
+                        if requested_name:
+                            session.name = requested_name
                         context.selected_session_id = session.session_id
                         self.services.sessions.record(context, session)
                         return session, False
@@ -545,6 +563,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 document_path=document_path,
                 target_type=str((target or {}).get("type") or ""),
                 target_path=str((target or {}).get("path") or ""),
+                title=requested_name or None,
             )
         else:
             known_provider_paths = codex_session_paths()
@@ -566,7 +585,9 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             )
             if provider_catalog_entry:
                 metadata["title"] = str(
-                    provider_catalog_entry.get("title") or "Creative session"
+                    requested_name
+                    or provider_catalog_entry.get("title")
+                    or "Creative session"
                 )
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
@@ -580,6 +601,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 ),
                 cwd=project_root,
                 label="creative writing agent",
+                name=requested_name,
                 kind="creative-writing",
                 interactive=True,
                 metadata=metadata,
@@ -608,6 +630,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 target_type=str((target or {}).get("type") or ""),
                 target_path=str((target or {}).get("path") or ""),
                 electroboy_session_id=session.session_id,
+                title=requested_name or None,
             )
         else:
 
@@ -628,6 +651,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 document_path=document_path,
                 target_type=str((target or {}).get("type") or ""),
                 target_path=str((target or {}).get("path") or ""),
+                title=requested_name or None,
                 on_registered=registered,
             )
         return session, True

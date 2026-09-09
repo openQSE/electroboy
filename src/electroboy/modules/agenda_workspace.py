@@ -2249,6 +2249,7 @@ def render_agenda_html(
       <div id="agendaSections"></div>
     </div>
   </main>
+  <script src="/assets/service/js/core/select-menu.js"></script>
   <script>
     const AGENDA_DATA = {encoded};
     const controls = document.getElementById("agendaControls");

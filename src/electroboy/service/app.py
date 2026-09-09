@@ -1226,6 +1226,7 @@ class ServiceState:
         session_id: str | None = None,
         provider_session_id: str | None = None,
         start_new: bool = True,
+        name: str | None = None,
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("creative-writing").start_creative_writing_agent(
             context_id,
@@ -1235,6 +1236,7 @@ class ServiceState:
             session_id=session_id,
             provider_session_id=provider_session_id,
             start_new=start_new,
+            name=name,
         )
 
     def stop_design_review_agent(self, context_id: str) -> dict[str, object]:

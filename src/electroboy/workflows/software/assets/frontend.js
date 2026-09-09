@@ -1594,6 +1594,7 @@
       skipRequirementsApprovalStage: (runtime, ...args) => invoke(runtime, skipRequirementsApprovalStage, args),
       setRequirementsRunning: (runtime, ...args) => invoke(runtime, setRequirementsRunning, args),
       runStageAgent: (runtime, ...args) => invoke(runtime, runStageAgent, args),
+      startAgent: (runtime, ...args) => invoke(runtime, startAdHocAgent, args),
       startAdHocAgent: (runtime, ...args) => invoke(runtime, startAdHocAgent, args),
       runRequirementsAgent: (runtime, ...args) => invoke(runtime, runRequirementsAgent, args),
       startRequirementsAgent: (runtime, ...args) => invoke(runtime, startRequirementsAgent, args),
