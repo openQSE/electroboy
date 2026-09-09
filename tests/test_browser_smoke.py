@@ -205,7 +205,7 @@ def browser_page_dom(page: str, profile: Path) -> subprocess.CompletedProcess[st
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
-def test_stateful_dom_move_preserves_iframe_context(tmp_path: Path) -> None:
+def test_stateful_dom_collapse_preserves_iframe_context(tmp_path: Path) -> None:
     asset = (
         Path(__file__).resolve().parents[1]
         / "src/electroboy/assets/service/js/core/stateful-dom.js"
@@ -214,7 +214,13 @@ def test_stateful_dom_move_preserves_iframe_context(tmp_path: Path) -> None:
 <!doctype html>
 <html>
 <body>
-  <div id="root"><div id="leaf"></div></div>
+  <div id="root">
+    <div id="split" class="layout-root">
+      <div id="closed"></div>
+      <div id="divider"></div>
+      <div id="survivor"><div id="leaf"></div></div>
+    </div>
+  </div>
   <script>{asset}</script>
   <script>
     let frameLoads = 0;
@@ -223,16 +229,15 @@ def test_stateful_dom_move_preserves_iframe_context(tmp_path: Path) -> None:
       frameLoads += 1;
       if (frameLoads !== 1) return;
       const root = document.getElementById("root");
-      const leaf = document.getElementById("leaf");
-      const split = document.createElement("div");
-      const divider = document.createElement("div");
-      root.insertBefore(split, leaf);
-      split.append(divider);
-      movePreservedState = window.ElectroBoyStatefulDOM.moveBefore(
-        split,
-        leaf,
-        divider,
+      const survivor = window.ElectroBoyStatefulDOM.collapseSplit(
+        document.getElementById("split"),
+        document.getElementById("closed"),
+        root,
+        "layout-root",
       );
+      movePreservedState = survivor === document.getElementById("survivor") &&
+        root.firstElementChild === survivor &&
+        survivor.classList.contains("layout-root");
       window.setTimeout(() => {{
         const result = document.createElement("div");
         result.id = "statefulMoveProbe";
@@ -261,6 +266,80 @@ def test_stateful_dom_move_preserves_iframe_context(tmp_path: Path) -> None:
     assert (
         '<div id="statefulMoveProbe" data-preserved="true" data-loads="1" '
         'data-marker="open-file"></div>' in completed.stdout
+    )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_pane_workspace_split_and_assign_preserve_file_iframe(tmp_path: Path) -> None:
+    asset_root = (
+        Path(__file__).resolve().parents[1]
+        / "src/electroboy/assets/service/js/core"
+    )
+    stateful_dom = (asset_root / "stateful-dom.js").read_text(encoding="utf-8")
+    pane_workspace = (asset_root / "pane-workspace.js").read_text(encoding="utf-8")
+    page = (
+        "<!doctype html><html><body><div id='root'></div><script>"
+        + stateful_dom
+        + "</script><script>"
+        + pane_workspace
+        + r"""
+const root = document.getElementById("root");
+window.ElectroBoyPaneWorkspace.create({
+  root,
+  initialKind: "artifact",
+  kinds: [
+    { id: "artifact", label: "File" },
+    { id: "agent", label: "AI Agent" },
+  ],
+  paneUrl(kind) {
+    return `about:blank?${kind}`;
+  },
+});
+window.setTimeout(() => {
+  const fileLeaf = root.querySelector('[data-pane-kind="artifact"]');
+  const originalFrame = fileLeaf.querySelector("iframe");
+  originalFrame.contentDocument.body.dataset.openFile = "chapter-one";
+  let reloads = 0;
+  originalFrame.addEventListener("load", () => { reloads += 1; });
+  fileLeaf.querySelector(".split-right").click();
+  const emptySelect = root.querySelector('[data-pane-kind="empty"] select');
+  emptySelect.value = "agent";
+  emptySelect.dispatchEvent(new Event("change"));
+  window.setTimeout(() => {
+    const agentLeaf = root.querySelector('[data-pane-kind="agent"]');
+    const agentAssigned = Boolean(agentLeaf.querySelector("iframe"));
+    agentLeaf.querySelector(".close-pane").click();
+    window.setTimeout(() => {
+      const survivingFrame = root.querySelector(
+        '[data-pane-kind="artifact"] iframe',
+      );
+      const result = document.createElement("div");
+      result.id = "paneWorkspaceProbe";
+      result.dataset.sameFrame = String(survivingFrame === originalFrame);
+      result.dataset.reloads = String(reloads);
+      result.dataset.openFile = String(
+        survivingFrame.contentDocument.body.dataset.openFile,
+      );
+      result.dataset.agentAssigned = String(agentAssigned);
+      result.dataset.paneCount = String(
+        root.querySelectorAll(".workspace-pane-leaf").length,
+      );
+      document.body.append(result);
+    }, 100);
+  }, 100);
+}, 100);
+"""
+        + "</script></body></html>"
+    )
+
+    completed = browser_page_dom(page, tmp_path / "workspace-chrome-profile")
+
+    assert completed.returncode == 0, completed.stdout
+    assert (
+        '<div id="paneWorkspaceProbe" data-same-frame="true" data-reloads="0" '
+        'data-open-file="chapter-one" data-agent-assigned="true" '
+        'data-pane-count="1"></div>'
+        in completed.stdout
     )
 
 

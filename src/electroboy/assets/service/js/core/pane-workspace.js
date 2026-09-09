@@ -606,6 +606,49 @@
       return true;
     }
 
+    function renderIncrementalClose(id) {
+      const removedElement = leafElementById(id);
+      const splitElement = removedElement?.parentElement || null;
+      if (
+        !splitElement?.classList.contains("workspace-pane-split") ||
+        !global.ElectroBoyStatefulDOM?.collapseSplit(
+          splitElement,
+          removedElement,
+          root,
+          "workspace-pane-root",
+        )
+      ) {
+        return false;
+      }
+      paneFrames.delete(id);
+      leaves().forEach(refreshLeafToolbar);
+      if (typeof options.onChange === "function") {
+        options.onChange(layout, leaves());
+      }
+      return true;
+    }
+
+    function renderIncrementalLeaf(item) {
+      const existingElement = leafElementById(item.id);
+      const parent = existingElement?.parentElement || null;
+      if (!existingElement || !parent) {
+        return false;
+      }
+      const replacementElement = renderNode(item);
+      if (existingElement.classList.contains("workspace-pane-root")) {
+        replacementElement.classList.add("workspace-pane-root");
+      }
+      existingElement.replaceWith(replacementElement);
+      if (item.kind === "empty") {
+        paneFrames.delete(item.id);
+      }
+      leaves().forEach(refreshLeafToolbar);
+      if (typeof options.onChange === "function") {
+        options.onChange(layout, leaves());
+      }
+      return true;
+    }
+
     function splitLeaf(id, direction, ratio = 0.5, emptyFirst = false) {
       const item = leafById(id);
       if (!item) return;
@@ -632,20 +675,25 @@
         kind === "agent" &&
         leaves().some((leafItem) => leafItem.kind === "agent" && leafItem !== item)
       ) return;
+      if (item.kind === kind) return;
       if (item.kind !== kind) {
         delete item.content;
         delete item.projectRoot;
       }
       item.kind = kind;
       saveLayout();
-      render();
+      if (!renderIncrementalLeaf(item)) {
+        render();
+      }
     }
 
     function closeLeaf(id) {
       if (leaves().length <= 1 || !leafById(id)) return;
       layout = removeLeaf(layout, id);
       saveLayout();
-      render();
+      if (!renderIncrementalClose(id)) {
+        render();
+      }
     }
 
     function moveLeaf(sourceId, targetId, position) {

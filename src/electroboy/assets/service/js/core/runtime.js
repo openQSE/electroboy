@@ -2910,6 +2910,65 @@
       return true;
     }
 
+    function renderPaneLayoutIncrementalClose(id) {
+      const removedElement = paneLayoutLeafElementById(id);
+      const splitElement = removedElement?.parentElement || null;
+      if (
+        !splitElement?.classList.contains("pane-layout-split") ||
+        !window.ElectroBoyStatefulDOM?.collapseSplit(
+          splitElement,
+          removedElement,
+          outputWorkbench,
+          "pane-layout-root",
+        )
+      ) {
+        return false;
+      }
+      paneLayoutLeaves().forEach(refreshPaneLayoutLeafToolbar);
+      refreshPaneLayoutVisibility();
+      scheduleFitTerminal();
+      bumpFrontendDebugCounter("paneLayout.incrementalClose");
+      return true;
+    }
+
+    function renderedPaneLayoutKindsExcept(id) {
+      const renderedKinds = new Set();
+      for (const element of outputWorkbench.querySelectorAll(".pane-layout-leaf")) {
+        if (
+          element.dataset.paneLayoutId === id ||
+          element.querySelector(".pane-layout-instance-frame")
+        ) {
+          continue;
+        }
+        const kind = String(element.dataset.paneKind || "");
+        if (kind && kind !== "empty") {
+          renderedKinds.add(kind);
+        }
+      }
+      return renderedKinds;
+    }
+
+    function renderPaneLayoutIncrementalLeaf(leaf) {
+      const existingElement = paneLayoutLeafElementById(leaf.id);
+      const parent = existingElement?.parentElement || null;
+      if (!existingElement || !parent) {
+        return false;
+      }
+      const replacementElement = renderPaneLayoutNode(
+        leaf,
+        renderedPaneLayoutKindsExcept(leaf.id),
+      );
+      if (existingElement.classList.contains("pane-layout-root")) {
+        replacementElement.classList.add("pane-layout-root");
+      }
+      existingElement.replaceWith(replacementElement);
+      paneLayoutLeaves().forEach(refreshPaneLayoutLeafToolbar);
+      refreshPaneLayoutVisibility();
+      scheduleFitTerminal();
+      bumpFrontendDebugCounter("paneLayout.incrementalLeaf");
+      return true;
+    }
+
     function recordPaneLayoutReconciliation(reason, before, after, rendered) {
       frontendDebugLastPaneLayoutReconciliation = {
         reason,
@@ -2987,6 +3046,9 @@
         return;
       }
       const previousKind = leaf.kind;
+      if (previousKind === kind) {
+        return;
+      }
       const existingSingleton = SINGLETON_PANE_LAYOUT_KINDS.has(kind)
         ? paneLayoutLeafByKind(kind)
         : null;
@@ -3000,7 +3062,15 @@
       leaf.kind = kind;
       setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
-      renderPaneLayout();
+      const singletonRemoved = existingSingleton && existingSingleton !== leaf;
+      const singletonCollapsed = !singletonRemoved ||
+        renderPaneLayoutIncrementalClose(existingSingleton.id);
+      if (
+        !singletonCollapsed ||
+        !renderPaneLayoutIncrementalLeaf(leaf)
+      ) {
+        renderPaneLayout();
+      }
       const manualChangeOptions = {
         updateOutputSplit: false,
       };
@@ -3027,7 +3097,9 @@
         activePaneLayoutLeafId = paneLayoutLeaves()[0]?.id || "";
       }
       savePaneLayout();
-      renderPaneLayout();
+      if (!renderPaneLayoutIncrementalClose(id)) {
+        renderPaneLayout();
+      }
       bumpFrontendDebugCounter("paneLayout.closeRemoved");
       if (!paneLayoutLeafByKind(removedKind)) {
         deactivatePaneLayoutKind(removedKind);
