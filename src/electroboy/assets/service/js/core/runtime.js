@@ -396,6 +396,7 @@
       status: { label: "Status", element: projectStatusPane },
     };
     const INSTANCE_PANE_LAYOUT_KINDS = new Set([
+      "agent",
       "artifact",
       "corkboard",
       "agenda",
@@ -2514,6 +2515,22 @@
       ) || null;
     }
 
+    function assignPaneLayoutAgentSession(leaf, sessionId) {
+      if (!leaf || leaf.kind !== "agent" || !sessionId) {
+        return false;
+      }
+      if (
+        paneLayoutAgentSessionId(leaf) === sessionId &&
+        leaf.projectRoot === activeProjectRoot
+      ) {
+        return false;
+      }
+      leaf.content = { sessionId };
+      leaf.projectRoot = activeProjectRoot;
+      savePaneLayout();
+      return true;
+    }
+
     function focusAgentSessionPane(sessionId = "") {
       const requestedSessionId = String(sessionId || selectedSessionId || "");
       if (!paneLayout || !requestedSessionId) {
@@ -2525,13 +2542,14 @@
           (candidate) => candidate.kind === "agent" &&
             !paneLayoutAgentSessionId(candidate),
         ) || null;
+        if (leaf) {
+          assignPaneLayoutAgentSession(leaf, requestedSessionId);
+        }
       }
       if (!leaf) {
         leaf = paneLayoutLeafByKind("agent");
         if (leaf) {
-          leaf.content = { sessionId: requestedSessionId };
-          leaf.projectRoot = activeProjectRoot;
-          savePaneLayout();
+          assignPaneLayoutAgentSession(leaf, requestedSessionId);
         }
       }
       if (!leaf) {

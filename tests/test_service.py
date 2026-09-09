@@ -1280,6 +1280,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function createAgentTerminalContext(sessionId = \"\")", app)
         self.assertIn("function selectAgentTerminal(sessionId = \"\")", app)
         self.assertIn("function focusAgentSessionPane(sessionId = \"\")", app)
+        self.assertIn("function assignPaneLayoutAgentSession(leaf, sessionId)", app)
         focus_agent_start = app.index(
             'function focusAgentSessionPane(sessionId = "")'
         )
@@ -1290,6 +1291,10 @@ class ServiceTests(unittest.TestCase):
             )
         ]
         self.assertNotIn("renderPaneLayout();", focus_agent)
+        self.assertIn(
+            "assignPaneLayoutAgentSession(leaf, requestedSessionId)",
+            focus_agent,
+        )
         self.assertIn("refreshPaneLayoutInstanceFrameForLeaf", focus_agent)
         self.assertIn("focusAgentSession: focusAgentSessionPane", app)
         self.assertIn("function flushAgentOutputQueue(context)", app)
@@ -3265,6 +3270,10 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn(
             'agent: { label: "AI Agent", element: agentOutputPane }', runtime
+        )
+        self.assertIn(
+            'const INSTANCE_PANE_LAYOUT_KINDS = new Set([\n      "agent",',
+            runtime,
         )
         self.assertIn('node.kind === "agent" ||', runtime)
         self.assertIn('!paneLayoutIsMounted();', runtime)
