@@ -240,6 +240,10 @@
     let fitTerminalFrame = 0;
     let frontendResumeRecoveryFrame = 0;
     let frontendResumeRecoveryTimer = 0;
+    let scratchPaneSync = null;
+    let statusPaneSync = null;
+    let projectStatusObserver = null;
+    let lastSharedStatusText = projectStatusOutput.textContent;
     let frontendTelemetryEnabled = storedFrontendTelemetryEnabled();
     let frontendDebugDiagnosticsStarted = false;
     let frontendDebugFrameInstrumented = false;
@@ -1397,7 +1401,12 @@
         return false;
       }
       const element = paneLayoutLeafElementById(leaf.id);
-      if (!element || element.hidden || element.closest("[hidden]")) {
+      if (
+        !element ||
+        !element.isConnected ||
+        element.hidden ||
+        element.closest("[hidden]")
+      ) {
         return true;
       }
       const rect = element.getBoundingClientRect();
@@ -1408,6 +1417,28 @@
         rect.width <= 0 ||
         rect.height <= 0
       );
+    }
+
+    function paneLayoutHasRenderedVisibleLeaf() {
+      return paneLayoutLeaves().some((leaf) => {
+        if (!paneLayoutLeafShouldBeVisible(leaf)) {
+          return false;
+        }
+        return !paneLayoutLeafNeedsRender(leaf);
+      });
+    }
+
+    function paneLayoutNeedsResumeRender() {
+      if (!paneLayout) {
+        return false;
+      }
+      if (!paneLayoutRootIsMounted()) {
+        return true;
+      }
+      const visibleLeaves = paneLayoutLeaves().filter(
+        (leaf) => paneLayoutLeafShouldBeVisible(leaf),
+      );
+      return visibleLeaves.length > 0 && !paneLayoutHasRenderedVisibleLeaf();
     }
 
     function paneLayoutDomKind(element) {
@@ -6671,28 +6702,42 @@
       }
     }
 
+    async function recoverWorkspaceAttachmentAfterHeartbeatFailure() {
+      let recovered = false;
+      try {
+        recovered = await recoverWorkspaceAttachment();
+      } catch (error) {
+        recovered = false;
+      }
+      if (!recovered) {
+        stopWorkspaceHeartbeat();
+      }
+      return recovered;
+    }
+
     async function sendWorkspaceHeartbeat() {
       if (!contextId || !workspaceLeaseToken) {
         return false;
       }
-      const response = await fetch(contextUrl("/api/workspaces/heartbeat"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          connection_id: currentBrowserTabId(),
-          lease_token: workspaceLeaseToken,
-        }),
-      });
+      let response = null;
+      try {
+        response = await fetch(contextUrl("/api/workspaces/heartbeat"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            connection_id: currentBrowserTabId(),
+            lease_token: workspaceLeaseToken,
+          }),
+        });
+      } catch (error) {
+        return recoverWorkspaceAttachmentAfterHeartbeatFailure();
+      }
       const responseOk = response.ok;
       await drainDiscardedFetchResponse(response, {
         operation: "workspace-heartbeat",
       });
       if (!responseOk) {
-        const recovered = await recoverWorkspaceAttachment();
-        if (!recovered) {
-          stopWorkspaceHeartbeat();
-        }
-        return recovered;
+        return recoverWorkspaceAttachmentAfterHeartbeatFailure();
       }
       return true;
     }
@@ -6709,8 +6754,12 @@
         window.clearTimeout(pendingTimer);
       }
       bumpFrontendDebugCounter("resumeRecovery.run");
-      if (paneLayout && !paneLayoutRootIsMounted()) {
-        bumpFrontendDebugCounter("resumeRecovery.renderMissingRoot");
+      if (paneLayout && paneLayoutNeedsResumeRender()) {
+        bumpFrontendDebugCounter(
+          paneLayoutRootIsMounted()
+            ? "resumeRecovery.renderBlankRoot"
+            : "resumeRecovery.renderMissingRoot",
+        );
         renderPaneLayout();
         return;
       }
@@ -6734,12 +6783,13 @@
     }
 
     async function resumeWorkspaceAttachment() {
+      startSharedPaneSync();
+      scheduleFrontendResumeRecovery();
       if (!contextId || !workspaceLeaseToken) {
         return;
       }
       if (await sendWorkspaceHeartbeat()) {
         startWorkspaceHeartbeat();
-        scheduleFrontendResumeRecovery();
       }
     }
 
@@ -8755,7 +8805,9 @@
     scratchPad.addEventListener("input", () => {
       saveScratchPad();
       queueWorkspaceStateSave();
-      scratchPaneSync.publish({ value: scratchPad.value });
+      if (scratchPaneSync) {
+        scratchPaneSync.publish({ value: scratchPad.value });
+      }
     });
     workflowModeSelect.addEventListener("change", () => {
       setWorkflowMode(workflowModeSelect.value).catch((error) => {
@@ -9106,55 +9158,80 @@
       },
     };
 
-    const scratchPaneSync = frontendRuntime.sharedPanes.connect("scratch", {
-      snapshot: () => ({ value: scratchPad.value }),
-      receive: (state) => {
-        if (!state || typeof state.value !== "string") {
-          return;
-        }
-        const selectionStart = scratchPad.selectionStart;
-        const selectionEnd = scratchPad.selectionEnd;
-        scratchPad.value = state.value;
-        if (document.activeElement === scratchPad) {
-          const length = scratchPad.value.length;
-          scratchPad.setSelectionRange(
-            Math.min(selectionStart, length),
-            Math.min(selectionEnd, length),
-          );
-        }
-        saveScratchPad();
-      },
-    });
-    let lastSharedStatusText = projectStatusOutput.textContent;
-    const statusPaneSync = frontendRuntime.sharedPanes.connect("status", {
-      snapshot: () => ({ text: projectStatusOutput.textContent }),
-      receive: (state) => {
-        if (!state || typeof state.text !== "string") {
-          return;
-        }
-        lastSharedStatusText = state.text;
-        projectStatusOutput.textContent = state.text;
-      },
-    });
-    const projectStatusObserver = new MutationObserver(() => {
-      bumpFrontendDebugCounter("mutationObserver.projectStatus");
-      const text = projectStatusOutput.textContent;
-      if (text === lastSharedStatusText) {
-        return;
+    function startSharedPaneSync() {
+      if (!scratchPaneSync) {
+        scratchPaneSync = frontendRuntime.sharedPanes.connect("scratch", {
+          snapshot: () => ({ value: scratchPad.value }),
+          receive: (state) => {
+            if (!state || typeof state.value !== "string") {
+              return;
+            }
+            const selectionStart = scratchPad.selectionStart;
+            const selectionEnd = scratchPad.selectionEnd;
+            scratchPad.value = state.value;
+            if (document.activeElement === scratchPad) {
+              const length = scratchPad.value.length;
+              scratchPad.setSelectionRange(
+                Math.min(selectionStart, length),
+                Math.min(selectionEnd, length),
+              );
+            }
+            saveScratchPad();
+          },
+        });
       }
-      lastSharedStatusText = text;
-      statusPaneSync.publish({ text });
-    });
-    projectStatusObserver.observe(projectStatusOutput, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-    });
+      if (!statusPaneSync) {
+        statusPaneSync = frontendRuntime.sharedPanes.connect("status", {
+          snapshot: () => ({ text: projectStatusOutput.textContent }),
+          receive: (state) => {
+            if (!state || typeof state.text !== "string") {
+              return;
+            }
+            lastSharedStatusText = state.text;
+            projectStatusOutput.textContent = state.text;
+          },
+        });
+      }
+      if (!projectStatusObserver) {
+        projectStatusObserver = new MutationObserver(() => {
+          bumpFrontendDebugCounter("mutationObserver.projectStatus");
+          const text = projectStatusOutput.textContent;
+          if (text === lastSharedStatusText) {
+            return;
+          }
+          lastSharedStatusText = text;
+          if (statusPaneSync) {
+            statusPaneSync.publish({ text });
+          }
+        });
+        projectStatusObserver.observe(projectStatusOutput, {
+          childList: true,
+          characterData: true,
+          subtree: true,
+        });
+      }
+    }
+
+    function stopSharedPaneSync() {
+      if (scratchPaneSync) {
+        scratchPaneSync.close();
+        scratchPaneSync = null;
+      }
+      if (statusPaneSync) {
+        statusPaneSync.close();
+        statusPaneSync = null;
+      }
+      if (projectStatusObserver) {
+        projectStatusObserver.disconnect();
+        projectStatusObserver = null;
+      }
+    }
 
     async function initialize() {
       applyFrontendTelemetryUrlPreference();
       startFrontendDebugDiagnostics();
       window.ElectroBoyFrontend.bindRuntime(frontendRuntime);
+      startSharedPaneSync();
       await checkConnection();
       await loadWorkflowRegistry();
       renderWorkflowModeOptions();
@@ -9180,11 +9257,25 @@
       await applyWorkflowMode();
     }
 
-    window.addEventListener("pagehide", releaseContextOwner);
+    function handleFrontendResume() {
+      if (contextId) {
+        claimContextOwner(contextId);
+      }
+      resumeWorkspaceAttachment().catch(() => {});
+    }
+
+    window.addEventListener("pagehide", (event) => {
+      if (!event.persisted) {
+        releaseContextOwner();
+      }
+    });
     window.addEventListener("pagehide", () => {
       sendFrontendDebugSnapshot("pagehide", { beacon: true });
     });
-    window.addEventListener("pagehide", () => {
+    window.addEventListener("pagehide", (event) => {
+      if (event.persisted) {
+        return;
+      }
       stopWorkspaceHeartbeat();
       if (contextId && navigator.sendBeacon) {
         const payload = new Blob(
@@ -9193,24 +9284,15 @@
         );
         navigator.sendBeacon(contextUrl("/api/workspaces/detach"), payload);
       }
-      scratchPaneSync.close();
-      statusPaneSync.close();
-      projectStatusObserver.disconnect();
+      stopSharedPaneSync();
     });
-    window.addEventListener("pageshow", () => {
-      if (contextId) {
-        claimContextOwner(contextId);
-      }
-      resumeWorkspaceAttachment().catch(() => {});
-    });
+    window.addEventListener("pageshow", handleFrontendResume);
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
-        resumeWorkspaceAttachment().catch(() => {});
+        handleFrontendResume();
       }
     });
-    document.addEventListener("resume", () => {
-      resumeWorkspaceAttachment().catch(() => {});
-    });
+    document.addEventListener("resume", handleFrontendResume);
 
     if (document.readyState === "loading") {
       window.addEventListener("DOMContentLoaded", () => {

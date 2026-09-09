@@ -2127,6 +2127,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('window.addEventListener("resize", scheduleFitTerminal);', runtime)
         self.assertIn("function scheduleFrontendResumeRecovery()", runtime)
         self.assertIn("function runFrontendResumeRecovery()", runtime)
+        self.assertIn("function paneLayoutNeedsResumeRender()", runtime)
+        self.assertIn("function paneLayoutHasRenderedVisibleLeaf()", runtime)
         self.assertIn("scheduleFrontendResumeRecovery();", runtime)
         self.assertIn('bumpFrontendDebugCounter("resumeRecovery.run")', runtime)
         resume_recovery_start = runtime.index("function runFrontendResumeRecovery()")
@@ -2135,9 +2137,14 @@ class ServiceTests(unittest.TestCase):
             resume_recovery_start,
         )
         resume_recovery = runtime[resume_recovery_start:resume_recovery_end]
+        self.assertIn("paneLayoutNeedsResumeRender()", resume_recovery)
         self.assertIn("paneLayoutRootIsMounted()", resume_recovery)
+        self.assertIn('"resumeRecovery.renderBlankRoot"', resume_recovery)
         self.assertIn("renderPaneLayout();", resume_recovery)
         self.assertNotIn("reconcilePaneLayout();", resume_recovery)
+        self.assertIn("function startSharedPaneSync()", runtime)
+        self.assertIn("function stopSharedPaneSync()", runtime)
+        self.assertIn("startSharedPaneSync();", runtime)
         self.assertIn("fitAll: scheduleFitTerminal,", runtime)
         self.assertIn(
             "terminalResizeObserver = new window.ResizeObserver((entries) => {",
@@ -2362,12 +2369,25 @@ class ServiceTests(unittest.TestCase):
 
         self.assertIn("async function recoverWorkspaceAttachment()", runtime)
         self.assertIn("async function resumeWorkspaceAttachment()", runtime)
+        self.assertIn("recovered = await recoverWorkspaceAttachment();", runtime)
+        self.assertIn("try {\n        response = await fetch", runtime)
         self.assertIn(
-            "const recovered = await recoverWorkspaceAttachment();",
+            "} catch (error) {\n        return recoverWorkspaceAttachmentAfterHeartbeatFailure();",
             runtime,
         )
+        self.assertIn(
+            "async function recoverWorkspaceAttachmentAfterHeartbeatFailure()",
+            runtime,
+        )
+        self.assertIn("startSharedPaneSync();\n      scheduleFrontendResumeRecovery();", runtime)
+        self.assertIn("function handleFrontendResume()", runtime)
         self.assertIn("resumeWorkspaceAttachment().catch(() => {});", runtime)
-        self.assertIn('document.addEventListener("resume", () => {', runtime)
+        self.assertIn('window.addEventListener("pageshow", handleFrontendResume);', runtime)
+        self.assertIn('document.addEventListener("resume", handleFrontendResume);', runtime)
+        self.assertIn(
+            "if (event.persisted) {\n        return;\n      }\n      stopWorkspaceHeartbeat();",
+            runtime,
+        )
 
     def test_workspace_selector_clears_detached_workspaces(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
