@@ -1371,6 +1371,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("function selectedAgentSession()", pane_window)
         self.assertIn("no active agent stream", pane_window)
+        self.assertNotIn("Opening agent launcher", pane_window)
         self.assertIn('if (session && session.status === "running")', app)
         self.assertIn("showProgressPane(true, {", app)
         self.assertIn("updateOutputSplit: false,", app)
