@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -159,6 +160,107 @@ def browser_file_dom(page: str, root: Path) -> subprocess.CompletedProcess[str]:
         text=True,
         timeout=30,
         check=False,
+    )
+
+
+def browser_page_dom(page: str, profile: Path) -> subprocess.CompletedProcess[str]:
+    body = page.encode("utf-8")
+
+    class PageHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), PageHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        return subprocess.run(
+            [
+                str(CHROME),
+                "--headless=new",
+                "--no-sandbox",
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                f"--user-data-dir={profile}",
+                "--virtual-time-budget=1000",
+                "--dump-dom",
+                f"http://127.0.0.1:{server.server_address[1]}/",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_stateful_dom_move_preserves_iframe_context(tmp_path: Path) -> None:
+    asset = (
+        Path(__file__).resolve().parents[1]
+        / "src/electroboy/assets/service/js/core/stateful-dom.js"
+    ).read_text(encoding="utf-8")
+    page = f"""
+<!doctype html>
+<html>
+<body>
+  <div id="root"><div id="leaf"></div></div>
+  <script>{asset}</script>
+  <script>
+    let frameLoads = 0;
+    let movePreservedState = false;
+    window.frameLoaded = () => {{
+      frameLoads += 1;
+      if (frameLoads !== 1) return;
+      const root = document.getElementById("root");
+      const leaf = document.getElementById("leaf");
+      const split = document.createElement("div");
+      const divider = document.createElement("div");
+      root.insertBefore(split, leaf);
+      split.append(divider);
+      movePreservedState = window.ElectroBoyStatefulDOM.moveBefore(
+        split,
+        leaf,
+        divider,
+      );
+      window.setTimeout(() => {{
+        const result = document.createElement("div");
+        result.id = "statefulMoveProbe";
+        result.dataset.preserved = String(movePreservedState);
+        result.dataset.loads = String(frameLoads);
+        result.dataset.marker = String(
+          document.getElementById("frame").contentDocument
+            .getElementById("marker").textContent,
+        );
+        document.body.append(result);
+      }}, 100);
+    }};
+    const frame = document.createElement("iframe");
+    frame.id = "frame";
+    frame.srcdoc = "<script>parent.frameLoaded()<\\/script>" +
+      "<div id='marker'>open-file</div>";
+    document.getElementById("leaf").append(frame);
+  </script>
+</body>
+</html>
+"""
+
+    completed = browser_page_dom(page, tmp_path / "stateful-chrome-profile")
+
+    assert completed.returncode == 0, completed.stdout
+    assert (
+        '<div id="statefulMoveProbe" data-preserved="true" data-loads="1" '
+        'data-marker="open-file"></div>' in completed.stdout
     )
 
 

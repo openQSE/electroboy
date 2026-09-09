@@ -1771,6 +1771,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_pane_layout_allows_independent_duplicate_types(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
+        stateful_dom = read_service_text_asset("js/core/stateful-dom.js")
         documents = read_service_text_asset("js/modules/documents.js")
         agenda = read_service_text_asset("js/modules/agenda.js")
         project_shell = read_service_text_asset("js/modules/project-shell.js")
@@ -1847,6 +1848,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('bumpFrontendDebugCounter("paneLayout.closeSkippedMissingLeaf")', runtime)
         self.assertIn("function renderPaneLayoutIncrementalSplit(", runtime)
         self.assertIn("parent.insertBefore(splitElement, preservedElement);", runtime)
+        self.assertIn("window.ElectroBoyStatefulDOM?.moveBefore(", runtime)
+        self.assertIn("parent.moveBefore(node, reference);", stateful_dom)
+        self.assertIn("global.ElectroBoyStatefulDOM", stateful_dom)
         self.assertIn("if (!renderPaneLayoutIncrementalSplit(replacement, existingLeaf.id))", runtime)
         self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
         self.assertIn("function ensureActivePaneLayoutLeaf(preferredKind = \"\")", runtime)
@@ -2935,8 +2939,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("electroboy.paneWorkspaceLayout.v3.${PANE_KIND}", page)
         self.assertIn('/assets/service/js/core/pane-workspace.js', page)
         self.assertIn('/assets/service/js/core/split-resize.js', page)
+        self.assertIn('/assets/service/js/core/stateful-dom.js', page)
         self.assertLess(
             page.index('/assets/service/js/core/split-resize.js'),
+            page.index('/assets/service/js/core/stateful-dom.js'),
+        )
+        self.assertLess(
+            page.index('/assets/service/js/core/stateful-dom.js'),
             page.index('/assets/service/js/core/pane-workspace.js'),
         )
         self.assertIn('/assets/service/js/core/pane-sync.js', page)
@@ -2986,6 +2995,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("frame.dataset.paneContentSignature", workspace)
         self.assertIn("function renderIncrementalSplit(", workspace)
         self.assertIn("parent.insertBefore(element, preservedElement);", workspace)
+        self.assertIn("global.ElectroBoyStatefulDOM?.moveBefore(", workspace)
+        self.assertIn("updatePaneFrameSource(entry.frame, replacement.first);", workspace)
+        self.assertIn("updatePaneFrameSource(entry.frame, replacement.second);", workspace)
         self.assertIn("if (!renderIncrementalSplit(replacement, existing.id))", workspace)
         self.assertIn('function moveLeaf(', workspace)
         self.assertIn('item.kind = kind;', workspace)

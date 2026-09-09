@@ -571,14 +571,32 @@
         preservedElement.classList.remove("workspace-pane-root");
       }
       parent.insertBefore(element, preservedElement);
-      const firstElement = firstIsPreserved
-        ? preservedElement
-        : renderNode(replacement.first);
       const divider = splitDivider(replacement, element);
-      const secondElement = secondIsPreserved
-        ? preservedElement
-        : renderNode(replacement.second);
-      element.append(firstElement, divider, secondElement);
+      if (firstIsPreserved) {
+        const secondElement = renderNode(replacement.second);
+        element.append(divider, secondElement);
+        if (!global.ElectroBoyStatefulDOM?.moveBefore(
+          element,
+          preservedElement,
+          divider,
+        )) {
+          const entry = paneFrames.get(preservedLeafId);
+          if (entry) updatePaneFrameSource(entry.frame, replacement.first);
+          element.insertBefore(preservedElement, divider);
+        }
+      } else {
+        const firstElement = renderNode(replacement.first);
+        element.append(firstElement, divider);
+        if (!global.ElectroBoyStatefulDOM?.moveBefore(
+          element,
+          preservedElement,
+          null,
+        )) {
+          const entry = paneFrames.get(preservedLeafId);
+          if (entry) updatePaneFrameSource(entry.frame, replacement.second);
+          element.append(preservedElement);
+        }
+      }
       applySplitTemplate(element, replacement);
       refreshLeafToolbar(replacement.first);
       refreshLeafToolbar(replacement.second);

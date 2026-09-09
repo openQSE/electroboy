@@ -2843,6 +2843,17 @@
       }
     }
 
+    function preparePaneLayoutLeafForReload(leaf, element) {
+      const frame = element.querySelector(".pane-layout-instance-frame");
+      if (!frame) {
+        return;
+      }
+      const nextUrl = new URL(paneLayoutInstanceUrl(leaf), window.location.origin);
+      if (frame.src !== nextUrl.href) {
+        setPaneLayoutFrameSource(frame, leaf, nextUrl, "split-fallback");
+      }
+    }
+
     function renderPaneLayoutIncrementalSplit(replacement, preservedLeafId) {
       const preservedElement = paneLayoutLeafElementById(preservedLeafId);
       const parent = preservedElement?.parentElement || null;
@@ -2863,14 +2874,33 @@
       }
       parent.insertBefore(splitElement, preservedElement);
       const renderedKinds = new Set();
-      const firstElement = firstIsPreserved
-        ? preservedElement
-        : renderPaneLayoutNode(replacement.first, renderedKinds);
       const divider = buildPaneLayoutDivider(replacement, splitElement);
-      const secondElement = secondIsPreserved
-        ? preservedElement
-        : renderPaneLayoutNode(replacement.second, renderedKinds);
-      splitElement.append(firstElement, divider, secondElement);
+      if (firstIsPreserved) {
+        const secondElement = renderPaneLayoutNode(
+          replacement.second,
+          renderedKinds,
+        );
+        splitElement.append(divider, secondElement);
+        if (!window.ElectroBoyStatefulDOM?.moveBefore(
+          splitElement,
+          preservedElement,
+          divider,
+        )) {
+          preparePaneLayoutLeafForReload(replacement.first, preservedElement);
+          splitElement.insertBefore(preservedElement, divider);
+        }
+      } else {
+        const firstElement = renderPaneLayoutNode(replacement.first, renderedKinds);
+        splitElement.append(firstElement, divider);
+        if (!window.ElectroBoyStatefulDOM?.moveBefore(
+          splitElement,
+          preservedElement,
+          null,
+        )) {
+          preparePaneLayoutLeafForReload(replacement.second, preservedElement);
+          splitElement.append(preservedElement);
+        }
+      }
       applyPaneLayoutSplitTemplate(splitElement, replacement);
       refreshPaneLayoutLeafToolbar(replacement.first);
       refreshPaneLayoutLeafToolbar(replacement.second);
