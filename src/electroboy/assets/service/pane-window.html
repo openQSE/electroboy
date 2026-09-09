@@ -20,6 +20,7 @@
       --border: #2a3142;
       --font-size: 15px;
       --ui-small-font-size: calc(var(--font-size) - 2px);
+      --agent-input-pane-height: 34%;
     }
 
     * {
@@ -286,6 +287,25 @@
       overflow: hidden;
     }
 
+    .pane-content-surface.ai-agent-surface {
+      display: grid;
+      grid-template-rows:
+        minmax(0, 1fr) 7px
+        minmax(132px, var(--agent-input-pane-height));
+    }
+
+    .pane-content-surface.ai-agent-surface .terminal-host {
+      grid-row: 1;
+    }
+
+    .pane-content-surface.ai-agent-surface .agent-input-resize-handle {
+      grid-row: 2;
+    }
+
+    .pane-content-surface.ai-agent-surface .input-layout {
+      grid-row: 3;
+    }
+
     .terminal-host,
     .artifact-frame,
     .scratch-pad,
@@ -353,7 +373,24 @@
       height: 100%;
       min-height: 0;
       gap: 8px;
+      border-top: 1px solid var(--border);
+      background: #151b29;
       padding: 8px;
+    }
+
+    .agent-input-resize-handle {
+      min-height: 0;
+      background: #202838;
+      cursor: row-resize;
+    }
+
+    .agent-input-resize-handle:hover,
+    .pane-content-surface.resizing-agent-input .agent-input-resize-handle {
+      background: #3a78a0;
+    }
+
+    .agent-input-resize-handle[hidden] {
+      display: none;
     }
 
     .input-compose {
@@ -395,6 +432,8 @@
       grid-template-rows: repeat(4, 42px);
       align-items: stretch;
       align-content: start;
+      min-height: 0;
+      overflow: auto;
       gap: 10px;
       border-left: 1px solid var(--border);
       background: #151b29;
@@ -854,6 +893,14 @@
     <section id="paneBody" class="pane-body">
       <div id="paneContentSurface" class="pane-content-surface">
         <div id="terminalHost" class="terminal-host" hidden></div>
+        <div
+          id="agentInputResizeHandle"
+          class="agent-input-resize-handle"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize AI Agent input"
+          hidden
+        ></div>
       <iframe
         id="artifactFrame"
         class="artifact-frame"
@@ -985,7 +1032,10 @@
     let artifactMindMapPath = params.get("mind_map_path") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
+    const AGENT_INPUT_HEIGHT_STORAGE_KEY = "electroboy.paneAgentInputHeight";
     const DEFAULT_FONT_SIZE = 15;
+    const MIN_AGENT_INPUT_HEIGHT = 132;
+    const MIN_AGENT_OUTPUT_HEIGHT = 96;
     const fontPane = params.get("font_pane") || paneFontKeyForKind(PANE_KIND);
     let baseFontSize = storedBaseFontSize();
     let fontOffset = storedFontOffset();
@@ -1037,6 +1087,8 @@
     const scratchPad = document.getElementById("scratchPad");
     const statusOutput = document.getElementById("statusOutput");
     const inputLayout = document.getElementById("inputLayout");
+    const agentInputResizeHandle =
+      document.getElementById("agentInputResizeHandle");
     const agentInput = document.getElementById("agentInput");
     const agentSendShortcut = document.getElementById("agentSendShortcut");
     const showInputHistory = document.getElementById("showInputHistory");
@@ -1059,6 +1111,7 @@
     let terminalWindowResizeListenerInstalled = false;
     let terminalResizeTimer = null;
     let pendingTerminalResize = null;
+    let resizeAgentInputState = null;
     let eventSource = null;
     let artifactEventSource = null;
     let slashCommandMode = false;
@@ -1162,9 +1215,59 @@
       return `${value}px`;
     }
 
+    function clampValue(value, minimum, maximum) {
+      return Math.max(minimum, Math.min(maximum, value));
+    }
+
     function effectiveFontSize() {
       const value = baseFontSize + fontOffset;
       return value > 0 ? value : baseFontSize;
+    }
+
+    function storedAgentInputHeight() {
+      try {
+        const stored = Number(
+          window.localStorage.getItem(AGENT_INPUT_HEIGHT_STORAGE_KEY),
+        );
+        return Number.isFinite(stored) && stored > 0 ? stored : 0;
+      } catch (error) {
+        return 0;
+      }
+    }
+
+    function saveAgentInputHeight(value) {
+      try {
+        window.localStorage.setItem(
+          AGENT_INPUT_HEIGHT_STORAGE_KEY,
+          String(value),
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
+    function maxAgentInputHeight() {
+      const surfaceRect = paneContentSurface.getBoundingClientRect();
+      return Math.max(
+        MIN_AGENT_INPUT_HEIGHT,
+        surfaceRect.height - MIN_AGENT_OUTPUT_HEIGHT - 7,
+      );
+    }
+
+    function applyStoredAgentInputHeight() {
+      const stored = storedAgentInputHeight();
+      if (!stored) {
+        return;
+      }
+      const height = clampValue(
+        stored,
+        MIN_AGENT_INPUT_HEIGHT,
+        maxAgentInputHeight(),
+      );
+      paneContentSurface.style.setProperty(
+        "--agent-input-pane-height",
+        `${height}px`,
+      );
     }
 
     function saveFontOffset() {
@@ -1267,7 +1370,7 @@
     }
 
     function titleForPane(kind) {
-      if (kind === "agent") return "Agent output";
+      if (kind === "agent") return "AI Agent";
       if (kind === "artifact") {
         return "File";
       }
@@ -2912,6 +3015,53 @@
       window.addEventListener("resize", fitTerminal);
     }
 
+    function startAgentInputResize(event) {
+      if (PANE_KIND !== "agent" || inputLayout.hidden) {
+        return;
+      }
+      event.preventDefault();
+      const inputRect = inputLayout.getBoundingClientRect();
+      resizeAgentInputState = {
+        startY: event.clientY,
+        startHeight: inputRect.height,
+        maxHeight: maxAgentInputHeight(),
+      };
+      agentInputResizeHandle.setPointerCapture(event.pointerId);
+      paneContentSurface.classList.add("resizing-agent-input");
+    }
+
+    function updateAgentInputResize(event) {
+      if (!resizeAgentInputState) {
+        return;
+      }
+      const deltaY = resizeAgentInputState.startY - event.clientY;
+      const nextHeight = clampValue(
+        resizeAgentInputState.startHeight + deltaY,
+        MIN_AGENT_INPUT_HEIGHT,
+        resizeAgentInputState.maxHeight,
+      );
+      paneContentSurface.style.setProperty(
+        "--agent-input-pane-height",
+        `${nextHeight}px`,
+      );
+      saveAgentInputHeight(nextHeight);
+      fitTerminal();
+    }
+
+    function finishAgentInputResize(event) {
+      if (!resizeAgentInputState) {
+        return;
+      }
+      resizeAgentInputState = null;
+      paneContentSurface.classList.remove("resizing-agent-input");
+      try {
+        agentInputResizeHandle.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        return;
+      }
+      fitTerminal();
+    }
+
     async function sendShellInput(data) {
       if (!contextId || !data) {
         return;
@@ -3869,7 +4019,7 @@
       await fetch(contextUrl("/api/sessions/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ session_id: selectedSessionId, message }),
       });
     }
 
@@ -3884,7 +4034,7 @@
         await fetch(contextUrl("/api/sessions/key"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key }),
+          body: JSON.stringify({ session_id: selectedSessionId, key }),
         });
       });
     }
@@ -3897,7 +4047,7 @@
         await fetch(contextUrl("/api/sessions/raw"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data }),
+          body: JSON.stringify({ session_id: selectedSessionId, data }),
         });
       });
     }
@@ -4093,9 +4243,18 @@
 
     function showInput() {
       inputLayout.hidden = false;
+      agentInputResizeHandle.hidden = true;
       refreshSessions();
       applyFontSize();
       agentInput.focus();
+    }
+
+    function showAgent() {
+      paneContentSurface.classList.add("ai-agent-surface");
+      inputLayout.hidden = false;
+      agentInputResizeHandle.hidden = false;
+      applyStoredAgentInputHeight();
+      applyFontSize();
     }
 
     function restorePoppedPane() {
@@ -4143,19 +4302,6 @@
       return `/pane/${encodeURIComponent(kind)}?${paneParameters.toString()}`;
     }
 
-    function initialPaneWorkspaceLayout() {
-      if (PANE_KIND !== "agent") {
-        return null;
-      }
-      return {
-        type: "split",
-        direction: "column",
-        ratio: 0.72,
-        first: { type: "leaf", kind: "agent" },
-        second: { type: "leaf", kind: "input" },
-      };
-    }
-
     function initializePaneWorkspace() {
       directPaneWindow.hidden = true;
       workspaceWindow.hidden = false;
@@ -4169,10 +4315,9 @@
         root: workspaceLayout,
         resetButton: resetWorkspace,
         initialKind: PANE_KIND,
-        initialLayout: initialPaneWorkspaceLayout(),
-        storageKey: `electroboy.paneWorkspaceLayout.v2.${PANE_KIND}`,
+        storageKey: `electroboy.paneWorkspaceLayout.v3.${PANE_KIND}`,
         kinds: [
-          { id: "agent", label: "Agent" },
+          { id: "agent", label: "AI Agent" },
           { id: "progress", label: "Progress" },
           { id: "artifact", label: "File" },
           { id: "corkboard", label: "Corkboard" },
@@ -4183,7 +4328,6 @@
           { id: "shell", label: "Shell" },
           { id: "scratch", label: "Scratch" },
           { id: "status", label: "Status" },
-          { id: "input", label: "Agent input" },
           ...(window.ElectroBoyFrontend?.listModules?.() || []).flatMap(
             (module) => (Array.isArray(module.panes) ? module.panes : []).map(
               (pane) => ({ id: pane.id, label: pane.label || pane.id }),
@@ -4391,7 +4535,7 @@
         PANE_KIND === "agent" &&
         (!data.paneInstanceId || data.paneInstanceId === paneInstanceId)
       ) {
-        selectAgentSession(String(data.sessionId || ""));
+        selectAgentInputSession(String(data.sessionId || "")).catch(() => {});
         return;
       }
       if (
@@ -4421,10 +4565,8 @@
       }
     });
     contentSwitcher.addEventListener("change", () => {
-      if (PANE_KIND === "input") {
+      if (PANE_KIND === "input" || PANE_KIND === "agent") {
         selectAgentInputSession(contentSwitcher.value).catch(() => {});
-      } else if (PANE_KIND === "agent") {
-        selectAgentSession(contentSwitcher.value);
       } else if (PANE_KIND === "artifact") {
         if (!contentSwitcher.value) {
           return;
@@ -4438,6 +4580,13 @@
     });
     interruptAgent.addEventListener("click", interruptAgentSession);
     linkAgentFile.addEventListener("click", openLinkFileBrowser);
+    agentInputResizeHandle.addEventListener("pointerdown", startAgentInputResize);
+    agentInputResizeHandle.addEventListener("pointermove", updateAgentInputResize);
+    agentInputResizeHandle.addEventListener("pointerup", finishAgentInputResize);
+    agentInputResizeHandle.addEventListener(
+      "pointercancel",
+      finishAgentInputResize,
+    );
     agentInput.addEventListener("keydown", (event) => {
       if (handleSlashCommandInput(event)) {
         return;
@@ -4459,7 +4608,7 @@
       }
     });
     agentInput.addEventListener("input", () => {
-      if (PANE_KIND !== "input") {
+      if (PANE_KIND !== "input" && PANE_KIND !== "agent") {
         return;
       }
       if (selectedSessionId) {
@@ -4582,6 +4731,7 @@
     exportPaneFormat.hidden = !IS_ARTIFACT_PANE;
     exportPaneOutput.hidden = Boolean(agentPaneTools) || !canExportPaneOutput();
     if (PANE_KIND === "agent") {
+      showAgent();
       refreshSessions()
         .catch(() => {})
         .then(() => {

@@ -372,7 +372,7 @@
     const CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json";
 
     const PANE_LAYOUT_KINDS = {
-      agent: { label: "Agent", element: agentOutputPane },
+      agent: { label: "AI Agent", element: agentOutputPane },
       progress: { label: "Progress", element: progressOutputPane },
       artifact: { label: "File", element: artifactPreviewPane },
       corkboard: { label: "Corkboard", element: null },
@@ -2725,8 +2725,8 @@
           empty.textContent = "Choose a pane type";
           leaf.append(empty);
         } else if (
+          node.kind === "agent" ||
           INSTANCE_PANE_LAYOUT_KINDS.has(node.kind) ||
-          (node.kind === "agent" && Boolean(node.content?.sessionId)) ||
           renderedKinds.has(node.kind)
         ) {
           leaf.append(buildPaneLayoutInstanceFrame(node));
@@ -3291,6 +3291,7 @@
           attributeFilter: ["hidden"],
         });
       }
+      setAgentInputVisible(inputPaneRequested);
     }
 
     function storedTerminalFontSize() {
@@ -4895,7 +4896,8 @@
 
     function setAgentInputVisible(isVisible) {
       inputPaneRequested = isVisible;
-      const visible = isVisible && !poppedPanes.has("input");
+      const visible = isVisible && !poppedPanes.has("input") &&
+        !paneLayoutIsMounted();
       inputPane.hidden = !visible;
       inputResizeHandle.hidden = !visible;
       agentPane.classList.toggle("noninteractive", !visible);

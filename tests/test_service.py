@@ -1831,10 +1831,7 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('type: "electroboy:pane-set-context"', runtime)
         self.assertIn("frame.dataset.paneContextSignature", runtime)
-        self.assertIn(
-            '(node.kind === "agent" && Boolean(node.content?.sessionId))',
-            runtime,
-        )
+        self.assertIn('node.kind === "agent" ||', runtime)
         self.assertIn('element.dataset.paneDragIgnore = "true";', runtime)
         self.assertIn("function bindPaneLayoutCommand(button, handler)", runtime)
         self.assertIn("bindPaneLayoutCommand(close, () => closePaneLayoutLeaf(leaf.id));", runtime)
@@ -2923,7 +2920,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="dockWorkspace"', page)
         self.assertIn('params.get("embedded") === "1"', page)
         self.assertIn("ElectroBoyPaneWorkspace.create", page)
-        self.assertIn("electroboy.paneWorkspaceLayout.v2.${PANE_KIND}", page)
+        self.assertIn("electroboy.paneWorkspaceLayout.v3.${PANE_KIND}", page)
         self.assertIn('/assets/service/js/core/pane-workspace.js', page)
         self.assertIn('/assets/service/js/core/split-resize.js', page)
         self.assertLess(
@@ -2947,10 +2944,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('paneParameters.set("embedded", "1")', page)
         self.assertIn('paneParameters.set("pane_instance_id", item.id);', page)
         self.assertIn('type: "electroboy:pane-close"', page)
-        self.assertIn('function initialPaneWorkspaceLayout()', page)
-        self.assertIn('first: { type: "leaf", kind: "agent" }', page)
-        self.assertIn('second: { type: "leaf", kind: "input" }', page)
-        self.assertIn('initialLayout: initialPaneWorkspaceLayout()', page)
+        self.assertIn('{ id: "agent", label: "AI Agent" }', page)
+        self.assertNotIn('{ id: "input", label: "Agent input" }', page)
+        self.assertNotIn('function initialPaneWorkspaceLayout()', page)
+        self.assertNotIn('initialLayout:', page)
         self.assertIn('{ id: "mind-map", label: "Mind Map" }', page)
         self.assertIn('{ id: "corkboard", label: "Corkboard" }', page)
         self.assertIn("function hasNonEmptyLeaf(node)", workspace)
@@ -2978,6 +2975,82 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function initializeSharedPaneSync()", page)
         self.assertIn("function renderSharedProgressState(", page)
         self.assertIn("function applySharedAgentInputState(", page)
+
+    def test_ai_agent_pane_couples_output_and_input(self) -> None:
+        page = pane_window_html("agent")
+        runtime = read_service_text_asset("js/core/runtime.js")
+
+        self.assertIn('if (kind === "agent") return "AI Agent";', page)
+        self.assertIn(".pane-content-surface.ai-agent-surface", page)
+        self.assertIn('paneContentSurface.classList.add("ai-agent-surface");', page)
+        self.assertIn(
+            "minmax(132px, var(--agent-input-pane-height));",
+            page,
+        )
+        self.assertIn(
+            ".pane-content-surface.ai-agent-surface .input-layout",
+            page,
+        )
+        self.assertIn("grid-row: 3;", page)
+        self.assertIn('id="agentInputResizeHandle"', page)
+        self.assertIn("class=\"agent-input-resize-handle\"", page)
+        self.assertIn("const AGENT_INPUT_HEIGHT_STORAGE_KEY", page)
+        self.assertIn("function startAgentInputResize(event)", page)
+        self.assertIn("function updateAgentInputResize(event)", page)
+        self.assertIn("function finishAgentInputResize(event)", page)
+        self.assertIn("inputLayout.hidden = false;", page)
+        self.assertIn("agentInputResizeHandle.hidden = false;", page)
+        self.assertIn("applyStoredAgentInputHeight();", page)
+        self.assertIn(
+            'agentInputResizeHandle.addEventListener("pointerdown"',
+            page,
+        )
+        self.assertIn(
+            'paneContentSurface.style.setProperty(\n'
+            '        "--agent-input-pane-height"',
+            page,
+        )
+        self.assertLess(
+            page.index('id="terminalHost"'), page.index('id="inputLayout"')
+        )
+        self.assertLess(
+            page.index('id="terminalHost"'),
+            page.index('id="agentInputResizeHandle"'),
+        )
+        self.assertLess(
+            page.index('id="agentInputResizeHandle"'),
+            page.index('id="inputLayout"'),
+        )
+        self.assertLess(
+            page.index('id="agentInput"'), page.index('id="showInputHistory"')
+        )
+        self.assertLess(
+            page.index('id="showInputHistory"'), page.index('id="interruptAgent"')
+        )
+        self.assertLess(
+            page.index('id="interruptAgent"'), page.index('id="linkAgentFile"')
+        )
+        self.assertLess(
+            page.index('id="linkAgentFile"'),
+            page.index('id="agentSendShortcut"'),
+        )
+        self.assertIn(
+            'body: JSON.stringify({ session_id: selectedSessionId, message })',
+            page,
+        )
+        self.assertIn(
+            'body: JSON.stringify({ session_id: selectedSessionId, key })',
+            page,
+        )
+        self.assertIn(
+            'body: JSON.stringify({ session_id: selectedSessionId, data })',
+            page,
+        )
+        self.assertIn(
+            'agent: { label: "AI Agent", element: agentOutputPane }', runtime
+        )
+        self.assertIn('node.kind === "agent" ||', runtime)
+        self.assertIn('!paneLayoutIsMounted();', runtime)
 
     def test_pane_window_html_includes_reconnect_streams(self) -> None:
         page = pane_window_html("artifact")
@@ -3180,7 +3253,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("background: #12303b;", PANE_WINDOW_HTML)
         self.assertIn("grid-template-rows: repeat(4, 42px);", PANE_WINDOW_HTML)
         self.assertIn(".input-actions button {\n      height: 42px;", PANE_WINDOW_HTML)
-        self.assertIn("align-content: start;\n      gap: 10px;", PANE_WINDOW_HTML)
+        self.assertIn("align-content: start;\n      min-height: 0;", PANE_WINDOW_HTML)
+        self.assertIn("overflow: auto;\n      gap: 10px;", PANE_WINDOW_HTML)
         self.assertNotIn('id="sendAgentInput"', PANE_WINDOW_HTML)
         self.assertLess(
             PANE_WINDOW_HTML.index('id="agentInput"'),
