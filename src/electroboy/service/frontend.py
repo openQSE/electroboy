@@ -121,6 +121,7 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
                 "index.html",
                 "css/shell.css",
                 "css/pane-tools.css",
+                "css/selects.css",
                 "js/core/terminal-behavior.js",
                 "js/core/mermaid.js",
                 "js/core/registry.js",
@@ -223,6 +224,7 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             assets=(
                 "pane-window.html",
                 "css/pane-tools.css",
+                "css/selects.css",
                 "js/core/terminal-behavior.js",
                 "js/core/mermaid.js",
                 "js/core/pane-layout-drag.js",

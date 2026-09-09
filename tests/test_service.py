@@ -2625,6 +2625,7 @@ class ServiceTests(unittest.TestCase):
     def test_service_asset_endpoint_serves_extracted_frontend_files(self) -> None:
         self.assertIn("/assets/service/css/shell.css", INDEX_HTML)
         self.assertIn("/assets/service/css/pane-tools.css", INDEX_HTML)
+        self.assertIn("/assets/service/css/selects.css", INDEX_HTML)
         self.assertIn("/assets/service/js/core/pane-layout-drag.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/split-resize.js", INDEX_HTML)
         self.assertIn("/assets/service/js/core/input-shortcut.js", INDEX_HTML)
@@ -2655,6 +2656,10 @@ class ServiceTests(unittest.TestCase):
                 pane_css_status, pane_css_body, pane_css_type, _ = request_bytes(
                     server,
                     "/assets/service/css/pane-tools.css",
+                )
+                select_css_status, select_css_body, select_css_type, _ = request_bytes(
+                    server,
+                    "/assets/service/css/selects.css",
                 )
                 js_status, js_body, js_type, _js_headers = request_bytes(
                     server,
@@ -2777,6 +2782,9 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(css_type, "text/css; charset=utf-8")
         self.assertIn(b":root", css_body)
         self.assertIn(b".ad-hoc-session-dialog", css_body)
+        self.assertEqual(select_css_status, 200)
+        self.assertEqual(select_css_type, "text/css; charset=utf-8")
+        self.assertIn(b"appearance: base-select", select_css_body)
         self.assertEqual(pane_css_status, 200)
         self.assertEqual(pane_css_type, "text/css; charset=utf-8")
         self.assertIn(b".pane-tool-menu", pane_css_body)
@@ -2939,6 +2947,7 @@ class ServiceTests(unittest.TestCase):
     def test_pane_window_supports_persistent_split_workspaces(self) -> None:
         page = pane_window_html("agent")
         workspace = read_service_text_asset("js/core/pane-workspace.js")
+        select_styles = read_service_text_asset("css/selects.css")
 
         self.assertIn('id="workspaceWindow"', page)
         self.assertIn('id="workspaceLayout"', page)
@@ -2948,6 +2957,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("ElectroBoyPaneWorkspace.create", page)
         self.assertIn("electroboy.paneWorkspaceLayout.v3.${PANE_KIND}", page)
         self.assertIn('/assets/service/js/core/pane-workspace.js', page)
+        self.assertIn('/assets/service/css/selects.css', page)
+        self.assertIn('class="pane-service-page"', page)
+        self.assertIn("appearance: base-select", select_styles)
+        self.assertIn("select::picker(select)", select_styles)
+        self.assertIn("color-scheme: dark", select_styles)
         self.assertIn('/assets/service/js/core/split-resize.js', page)
         self.assertIn('/assets/service/js/core/stateful-dom.js', page)
         self.assertLess(
@@ -4039,6 +4053,8 @@ class ServiceTests(unittest.TestCase):
 
         self.assertEqual(status, HTTPStatus.OK)
         self.assertIn('"mode": "structured"', page)
+        self.assertIn('/assets/service/css/selects.css', page)
+        self.assertIn('<body class="pane-service-page">', page)
         self.assertIn('"jsonl_path": "docs/requirements.jsonl"', page)
         self.assertIn("Markdown body", page)
         self.assertIn("/api/artifacts/edit", page)
@@ -5940,6 +5956,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["filters"][0]["control"], "list")
         page, status = render_agenda_html(snapshot)
         self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('/assets/service/css/selects.css', page)
         self.assertIn('<body class="agenda-style-default">', page)
         self.assertIn('id="agendaControls"', page)
         self.assertIn(
@@ -6529,6 +6546,8 @@ class ServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn('/assets/service/css/selects.css', page)
+        self.assertIn('<body class="pane-service-page">', page)
         self.assertIn('aria-label="Mind map context tools"', page)
         self.assertIn('data-action="child"', page)
         self.assertIn('data-action="create-document"', page)

@@ -50,6 +50,7 @@ def render_agenda_html(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title}</title>
+  <link rel="stylesheet" href="/assets/service/css/selects.css">
   <style>
     :root {{
       color-scheme: light;

@@ -12,9 +12,11 @@
   <link rel="stylesheet" href="/assets/service/css/agenda-pane-tools.css">
   <link rel="stylesheet" href="/assets/service/css/mind-map-pane-tools.css">
   <link rel="stylesheet" href="/assets/service/css/input-history.css">
+  <link rel="stylesheet" href="/assets/service/css/selects.css">
   <!-- __ELECTROBOY_CONTRIBUTION_STYLES__ -->
   <style>
     :root {
+      color-scheme: dark;
       --terminal: #10141f;
       --terminal-text: #e7edf7;
       --border: #2a3142;
@@ -789,7 +791,7 @@
     }
   </style>
 </head>
-<body>
+<body class="pane-service-page">
   <main id="workspaceWindow" class="workspace-window" hidden>
     <header class="pane-toolbar">
       <span id="workspaceTitle">ElectroBoy workspace</span>
@@ -810,7 +812,9 @@
             id="contentSwitcher"
             aria-label="Select pane content"
             disabled
-          ></select>
+          >
+            <option value="">Loading...</option>
+          </select>
         </div>
         <div id="paneFontControls" class="pane-font-controls" aria-label="Pane font size">
           <button

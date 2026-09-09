@@ -205,6 +205,43 @@ def browser_page_dom(page: str, profile: Path) -> subprocess.CompletedProcess[st
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_custom_select_picker_is_ready_on_first_paint(tmp_path: Path) -> None:
+    select_styles = (
+        Path(__file__).resolve().parents[1]
+        / "src/electroboy/assets/service/css/selects.css"
+    ).read_text(encoding="utf-8")
+    page = (
+        "<!doctype html><html><head><style>"
+        + select_styles
+        + "</style></head><body class='pane-service-page'>"
+        + "<select id='picker'><option>AI Agent</option></select><script>"
+        + r"""
+const picker = document.getElementById("picker");
+const result = document.createElement("div");
+result.id = "customSelectProbe";
+result.dataset.supported = String(CSS.supports("appearance", "base-select"));
+result.dataset.appearance = getComputedStyle(picker).appearance;
+result.dataset.pickerBackground = getComputedStyle(
+  picker,
+  "::picker(select)",
+).backgroundColor;
+result.dataset.option = picker.options[0].textContent;
+document.body.append(result);
+"""
+        + "</script></body></html>"
+    )
+
+    completed = browser_page_dom(page, tmp_path / "select-chrome-profile")
+
+    assert completed.returncode == 0, completed.stdout
+    assert (
+        '<div id="customSelectProbe" data-supported="true" '
+        'data-appearance="base-select" data-picker-background="rgb(21, 27, 41)" '
+        'data-option="AI Agent"></div>' in completed.stdout
+    )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_stateful_dom_collapse_preserves_iframe_context(tmp_path: Path) -> None:
     asset = (
         Path(__file__).resolve().parents[1]

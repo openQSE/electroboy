@@ -37,6 +37,7 @@ _PAGE = r"""<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mind Map</title>
+  <link rel="stylesheet" href="/assets/service/css/selects.css">
   <style>
     :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
     * { box-sizing: border-box; }
@@ -178,7 +179,7 @@ _PAGE = r"""<!doctype html>
     }
   </style>
 </head>
-<body>
+<body class="pane-service-page">
   <main class="shell">
     <nav class="tools" aria-label="Mind map context tools">
       <section class="tool-group"><strong>File</strong>

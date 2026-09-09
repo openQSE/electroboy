@@ -738,6 +738,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title} Editor</title>
+  <link rel="stylesheet" href="/assets/service/css/selects.css">
   <style>
     :root {{
       color-scheme: dark;
@@ -1151,7 +1152,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     }}
   </style>
 </head>
-<body>
+<body class="pane-service-page">
   <main>
     <header class="editor-header">
       <div class="editor-title">

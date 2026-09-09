@@ -10,6 +10,7 @@
   >
   <link rel="stylesheet" href="/assets/service/css/shell.css">
   <link rel="stylesheet" href="/assets/service/css/pane-tools.css">
+  <link rel="stylesheet" href="/assets/service/css/selects.css">
   <!-- __ELECTROBOY_CONTRIBUTION_STYLES__ -->
 </head>
 <body>
@@ -145,7 +146,9 @@
           class="workflow-mode-select"
           aria-label="Workflow type"
           disabled
-        ></select>
+        >
+          <option value="">Loading workflows...</option>
+        </select>
       </header>
       <nav
         id="stageActionPanel"
@@ -221,7 +224,9 @@
               class="session-switcher"
               disabled
               aria-label="Select Agent"
-            ></select>
+            >
+              <option value="">Loading agents...</option>
+            </select>
             <button
               id="renameAgentSession"
               class="session-rename-button"

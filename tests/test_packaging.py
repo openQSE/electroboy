@@ -64,12 +64,14 @@ def test_optional_frontend_assets_follow_package_ownership() -> None:
         ROOT / "src/electroboy/assets/service/js/core/pane-workspace.js"
     )
     stateful_dom = ROOT / "src/electroboy/assets/service/js/core/stateful-dom.js"
+    select_styles = ROOT / "src/electroboy/assets/service/css/selects.css"
     mermaid = ROOT / "src/electroboy/assets/service/js/core/mermaid.js"
     legacy_runtime = ROOT / "src/electroboy/assets/service/js/app.js"
     assert core_runtime.is_file()
     assert pane_drag.is_file()
     assert pane_workspace.is_file()
     assert stateful_dom.is_file()
+    assert select_styles.is_file()
     assert mermaid.is_file()
     assert not legacy_runtime.exists()
     assert (ROOT / "src/electroboy/modules/assets/agent-pane-tools.js").is_file()
