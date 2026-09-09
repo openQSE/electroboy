@@ -899,6 +899,7 @@ def test_browser_shell_loads_and_connects(tmp_path: Path) -> None:
     assert 'data-pane-drag-handle="true"' in completed.stdout
     assert 'id="agentSendShortcut"' in completed.stdout
     assert 'id="showInputHistory"' in completed.stdout
+    assert 'id="toggleInputActions"' in completed.stdout
     assert 'class="input-history-overlay"' in completed.stdout
     assert 'class="pane-drag-detach-target"' in completed.stdout
     assert ">Software Engineering</option>" in completed.stdout

@@ -80,6 +80,8 @@
     const agentInput = document.getElementById("agentInput");
     const agentSendShortcut = document.getElementById("agentSendShortcut");
     const showInputHistory = document.getElementById("showInputHistory");
+    const toggleInputActions = document.getElementById("toggleInputActions");
+    const agentInputActions = document.getElementById("agentInputActions");
     const inputActionResizeHandle = document.getElementById("inputActionResizeHandle");
     const sessionSwitcher = document.getElementById("sessionSwitcher");
     const renameAgentSession = document.getElementById("renameAgentSession");
@@ -158,6 +160,8 @@
     const MIN_WORKFLOW_CONTENT_WIDTH = 360;
     const INPUT_PANE_HEIGHT_STORAGE_KEY = "electroboy.inputPaneHeight";
     const INPUT_ACTIONS_WIDTH_STORAGE_KEY = "electroboy.inputActionsWidth";
+    const INPUT_ACTIONS_COLLAPSED_STORAGE_KEY =
+      "electroboy.inputActionsCollapsed.v1";
     const PROGRESS_PANE_WIDTH_STORAGE_KEY = "electroboy.progressPaneWidth";
     const PROGRESS_PANE_HEIGHT_STORAGE_KEY = "electroboy.progressPaneHeight";
     const PROJECT_SHELL_PANE_HEIGHT_STORAGE_KEY =
@@ -373,6 +377,7 @@
     let creativeProjectActionsExpanded = false;
     let creativeAgentActionsExpanded = false;
     let projectStatusMessages = [];
+    let inputActionsCollapsed = false;
     const PROJECT_STATUS_MESSAGE_LIMIT = 80;
     const CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json";
 
@@ -3699,6 +3704,51 @@
       }
     }
 
+    function storedInputActionsCollapsed() {
+      try {
+        return window.localStorage.getItem(INPUT_ACTIONS_COLLAPSED_STORAGE_KEY) === "1";
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function saveInputActionsCollapsed() {
+      try {
+        window.localStorage.setItem(
+          INPUT_ACTIONS_COLLAPSED_STORAGE_KEY,
+          inputActionsCollapsed ? "1" : "0",
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
+    function applyInputActionsCollapsed(collapsed = inputActionsCollapsed) {
+      inputActionsCollapsed = Boolean(collapsed);
+      inputPane.classList.toggle("input-actions-collapsed", inputActionsCollapsed);
+      inputActionResizeHandle.hidden = inputPane.hidden || inputActionsCollapsed;
+      agentInputActions.setAttribute(
+        "aria-hidden",
+        inputActionsCollapsed ? "true" : "false",
+      );
+      toggleInputActions.setAttribute(
+        "aria-pressed",
+        inputActionsCollapsed ? "true" : "false",
+      );
+      const label = inputActionsCollapsed
+        ? "Show agent input controls"
+        : "Hide agent input controls";
+      toggleInputActions.textContent = inputActionsCollapsed ? "+" : "-";
+      toggleInputActions.title = label;
+      toggleInputActions.setAttribute("aria-label", label);
+    }
+
+    function setInputActionsCollapsed(collapsed) {
+      applyInputActionsCollapsed(collapsed);
+      saveInputActionsCollapsed();
+      scheduleFitTerminal();
+    }
+
     function storedWorkflowPaneHeight() {
       const workflowHeight = storedNumber(WORKFLOW_PANE_HEIGHT_STORAGE_KEY);
       if (!workflowHeight) {
@@ -3821,6 +3871,7 @@
           `${inputActionsWidth}px`,
         );
       }
+      applyInputActionsCollapsed(storedInputActionsCollapsed());
     }
 
     function applyStoredProgressPaneWidth() {
@@ -5116,6 +5167,7 @@
       inputPane.hidden = !visible;
       inputResizeHandle.hidden = !visible;
       agentPane.classList.toggle("noninteractive", !visible);
+      applyInputActionsCollapsed();
       if (isVisible) {
         applyStoredPaneSizes();
       }
@@ -5261,7 +5313,11 @@
     }
 
     function startInputActionsResize(event) {
-      if (inputPane.hidden || window.matchMedia("(max-width: 760px)").matches) {
+      if (
+        inputPane.hidden ||
+        inputActionsCollapsed ||
+        window.matchMedia("(max-width: 760px)").matches
+      ) {
         return;
       }
       event.preventDefault();
@@ -6182,6 +6238,7 @@
         ["Agent input", "The only field that sends instructions to an agent."],
         ["Agent output", "A read-only live terminal view; select the agent above it."],
         ["Send shortcut", "Hover over its badge to record the key chord you prefer."],
+        ["Controls", "Hide or show the agent input action buttons."],
         ["History", "Restore one of the 2,000 most recently submitted agent inputs."],
         ["Interrupt", "Sends Escape to the selected agent."],
         ["Link file", "Insert a filesystem file reference into the agent input."],
@@ -8540,6 +8597,11 @@
         applyTerminalFontSize();
         return;
       }
+      if (event.key === INPUT_ACTIONS_COLLAPSED_STORAGE_KEY) {
+        applyInputActionsCollapsed(storedInputActionsCollapsed());
+        scheduleFitTerminal();
+        return;
+      }
       if (!event.key || !event.key.startsWith(PANE_FONT_OFFSET_STORAGE_PREFIX)) {
         return;
       }
@@ -8605,6 +8667,9 @@
     inputActionResizeHandle.addEventListener("pointermove", updateInputActionsResize);
     inputActionResizeHandle.addEventListener("pointerup", finishInputActionsResize);
     inputActionResizeHandle.addEventListener("pointercancel", finishInputActionsResize);
+    toggleInputActions.addEventListener("click", () => {
+      setInputActionsCollapsed(!inputActionsCollapsed);
+    });
     outputResizeHandle.addEventListener("pointerdown", startOutputResize);
     outputResizeHandle.addEventListener("pointermove", updateOutputResize);
     outputResizeHandle.addEventListener("pointerup", finishOutputResize);

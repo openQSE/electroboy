@@ -1390,6 +1390,27 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function create(options = {})", input_history)
         self.assertIn("input.dispatchEvent(new Event(\"input\"", input_history)
         self.assertIn('id="showInputHistory"', template)
+        self.assertIn('id="toggleInputActions"', template)
+        self.assertIn('id="agentInputActions"', template)
+        self.assertIn('class="input-actions-tab"', template)
+        self.assertNotIn(">Controls</button>", template)
+        self.assertIn("INPUT_ACTIONS_COLLAPSED_STORAGE_KEY", app)
+        self.assertIn("function setInputActionsCollapsed(collapsed)", app)
+        self.assertIn(
+            'toggleInputActions.textContent = inputActionsCollapsed ? "+" : "-"',
+            app,
+        )
+        self.assertIn("input-actions-collapsed", shell_css)
+        self.assertIn(".input-actions-tab", shell_css)
+        self.assertIn("font-weight: 400;", shell_css)
+        self.assertLess(
+            template.index('id="inputActionResizeHandle"'),
+            template.index('id="toggleInputActions"'),
+        )
+        self.assertLess(
+            template.index('id="toggleInputActions"'),
+            template.index('id="agentInputActions"'),
+        )
         self.assertLess(
             template.index('id="showInputHistory"'),
             template.index('id="interruptAgent"'),
@@ -1404,6 +1425,26 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("history: agentInputHistory", app)
         self.assertIn('id="showInputHistory"', pane_window)
+        self.assertIn('id="toggleInputActions"', pane_window)
+        self.assertIn('id="inputActions"', pane_window)
+        self.assertIn('class="input-actions-tab"', pane_window)
+        self.assertNotIn(">Controls</button>", pane_window)
+        self.assertIn("INPUT_ACTIONS_COLLAPSED_STORAGE_KEY", pane_window)
+        self.assertIn("function setInputActionsCollapsed(collapsed)", pane_window)
+        self.assertIn(
+            'toggleInputActions.textContent = inputActionsCollapsed ? "+" : "-"',
+            pane_window,
+        )
+        self.assertIn("input-actions-collapsed", pane_window)
+        self.assertIn("font-weight: 400;", pane_window)
+        self.assertLess(
+            pane_window.index('id="agentInput"'),
+            pane_window.index('id="toggleInputActions"'),
+        )
+        self.assertLess(
+            pane_window.index('id="toggleInputActions"'),
+            pane_window.index('id="inputActions"'),
+        )
         self.assertLess(
             pane_window.index('id="showInputHistory"'),
             pane_window.index('id="interruptAgent"'),

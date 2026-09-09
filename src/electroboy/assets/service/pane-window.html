@@ -206,7 +206,8 @@
     .pane-toolbar button,
     .pane-toolbar select,
     .input-actions button,
-    .input-actions select {
+    .input-actions select,
+    .input-actions-tab {
       min-height: 30px;
       border: 1px solid #364156;
       border-radius: 6px;
@@ -232,6 +233,11 @@
     .input-actions select {
       min-width: 150px;
       cursor: pointer;
+    }
+
+    .input-actions button,
+    .input-actions-tab {
+      font-weight: 400;
     }
 
     .pane-actions,
@@ -371,13 +377,25 @@
     .input-layout {
       display: grid;
       grid-template-rows: minmax(0, 1fr);
-      grid-template-columns: minmax(0, 1fr) minmax(132px, 190px);
+      grid-template-columns: minmax(0, 1fr) 28px minmax(132px, 190px);
       height: 100%;
       min-height: 0;
       gap: 8px;
       border-top: 1px solid var(--border);
       background: #151b29;
       padding: 8px;
+    }
+
+    .input-layout.input-actions-collapsed {
+      grid-template-columns: minmax(0, 1fr) 28px;
+    }
+
+    .input-layout.input-actions-collapsed .input-actions {
+      display: none;
+    }
+
+    .input-layout.input-actions-collapsed .input-actions-tab {
+      grid-column: 2;
     }
 
     .agent-input-resize-handle {
@@ -430,6 +448,7 @@
     }
 
     .input-actions {
+      grid-column: 3;
       display: grid;
       grid-template-rows: repeat(4, 42px);
       align-items: stretch;
@@ -444,6 +463,27 @@
 
     .input-actions button {
       height: 42px;
+    }
+
+    .input-actions-tab {
+      grid-column: 2;
+      align-self: start;
+      justify-self: stretch;
+      width: 28px;
+      height: 42px;
+      min-height: 42px;
+      border-radius: 8px;
+      color: #d8e3f4;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .input-actions-tab:hover,
+    .input-actions-tab:focus-visible {
+      border-color: #66d9e8;
+      background: #183a50;
+      color: #ffffff;
+      outline: none;
     }
 
     .input-actions .input-interrupt {
@@ -918,7 +958,17 @@
           <div class="input-compose">
             <textarea id="agentInput" class="input-text" spellcheck="true"></textarea>
           </div>
-          <div class="input-actions">
+          <button
+            id="toggleInputActions"
+            class="input-actions-tab"
+            type="button"
+            title="Hide agent input controls"
+            aria-label="Hide agent input controls"
+            aria-controls="inputActions"
+            aria-pressed="false"
+            hidden
+          >-</button>
+          <div id="inputActions" class="input-actions">
             <button
               id="showInputHistory"
               type="button"
@@ -1039,6 +1089,8 @@
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const AGENT_INPUT_HEIGHT_STORAGE_KEY = "electroboy.paneAgentInputHeight";
+    const INPUT_ACTIONS_COLLAPSED_STORAGE_KEY =
+      "electroboy.inputActionsCollapsed.v1";
     const DEFAULT_FONT_SIZE = 15;
     const MIN_AGENT_INPUT_HEIGHT = 132;
     const MIN_AGENT_OUTPUT_HEIGHT = 96;
@@ -1086,6 +1138,7 @@
     const refreshArtifactButton = document.getElementById("refreshArtifact");
     const previewArtifactButton = document.getElementById("previewArtifact");
     const editArtifactButton = document.getElementById("editArtifact");
+    const toggleInputActions = document.getElementById("toggleInputActions");
     const exportPaneFormat = document.getElementById("exportPaneFormat");
     const exportPaneOutput = document.getElementById("exportPaneOutput");
     const terminalHost = document.getElementById("terminalHost");
@@ -1098,6 +1151,7 @@
     const agentInput = document.getElementById("agentInput");
     const agentSendShortcut = document.getElementById("agentSendShortcut");
     const showInputHistory = document.getElementById("showInputHistory");
+    const inputActions = document.getElementById("inputActions");
     const paneContentControl = document.getElementById("paneContentControl");
     const paneContentLabel = document.getElementById("paneContentLabel");
     const contentSwitcher = document.getElementById("contentSwitcher");
@@ -1118,6 +1172,7 @@
     let terminalResizeTimer = null;
     let pendingTerminalResize = null;
     let resizeAgentInputState = null;
+    let inputActionsCollapsed = false;
     let eventSource = null;
     let artifactEventSource = null;
     let slashCommandMode = false;
@@ -1156,6 +1211,7 @@
       : Object.freeze({ record: () => 0 });
     showInputHistory.hidden = !window.ElectroBoyInputHistory;
 
+    applyInputActionsCollapsed(storedInputActionsCollapsed());
     applyFontSize();
 
     function paneFontKeyForKind(kind) {
@@ -1252,6 +1308,55 @@
       } catch (error) {
         return;
       }
+    }
+
+    function paneSupportsInputActions() {
+      return PANE_KIND === "agent" || PANE_KIND === "input";
+    }
+
+    function storedInputActionsCollapsed() {
+      try {
+        return window.localStorage.getItem(INPUT_ACTIONS_COLLAPSED_STORAGE_KEY) === "1";
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function saveInputActionsCollapsed() {
+      try {
+        window.localStorage.setItem(
+          INPUT_ACTIONS_COLLAPSED_STORAGE_KEY,
+          inputActionsCollapsed ? "1" : "0",
+        );
+      } catch (error) {
+        return;
+      }
+    }
+
+    function applyInputActionsCollapsed(collapsed = inputActionsCollapsed) {
+      inputActionsCollapsed = Boolean(collapsed);
+      toggleInputActions.hidden = !paneSupportsInputActions();
+      inputLayout.classList.toggle("input-actions-collapsed", inputActionsCollapsed);
+      inputActions.setAttribute(
+        "aria-hidden",
+        inputActionsCollapsed ? "true" : "false",
+      );
+      toggleInputActions.setAttribute(
+        "aria-pressed",
+        inputActionsCollapsed ? "true" : "false",
+      );
+      const label = inputActionsCollapsed
+        ? "Show agent input controls"
+        : "Hide agent input controls";
+      toggleInputActions.textContent = inputActionsCollapsed ? "+" : "-";
+      toggleInputActions.title = label;
+      toggleInputActions.setAttribute("aria-label", label);
+    }
+
+    function setInputActionsCollapsed(collapsed) {
+      applyInputActionsCollapsed(collapsed);
+      saveInputActionsCollapsed();
+      fitTerminal();
     }
 
     function maxAgentInputHeight() {
@@ -4701,6 +4806,9 @@
     });
     decreasePaneFont.addEventListener("click", () => changeFontSize(-1));
     increasePaneFont.addEventListener("click", () => changeFontSize(1));
+    toggleInputActions.addEventListener("click", () => {
+      setInputActionsCollapsed(!inputActionsCollapsed);
+    });
     bindFontSizeInput();
     window.addEventListener("storage", (event) => {
       if (PANE_KIND === "scratch" && event.key === scratchPadStorageKey()) {
@@ -4727,6 +4835,11 @@
           }
           applyFontSize();
         }
+        return;
+      }
+      if (event.key === INPUT_ACTIONS_COLLAPSED_STORAGE_KEY) {
+        applyInputActionsCollapsed(storedInputActionsCollapsed());
+        fitTerminal();
         return;
       }
       if (event.key !== PANE_FONT_OFFSET_STORAGE_PREFIX + fontPane) {

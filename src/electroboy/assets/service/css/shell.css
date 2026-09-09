@@ -2583,7 +2583,7 @@
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       grid-template-columns:
-        minmax(260px, 1fr) 7px
+        minmax(260px, 1fr) 7px 28px
         minmax(160px, var(--input-actions-width, 196px));
       min-height: 0;
       gap: 8px;
@@ -2600,6 +2600,19 @@
 
     .input-pane[hidden] {
       display: none;
+    }
+
+    .input-pane.input-actions-collapsed {
+      grid-template-columns: minmax(260px, 1fr) 28px;
+    }
+
+    .input-pane.input-actions-collapsed .input-action-resize-handle,
+    .input-pane.input-actions-collapsed .agent-actions {
+      display: none;
+    }
+
+    .input-pane.input-actions-collapsed .input-actions-tab {
+      grid-column: 2;
     }
 
     .agent-input-composer {
@@ -2660,6 +2673,7 @@
     }
 
     .input-action-resize-handle {
+      grid-column: 2;
       min-height: 0;
       border-radius: 4px;
       background: #253044;
@@ -2672,6 +2686,7 @@
     }
 
     .agent-actions {
+      grid-column: 4;
       display: grid;
       grid-template-rows: repeat(4, 42px);
       min-height: 0;
@@ -2683,10 +2698,38 @@
       scrollbar-width: thin;
     }
 
+    .input-actions-tab {
+      grid-column: 3;
+      align-self: start;
+      justify-self: stretch;
+      width: 28px;
+      height: 42px;
+      min-height: 42px;
+      border: 1px solid #364156;
+      border-radius: 8px;
+      background: #1d2638;
+      color: #d8e3f4;
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--ui-font-size);
+      font-weight: 400;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .input-actions-tab:hover,
+    .input-actions-tab:focus-visible {
+      border-color: #66d9e8;
+      background: #183a50;
+      color: #ffffff;
+      outline: none;
+    }
+
     .agent-actions .agent-action-button,
     .agent-actions .agent-send-shortcut {
       min-height: 42px;
       height: 42px;
+      font-weight: 400;
     }
 
     .agent-actions .agent-send-shortcut {
@@ -2927,7 +2970,7 @@
       }
 
       .input-pane {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) 28px;
         grid-template-rows: auto minmax(0, 1fr) auto;
       }
 
@@ -2935,7 +2978,18 @@
         display: none;
       }
 
+      .agent-input-composer {
+        grid-column: 1 / -1;
+      }
+
+      .input-actions-tab {
+        grid-column: 2;
+        grid-row: 3;
+      }
+
       .agent-actions {
+        grid-column: 1;
+        grid-row: 3;
         grid-template-columns: minmax(0, 1fr);
       }
     }

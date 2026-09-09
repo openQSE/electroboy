@@ -795,7 +795,16 @@
           aria-orientation="vertical"
           aria-label="Resize agent input and controls"
         ></div>
-        <div class="agent-actions">
+        <button
+          id="toggleInputActions"
+          class="input-actions-tab"
+          type="button"
+          title="Hide agent input controls"
+          aria-label="Hide agent input controls"
+          aria-controls="agentInputActions"
+          aria-pressed="false"
+        >-</button>
+        <div id="agentInputActions" class="agent-actions">
           <button
             id="showInputHistory"
             class="agent-action-button agent-history"
