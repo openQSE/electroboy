@@ -205,7 +205,12 @@
       }
     }, true);
     window.addEventListener("resize", () => closeMenu({ focus: false }));
-    window.addEventListener("scroll", () => closeMenu({ focus: false }), true);
+    window.addEventListener("scroll", (event) => {
+      if (menu && (event.target === menu || menu.contains(event.target))) {
+        return;
+      }
+      closeMenu({ focus: false });
+    }, true);
   }
 
   if (document.readyState === "loading") {

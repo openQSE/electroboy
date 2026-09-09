@@ -1257,6 +1257,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function createAgentTerminalContext(sessionId = \"\")", app)
         self.assertIn("function selectAgentTerminal(sessionId = \"\")", app)
         self.assertIn("function focusAgentSessionPane(sessionId = \"\")", app)
+        focus_agent_start = app.index(
+            'function focusAgentSessionPane(sessionId = "")'
+        )
+        focus_agent = app[
+            focus_agent_start : app.index(
+                "function paneLayoutInstanceUrl",
+                focus_agent_start,
+            )
+        ]
+        self.assertNotIn("renderPaneLayout();", focus_agent)
+        self.assertIn("refreshPaneLayoutInstanceFrameForLeaf", focus_agent)
         self.assertIn("focusAgentSession: focusAgentSessionPane", app)
         self.assertIn("function flushAgentOutputQueue(context)", app)
         self.assertIn("function resetTerminalOutput(terminalInstance)", app)

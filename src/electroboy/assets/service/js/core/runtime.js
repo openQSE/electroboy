@@ -2486,7 +2486,6 @@
           leaf.content = { sessionId: requestedSessionId };
           leaf.projectRoot = activeProjectRoot;
           savePaneLayout();
-          renderPaneLayout();
         }
       }
       if (!leaf) {

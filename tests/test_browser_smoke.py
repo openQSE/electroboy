@@ -214,12 +214,17 @@ def test_custom_select_picker_is_ready_on_first_paint(tmp_path: Path) -> None:
         Path(__file__).resolve().parents[1]
         / "src/electroboy/assets/service/js/core/select-menu.js"
     ).read_text(encoding="utf-8")
+    options = "".join(
+        f"<option value='agent-{index}'>Agent {index}</option>"
+        for index in range(30)
+    )
     page = (
         "<!doctype html><html><head><style>"
         + select_styles
         + "</style></head><body class='pane-service-page'>"
-        + "<select id='picker'><option>AI Agent</option>"
-        + "<option value='creative'>Creative Agent</option></select><script>"
+        + "<select id='picker'>"
+        + options
+        + "</select><script>"
         + select_script
         + "</script><script>"
         + r"""
@@ -235,6 +240,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const menu = document.querySelector(".electroboy-select-menu");
   const pickerBackground = getComputedStyle(menu).backgroundColor;
   const optionCount = menu.querySelectorAll(".electroboy-select-option").length;
+  menu.scrollTop = 120;
+  menu.dispatchEvent(new Event("scroll"));
+  const scrollable = menu.scrollTop > 0;
+  const stayedOpenWhileScrolling = !menu.hidden;
   menu.querySelector('[data-option-index="1"]').click();
   const dynamic = document.createElement("select");
   dynamic.append(new Option("Dynamically added"));
@@ -250,6 +259,8 @@ document.addEventListener("DOMContentLoaded", () => {
     );
     result.dataset.pickerBackground = pickerBackground;
     result.dataset.optionCount = String(optionCount);
+    result.dataset.scrollable = String(scrollable);
+    result.dataset.stayedOpenWhileScrolling = String(stayedOpenWhileScrolling);
     result.dataset.value = picker.value;
     result.dataset.changes = String(changes);
     result.dataset.closed = String(menu.hidden);
@@ -265,8 +276,9 @@ document.addEventListener("DOMContentLoaded", () => {
     assert completed.returncode == 0, completed.stdout
     assert (
         '<div id="customSelectProbe" data-enhanced="true" data-dynamic="true" '
-        'data-picker-background="rgb(21, 27, 41)" data-option-count="2" '
-        'data-value="creative" data-changes="1" data-closed="true"></div>'
+        'data-picker-background="rgb(21, 27, 41)" data-option-count="30" '
+        'data-scrollable="true" data-stayed-open-while-scrolling="true" '
+        'data-value="agent-1" data-changes="1" data-closed="true"></div>'
         in completed.stdout
     )
 
