@@ -3213,6 +3213,16 @@
         : null;
       if (
         agentContext &&
+        terminalViewportLocked(agentContext.terminal) &&
+        selectedAgentSession()?.status === "running"
+      ) {
+        if (agentContext.writePending || agentContext.outputQueue.length > 0) {
+          agentContext.fitAfterWrite = true;
+        }
+        return;
+      }
+      if (
+        agentContext &&
         (agentContext.writePending || agentContext.outputQueue.length > 0)
       ) {
         agentContext.fitAfterWrite = true;
@@ -3394,6 +3404,14 @@
         onCommitted();
       }
       return true;
+    }
+
+    function terminalViewportLocked(terminalInstance) {
+      return Boolean(
+        window.ElectroBoyTerminalBehavior &&
+          typeof window.ElectroBoyTerminalBehavior.viewportLocked === "function" &&
+          window.ElectroBoyTerminalBehavior.viewportLocked(terminalInstance),
+      );
     }
 
     function terminalOutputTarget(sessionId = "") {

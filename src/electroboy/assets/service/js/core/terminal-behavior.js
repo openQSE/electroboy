@@ -129,9 +129,57 @@
     if (state.viewportLockRefreshTimer !== null) {
       clearViewportLockRefresh(state);
     }
-    if (state.viewportScrollPending || !state.writing) {
+    if (
+      state.viewportScrollPending ||
+      !state.writing ||
+      !lockedViewport(state)
+    ) {
       refreshViewportLock(terminal, state);
     }
+  }
+
+  function installViewportScrollTracking(terminal, state) {
+    const viewport = terminal.element &&
+      typeof terminal.element.querySelector === "function"
+      ? terminal.element.querySelector(".xterm-viewport")
+      : null;
+    if (!viewport || viewport === terminal.element) {
+      return;
+    }
+    viewport.addEventListener(
+      "scroll",
+      () => handleViewportScroll(terminal, state),
+      { passive: true },
+    );
+    viewport.addEventListener(
+      "wheel",
+      () => noteViewportInteraction(terminal),
+      { passive: true },
+    );
+    viewport.addEventListener(
+      "pointerdown",
+      () => beginViewportPointerInteraction(terminal),
+      { passive: true },
+    );
+    viewport.addEventListener(
+      "pointermove",
+      (event) => {
+        if (state.viewportPointerActive || event.buttons) {
+          noteViewportInteraction(terminal);
+        }
+      },
+      { passive: true },
+    );
+    viewport.addEventListener(
+      "pointerup",
+      () => endViewportPointerInteraction(terminal),
+      { passive: true },
+    );
+    viewport.addEventListener(
+      "pointercancel",
+      () => endViewportPointerInteraction(terminal),
+      { passive: true },
+    );
   }
 
   function installViewportTracking(terminal) {
@@ -199,6 +247,7 @@
     if (typeof terminal.onScroll === "function") {
       terminal.onScroll(() => handleViewportScroll(terminal, state));
     }
+    installViewportScrollTracking(terminal, state);
   }
 
   function activeBuffer(terminal) {
@@ -390,6 +439,10 @@
     return true;
   }
 
+  function viewportLocked(terminal) {
+    return Boolean(lockedViewport(terminalWriteStates.get(terminal)));
+  }
+
   function legacyCopy(text) {
     const textarea = document.createElement("textarea");
     textarea.value = text;
@@ -516,6 +569,7 @@
     followOutput,
     install,
     reset,
+    viewportLocked,
     write,
   };
 })();

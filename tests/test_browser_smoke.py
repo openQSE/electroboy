@@ -576,8 +576,14 @@ require(process.argv[1]);
 
 function fakeTerminal() {
   const listeners = {};
+  const viewportListeners = {};
   const scrollHandlers = [];
   let pendingWrite = null;
+  const viewport = {
+    addEventListener(name, handler) {
+      viewportListeners[name] = handler;
+    },
+  };
   const terminal = {
     rows: 20,
     buffer: {
@@ -590,6 +596,9 @@ function fakeTerminal() {
     element: {
       addEventListener(name, handler) {
         listeners[name] = handler;
+      },
+      querySelector(selector) {
+        return selector === ".xterm-viewport" ? viewport : null;
       },
     },
     scrollCalls: [],
@@ -630,6 +639,10 @@ function fakeTerminal() {
       for (const handler of scrollHandlers) {
         handler(viewportY);
       }
+    },
+    emitViewportScroll(viewportY) {
+      this.buffer.active.viewportY = viewportY;
+      viewportListeners.scroll?.({});
     },
     completeWrite() {
       const callback = pendingWrite;
@@ -708,6 +721,58 @@ if (
   nearTailScroll[1] !== 92
 ) {
   throw new Error("user scroll near the live tail did not preserve its viewport");
+}
+
+const scrollbarTerminal = fakeTerminal();
+behavior.install(scrollbarTerminal);
+behavior.write(scrollbarTerminal, "streamed output", () => {});
+scrollbarTerminal.emitScroll(55);
+scrollbarTerminal.buffer.active.baseY = 108;
+scrollbarTerminal.buffer.active.viewportY = 108;
+scrollbarTerminal.completeWrite();
+const scrollbarScroll = scrollbarTerminal.scrollCalls.at(-1);
+if (
+  !scrollbarScroll ||
+  scrollbarScroll[0] !== "line" ||
+  scrollbarScroll[1] !== 55
+) {
+  throw new Error("scrollbar-only user scroll was reset during active output");
+}
+if (!behavior.viewportLocked(scrollbarTerminal)) {
+  throw new Error("scrollbar-only user scroll did not lock the viewport");
+}
+
+const lockedScrollbarTerminal = fakeTerminal();
+behavior.install(lockedScrollbarTerminal);
+behavior.write(lockedScrollbarTerminal, "streamed output", () => {});
+lockedScrollbarTerminal.emitScroll(55);
+lockedScrollbarTerminal.buffer.active.baseY = 108;
+lockedScrollbarTerminal.buffer.active.viewportY = 108;
+lockedScrollbarTerminal.emitScroll(108);
+lockedScrollbarTerminal.completeWrite();
+const lockedScrollbarScroll = lockedScrollbarTerminal.scrollCalls.at(-1);
+if (
+  !lockedScrollbarScroll ||
+  lockedScrollbarScroll[0] !== "line" ||
+  lockedScrollbarScroll[1] !== 55
+) {
+  throw new Error("automatic output scroll replaced a locked user viewport");
+}
+
+const viewportScrollTerminal = fakeTerminal();
+behavior.install(viewportScrollTerminal);
+behavior.write(viewportScrollTerminal, "streamed output", () => {});
+viewportScrollTerminal.emitViewportScroll(63);
+viewportScrollTerminal.buffer.active.baseY = 108;
+viewportScrollTerminal.buffer.active.viewportY = 108;
+viewportScrollTerminal.completeWrite();
+const viewportScroll = viewportScrollTerminal.scrollCalls.at(-1);
+if (
+  !viewportScroll ||
+  viewportScroll[0] !== "line" ||
+  viewportScroll[1] !== 63
+) {
+  throw new Error("xterm viewport scroll was reset during active output");
 }
 
 const visibleTailTerminal = fakeTerminal();

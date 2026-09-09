@@ -1311,12 +1311,17 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function refreshViewportLock(terminal", terminal_behavior)
         self.assertIn("function restoreLockedViewport(terminal, state)", terminal_behavior)
         self.assertIn("function followOutput(terminal)", terminal_behavior)
+        self.assertIn("function viewportLocked(terminal)", terminal_behavior)
+        self.assertIn(
+            'terminal.element.querySelector(".xterm-viewport")',
+            terminal_behavior,
+        )
         self.assertIn("snapshot.tailVisible", terminal_behavior)
         self.assertIn("state.viewportPointerActive", terminal_behavior)
         self.assertIn("state.viewportScrollPending = true;", terminal_behavior)
         self.assertIn("terminal.onScroll", terminal_behavior)
         self.assertIn("restoreViewport(terminal, snapshot);", terminal_behavior)
-        self.assertIn("followOutput,\n    install,", terminal_behavior)
+        self.assertIn("followOutput,\n    install,\n    reset,\n    viewportLocked,", terminal_behavior)
         self.assertIn("followOutput: followAgentOutput", app)
         self.assertIn("runtimeApi.agent.followOutput(session.session_id);", sessions)
         self.assertIn(
@@ -1325,6 +1330,8 @@ class ServiceTests(unittest.TestCase):
             app,
         )
         self.assertIn("writeTerminalOutput(context.terminal, chunk,", app)
+        self.assertIn("function terminalViewportLocked(terminalInstance)", app)
+        self.assertIn("terminalViewportLocked(agentContext.terminal)", app)
         self.assertIn("agentContext.fitAfterWrite = true;", app)
         self.assertIn("TERMINAL_OUTPUT_FLUSH_BUDGET_MS", pane_window)
         self.assertIn("const agentTerminalContexts = new Map();", pane_window)
@@ -1352,6 +1359,8 @@ class ServiceTests(unittest.TestCase):
             pane_window,
         )
         self.assertIn("writeTerminalOutput(target.terminal, chunk,", pane_window)
+        self.assertIn("function terminalViewportLocked(terminalInstance)", pane_window)
+        self.assertIn("terminalViewportLocked(agentContext.terminal)", pane_window)
         self.assertIn("agentContext.fitAfterWrite = true;", pane_window)
         self.assertIn("function ensureTerminalResizeTracking()", pane_window)
         self.assertIn("window.addEventListener(\"resize\", fitTerminal);", pane_window)

@@ -4794,6 +4794,14 @@
       return true;
     }
 
+    function terminalViewportLocked(terminalInstance) {
+      return Boolean(
+        window.ElectroBoyTerminalBehavior &&
+          typeof window.ElectroBoyTerminalBehavior.viewportLocked === "function" &&
+          window.ElectroBoyTerminalBehavior.viewportLocked(terminalInstance),
+      );
+    }
+
     function paneIsVisible(element) {
       return Boolean(
         element &&
@@ -4820,6 +4828,14 @@
       if (terminalFit && paneIsVisible(agentOutputPane)) {
         const agentContext = currentAgentTerminalContext();
         if (
+          agentContext &&
+          terminalViewportLocked(agentContext.terminal) &&
+          sessionIsRunning(selectedSession())
+        ) {
+          if (agentContext.writePending || agentContext.outputQueue.length > 0) {
+            agentContext.fitAfterWrite = true;
+          }
+        } else if (
           agentContext &&
           (agentContext.writePending || agentContext.outputQueue.length > 0)
         ) {
