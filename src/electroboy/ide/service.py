@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 
 from .artifacts import load_runtime_manifest
 from .bridge import IDEBridge
+from .clangd import ClangdProfileManager
 from .domain import (
     IDEEditorContext,
     IDEEndpoint,
@@ -141,6 +142,10 @@ class IDEService:
             platform=self.resolver.platform,
             architecture=self.resolver.architecture,
         )
+        self.clangd = ClangdProfileManager(
+            self.configuration.data_root,
+            self.download_client,
+        )
         default_policy = IDEEgressPolicy(
             self.configuration.egress_mode,
             audit_acknowledged=self.configuration.egress_mode
@@ -210,6 +215,7 @@ class IDEService:
                 profile,
                 self.egress_policies.get(workspace_id).policy(),
             )
+            self.clangd.prepare(profile)
             self.neovim.prepare(profile)
         instance, started = self.manager.start(
             IDEWorkspace(workspace_id, project_root.resolve()),
@@ -221,6 +227,7 @@ class IDEService:
             "status": "started" if started else "already_running",
             "instance": instance.public_payload(),
             "view_path": _ide_view_path(instance.workspace),
+            "clangd": self.clangd.diagnostics(),
             "neovim": self.neovim.diagnostics(),
         }
 
@@ -242,6 +249,7 @@ class IDEService:
             "instance": instance.public_payload() if instance else None,
             "view_path": _ide_view_path(instance.workspace) if instance else None,
             "runtime": self.runtime_status(),
+            "clangd": self.clangd.diagnostics(),
             "sandbox": self.sandbox.availability(
                 self.manager.profile_for(workspace_id)
             ),
@@ -317,6 +325,7 @@ class IDEService:
             },
             "view_count": self._view_count(workspace_id),
             "editor_context": self.editor_context(workspace_id),
+            "clangd": self.clangd.diagnostics(),
             "neovim": self.neovim.diagnostics(),
             "managed_downloads": self.download_client.events(),
         }

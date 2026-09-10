@@ -1,6 +1,7 @@
 """Provider-neutral IDE integration contracts."""
 
 from .bridge import BRIDGE_PROTOCOL_VERSION, IDEBridge, IDEBridgeRegistration
+from .clangd import ClangdProfileManager
 from .contracts import IDEProvider, RuntimeInstaller, RuntimeResolver
 from .domain import (
     IDEEditorContext,
@@ -36,6 +37,7 @@ from .sandbox import (
 __all__ = [
     "CSPViolationStore",
     "BRIDGE_PROTOCOL_VERSION",
+    "ClangdProfileManager",
     "IDEBridge",
     "IDEBridgeRegistration",
     "IDEEditorContext",
