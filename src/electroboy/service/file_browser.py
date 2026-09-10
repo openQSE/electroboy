@@ -6,6 +6,10 @@ from pathlib import Path
 
 from electroboy.state_store import StateError
 
+MAX_BROWSER_ENTRIES = 300
+MAX_BROWSER_DIRECTORY_NAVIGATION_ENTRIES = 240
+MAX_BROWSER_FILES = 300
+
 
 def browse_directories(
     path: Path | str,
@@ -67,21 +71,35 @@ def _browse_matching_files(
 ) -> dict[str, object]:
     directory = _readable_directory(path)
     try:
-        children = sorted(
+        visible_children = [
+            child
+            for child in directory.iterdir()
+            if _browser_entry_visible(child, show_hidden)
+        ]
+        directories = sorted(
             [
                 child
-                for child in directory.iterdir()
+                for child in visible_children
                 if child.is_dir()
-                or (
-                    child.is_file()
-                    and (suffix is None or child.suffix.lower() == suffix)
-                )
-                if _browser_entry_visible(child, show_hidden)
             ],
-            key=lambda child: (not child.is_dir(), child.name.lower()),
+            key=lambda child: child.name.lower(),
+        )
+        files = sorted(
+            [
+                child
+                for child in visible_children
+                if child.is_file() and (suffix is None or child.suffix.lower() == suffix)
+            ],
+            key=lambda child: child.name.lower(),
         )
     except OSError as error:
         raise StateError(f"could not read directory: {error}") from error
+    directory_limit = (
+        MAX_BROWSER_DIRECTORY_NAVIGATION_ENTRIES
+        if suffix is not None and files
+        else MAX_BROWSER_ENTRIES
+    )
+    children = directories[:directory_limit] + files[:MAX_BROWSER_FILES]
     return {
         "path": str(directory),
         "parent": str(directory.parent) if directory.parent != directory else None,

@@ -2499,6 +2499,26 @@
       return { path: relativePath, label };
     }
 
+    function paneDocumentBrowserStartPath(projectRoot) {
+      const root = String(projectRoot || "").replace(/\/+$/, "");
+      const documentPath = artifactKind === "document"
+        ? String(artifactDocumentPath || "").trim()
+        : "";
+      if (!documentPath) {
+        return root;
+      }
+      const normalized = documentPath.replace(/\\+/g, "/");
+      const slash = normalized.lastIndexOf("/");
+      if (slash < 0) {
+        return root;
+      }
+      const parent = slash === 0 ? "/" : normalized.slice(0, slash);
+      if (normalized.startsWith("/")) {
+        return parent;
+      }
+      return root ? `${root}/${parent}` : parent;
+    }
+
     async function openPaneDocumentFileBrowser(mode) {
       const popup = window.open(
         "",
@@ -2517,7 +2537,7 @@
           throw new Error("activate a project first");
         }
         const parameters = new URLSearchParams({
-          path: activeProjectRoot,
+          path: paneDocumentBrowserStartPath(activeProjectRoot),
           mode,
         });
         popup.location.replace(`/file-browser?${parameters.toString()}`);

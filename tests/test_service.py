@@ -3404,6 +3404,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function updateSelectOptions(select, options", page)
         self.assertIn("function fileSwitcherPlaceholderLabel()", page)
         self.assertIn("function openPaneDocumentFileBrowser(mode)", page)
+        self.assertIn("function paneDocumentBrowserStartPath(projectRoot)", page)
+        self.assertIn(
+            "path: paneDocumentBrowserStartPath(activeProjectRoot)",
+            page,
+        )
         self.assertIn('open: () => openPaneDocumentFileBrowser("document")', page)
         self.assertIn('new: () => openPaneDocumentFileBrowser("document-new")', page)
         self.assertIn("close: closePaneDocument", page)
@@ -10256,6 +10261,18 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("docs", names)
         self.assertIn("README.md", names)
         self.assertNotIn("notes.txt", names)
+
+    def test_browse_markdown_files_keeps_files_after_many_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for index in range(350):
+                (root / f"tmp{index:03d}").mkdir()
+            (root / "notes.md").write_text("# Notes\n", encoding="utf-8")
+
+            payload = browse_markdown_files(root)
+
+        names = {entry["name"] for entry in payload["entries"]}
+        self.assertIn("notes.md", names)
 
     def test_requirements_document_html_renders_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
