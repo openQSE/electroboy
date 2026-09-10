@@ -2284,6 +2284,8 @@
       const pointerId = event.pointerId;
       divider.setPointerCapture(pointerId);
       divider.classList.add("resizing");
+      const elementForPaneLayoutNode = (candidate) =>
+        outputWorkbench.querySelector(`[data-pane-layout-id="${candidate.id}"]`);
       const resizeController = window.ElectroBoySplitResize
         ? window.ElectroBoySplitResize.create({
           layout: paneLayout,
@@ -2292,9 +2294,11 @@
           startX: event.clientX,
           startY: event.clientY,
           elementForNode(candidate) {
-            return outputWorkbench.querySelector(
-              `[data-pane-layout-id="${candidate.id}"]`,
-            );
+            return elementForPaneLayoutNode(candidate);
+          },
+          nodeVisible(candidate) {
+            const element = elementForPaneLayoutNode(candidate);
+            return !element || (!element.hidden && !element.closest("[hidden]"));
           },
           applyTemplate: applyPaneLayoutSplitTemplate,
           afterUpdate: fitTerminal,

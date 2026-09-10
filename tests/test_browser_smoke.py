@@ -204,6 +204,90 @@ def browser_page_dom(page: str, profile: Path) -> subprocess.CompletedProcess[st
         server.server_close()
 
 
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_split_resize_skips_hidden_collinear_sibling() -> None:
+    asset = (
+        Path(__file__).resolve().parents[1]
+        / "src/electroboy/assets/service/js/core/split-resize.js"
+    )
+    script = r"""
+global.window = global;
+require(process.argv[1]);
+
+const agent = { type: "leaf", id: "agent" };
+const ide = { type: "leaf", id: "ide" };
+const shell = { type: "leaf", id: "shell" };
+const inner = {
+  type: "split",
+  id: "inner",
+  direction: "row",
+  ratio: 0.16,
+  first: agent,
+  second: ide,
+};
+const root = {
+  type: "split",
+  id: "root",
+  direction: "row",
+  ratio: 0.1874505794558798,
+  first: inner,
+  second: shell,
+};
+const widths = new Map([
+  ["root", 2026],
+  ["inner", 2026],
+]);
+const elementForNode = (node) => ({
+  id: node.id,
+  getBoundingClientRect() {
+    return { width: widths.get(node.id) || 0, height: 600 };
+  },
+});
+const applied = [];
+const controller = global.ElectroBoySplitResize.create({
+  layout: root,
+  node: inner,
+  splitElement: elementForNode(inner),
+  startX: 600,
+  startY: 0,
+  elementForNode,
+  nodeVisible(node) {
+    return node.id !== "shell";
+  },
+  applyTemplate(element, node) {
+    applied.push(node.id);
+  },
+});
+
+if (!controller) throw new Error("missing resize controller");
+if (!controller.update({ clientX: 700, clientY: 0 })) {
+  throw new Error("resize update failed");
+}
+if (applied.includes("root")) {
+  throw new Error("hidden sibling ancestor was re-templated");
+}
+if (!applied.includes("inner")) {
+  throw new Error("visible target split was not re-templated");
+}
+if (root.ratio !== 0.1874505794558798) {
+  throw new Error(`root ratio changed: ${root.ratio}`);
+}
+if (inner.ratio <= 0.16) {
+  throw new Error(`inner ratio did not change: ${inner.ratio}`);
+}
+"""
+
+    completed = subprocess.run(
+        [str(NODE), "-e", script, str(asset)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_custom_select_picker_is_ready_on_first_paint(tmp_path: Path) -> None:
     select_styles = (
