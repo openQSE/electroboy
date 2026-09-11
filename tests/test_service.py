@@ -6681,6 +6681,44 @@ class ServiceTests(unittest.TestCase):
                     expected_revision=str(loaded["revision"]),
                 )
 
+    def test_bare_mind_map_artifact_opens_software_project_document(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            try:
+                server = create_server(service_root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            context_id = str(server.service_state.create_context()["context_id"])
+            server.service_state.create_project(context_id, str(project_root))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    f"/artifacts/mind-map?context_id={context_id}",
+                )
+                default_document_exists = (
+                    project_root
+                    / ".electroboy"
+                    / "shared"
+                    / "mind-maps"
+                    / "untitled-mind-map.mindmap.json"
+                ).is_file()
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn("electroboy:editable-mind-map", body)
+        self.assertIn("Untitled mind map", body)
+        self.assertNotIn("workflow controller has unexpected type", body)
+        self.assertTrue(default_document_exists)
+
     def test_editable_mind_map_rejects_parent_cycles(self) -> None:
         with self.assertRaisesRegex(StateError, "parent cycle"):
             normalize_mind_map(

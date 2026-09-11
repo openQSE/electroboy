@@ -72,9 +72,19 @@ def _load(request: RouteRequest) -> dict[str, object]:
     )
 
 
+def _default_document(request: RouteRequest) -> dict[str, object]:
+    root = request.services.contexts.active_project_root(request.context_id)
+    documents = list_mind_maps(root)
+    if documents:
+        return load_mind_map(root, documents[0]["path"])
+    path = default_mind_map_path("Untitled mind map")
+    return save_mind_map(root, str(path), empty_mind_map(), create=True)
+
+
 def _view(request: RouteRequest) -> HtmlResponse:
     try:
         path = str((request.params.get("path") or [""])[0]).strip()
+        provider = str((request.params.get("provider") or [""])[0]).strip()
         if path:
             root = request.services.contexts.active_project_root(request.context_id)
             page, status = render_editable_mind_map_html(
@@ -83,8 +93,15 @@ def _view(request: RouteRequest) -> HtmlResponse:
                 connection_id=request.connection_id,
                 lease_token=request.lease_token,
             )
-        else:
+        elif provider:
             page, status = render_mind_map_html(_load(request), style=_style(request))
+        else:
+            page, status = render_editable_mind_map_html(
+                _default_document(request),
+                context_id=request.context_id,
+                connection_id=request.connection_id,
+                lease_token=request.lease_token,
+            )
     except Exception as error:
         return HtmlResponse(
             f'<section role="alert"><p>{html.escape(str(error))}</p></section>',
