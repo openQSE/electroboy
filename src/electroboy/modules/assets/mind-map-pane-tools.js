@@ -278,7 +278,7 @@
     window.addEventListener("message", update);
     return {
       dispose: () => window.removeEventListener("message", update),
-      setEditable: (editable) => controller.setEnabled(Boolean(editable)),
+      setEditable: () => controller.setEnabled(true),
     };
   }
 

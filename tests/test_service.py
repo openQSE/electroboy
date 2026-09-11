@@ -1053,6 +1053,10 @@ class ServiceTests(unittest.TestCase):
             "return controller.addSection(id, label, { open: false });",
             mind_map_tools,
         )
+        self.assertIn(
+            "setEditable: () => controller.setEnabled(true)",
+            mind_map_tools,
+        )
         self.assertIn('section(controller, "mind-map-node", "Node")', mind_map_tools)
         self.assertIn('section(controller, "mind-map-color", "Color")', mind_map_tools)
         self.assertIn('section(controller, "mind-map-layout", "Layout")', mind_map_tools)
@@ -1929,6 +1933,19 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('item.kind === "agenda"', runtime)
         self.assertIn('item.kind === "calendar"', runtime)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(kind)", runtime)
+        self.assertIn(
+            "const DEDICATED_ARTIFACT_PANE_LAYOUT_KINDS = new Set([",
+            runtime,
+        )
+        self.assertIn(
+            "!DEDICATED_ARTIFACT_PANE_LAYOUT_KINDS.has(leaf.kind)",
+            runtime,
+        )
+        self.assertIn(
+            'const contentKind = content.kind === "creative-corkboard"',
+            runtime,
+        )
+        self.assertIn("if (contentKind !== leaf.kind)", runtime)
         self.assertIn("if (duplicateSingleton)", runtime)
         self.assertIn("return null;", runtime)
         self.assertIn("if (!first) {\n        return second;\n      }", runtime)
@@ -2320,6 +2337,17 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("refreshPaneLayoutInstanceFrameForLeaf(", assign_source)
         self.assertIn("reconcilePaneLayout(`assignPaneContent:${kind}`);", assign_source)
+        workspace_assign_start = runtime.index("function assignWorkspacePaneContent(")
+        workspace_assign_end = runtime.index(
+            "function openPaneLayoutKind(",
+            workspace_assign_start,
+        )
+        workspace_assign_source = runtime[workspace_assign_start:workspace_assign_end]
+        self.assertIn(
+            "assignPaneContent(kind, item, requestedLeafId, {",
+            workspace_assign_source,
+        )
+        self.assertIn("createIfMissing: true", workspace_assign_source)
         self.assertIn("function paneLayoutConsistencyPayload()", runtime)
         self.assertIn("last_frame_refresh: frontendDebugLastPaneLayoutFrameRefresh", runtime)
         self.assertIn("function refreshPaneLayoutInstanceFrameForLeaf(", runtime)
@@ -3467,6 +3495,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function closePaneDocument()", page)
         self.assertIn('postDocumentFileAction("close", target);', page)
         self.assertIn('return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId', page)
+        self.assertIn('"No corkboard open" : "No file open"', page)
         file_switcher_start = page.index("function renderFileSwitcher()")
         file_switcher_end = page.index("function fileSwitcherPlaceholderLabel()", file_switcher_start)
         file_switcher_source = page[file_switcher_start:file_switcher_end]

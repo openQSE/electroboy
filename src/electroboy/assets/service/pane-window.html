@@ -2227,7 +2227,7 @@
         return "Requirements";
       }
       if (artifactKind === "empty") {
-        return "No file open";
+        return PANE_KIND === "corkboard" ? "No corkboard open" : "No file open";
       }
       return "";
     }

@@ -415,6 +415,10 @@
       "calendar",
       "mind-map",
     ]);
+    const DEDICATED_ARTIFACT_PANE_LAYOUT_KINDS = new Set([
+      ...WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS,
+      "corkboard",
+    ]);
     const SINGLETON_PANE_LAYOUT_KINDS = new Set(["progress", "corkboard"]);
     const RESTORABLE_PANE_LAYOUT_KINDS = new Set([
       "empty",
@@ -2569,7 +2573,10 @@
     }
 
     function paneLayoutRequestedArtifact(leaf) {
-      if (leaf.kind !== "artifact" && leaf.kind !== "corkboard") {
+      if (
+        leaf.kind !== "artifact" &&
+        !DEDICATED_ARTIFACT_PANE_LAYOUT_KINDS.has(leaf.kind)
+      ) {
         return undefined;
       }
       const content = leaf.content && typeof leaf.content === "object"
@@ -2577,6 +2584,14 @@
         : null;
       if (!content) {
         return null;
+      }
+      if (leaf.kind !== "artifact") {
+        const contentKind = content.kind === "creative-corkboard"
+          ? "corkboard"
+          : String(content.kind || "");
+        if (contentKind !== leaf.kind) {
+          return null;
+        }
       }
       if (
         leaf.kind === "corkboard" &&
@@ -2595,7 +2610,9 @@
 
     function paneLayoutRequestedContent(leaf) {
       if (leaf.kind === "agent" || (
-        INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind) && leaf.kind !== "artifact"
+        INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind) &&
+        leaf.kind !== "artifact" &&
+        !DEDICATED_ARTIFACT_PANE_LAYOUT_KINDS.has(leaf.kind)
       )) {
         return leaf.content && typeof leaf.content === "object"
           ? leaf.content
@@ -3467,7 +3484,10 @@
         assignPaneLeafContent(leaf, kind, item);
         return;
       }
-      return;
+      assignPaneContent(kind, item, requestedLeafId, {
+        createIfMissing: true,
+        direction: "row",
+      });
     }
 
     function openPaneLayoutKind(kind) {
