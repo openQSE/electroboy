@@ -756,6 +756,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(
             'sidecarStages: ["document", "corkboard", "mind-map"]', software
         )
+        self.assertIn("paneKinds: [", software)
+        self.assertIn('kind: "agenda",\n        disabled: true,', software)
+        self.assertIn('kind: "calendar",\n        disabled: true,', software)
+        self.assertIn("paneKinds: [", creative)
+        self.assertIn('kind: "agenda",\n        disabled: true,', creative)
+        self.assertIn('kind: "calendar",\n        disabled: true,', creative)
         self.assertIn('if (stageId === "mind-map")', software)
         self.assertIn('data-creative-control="mind-map-menu"', creative)
         self.assertIn('data-creative-control="corkboard-menu"', creative)
@@ -2669,9 +2675,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function workflowPaneKind(kind, mode = workflowMode)", runtime)
         self.assertIn("function applyWorkflowPaneLabels(mode = workflowMode)", runtime)
         self.assertIn("for (const item of workflowPaneKinds())", runtime)
-        self.assertIn(
-            'if (kind !== "empty" && !workflowPaneKind(kind))', runtime
-        )
+        self.assertIn("const workflowKind = workflowPaneKind(kind);", runtime)
+        self.assertIn('if (kind !== "empty" && !workflowKind)', runtime)
+        self.assertIn("if (workflowKind?.disabled)", runtime)
+        self.assertIn("option.disabled = !paneLayoutKindAvailable(kind, leaf)", runtime)
 
     def test_configured_workflow_endpoint_persists_extra_workflow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

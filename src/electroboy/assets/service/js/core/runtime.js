@@ -2188,7 +2188,11 @@
     }
 
     function paneLayoutKindAvailable(kind, leaf = null) {
-      if (kind !== "empty" && !workflowPaneKind(kind)) {
+      const workflowKind = workflowPaneKind(kind);
+      if (kind !== "empty" && !workflowKind) {
+        return false;
+      }
+      if (workflowKind?.disabled) {
         return false;
       }
       if (kind === "agenda") {
@@ -2265,6 +2269,9 @@
         const option = document.createElement("option");
         option.value = kind;
         option.textContent = item.label;
+        if (item.title) {
+          option.title = item.title;
+        }
         option.disabled = !paneLayoutKindAvailable(kind, leaf);
         select.append(option);
       }
