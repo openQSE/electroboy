@@ -248,7 +248,10 @@ def module() -> ServiceModule:
             route("POST", "/api/creative/corkboards", "corkboard", "create"),
         ),
         handlers=_HANDLERS,
-        assets=("js/modules/corkboard.js",),
+        assets=(
+            "js/modules/corkboard.js",
+            "js/modules/corkboard-pane-tools.js",
+        ),
         asset_package="electroboy.modules",
         capabilities=frozenset(
             {

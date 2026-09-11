@@ -663,6 +663,10 @@ class ServiceTests(unittest.TestCase):
             frontend_bundles["documents"]["assets"],
         )
         self.assertIn(
+            "js/modules/corkboard-pane-tools.js",
+            frontend_bundles["corkboard"]["assets"],
+        )
+        self.assertIn(
             "js/modules/agenda-pane-tools.js",
             frontend_bundles["agenda"]["assets"],
         )
@@ -713,6 +717,11 @@ class ServiceTests(unittest.TestCase):
         documents = read_service_text_asset("js/modules/documents.js")
         file_pane_tools = read_service_text_asset(
             "js/modules/file-pane-tools.js",
+            modules,
+            workflows,
+        )
+        corkboard_pane_tools = read_service_text_asset(
+            "js/modules/corkboard-pane-tools.js",
             modules,
             workflows,
         )
@@ -1503,32 +1512,54 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('String(event.key).toLowerCase() !== "n"', pane_tools)
         self.assertNotIn("documentation/start", pane_tools)
         self.assertNotIn("creative-writing", pane_tools)
-        self.assertIn('controller.addSection("corkboard-view", "Board view")', file_pane_tools)
+        self.assertNotIn('controller.addSection("corkboard-view"', file_pane_tools)
+        self.assertIn(
+            'controller.addSection("corkboard-view", "Board view")',
+            corkboard_pane_tools,
+        )
         self.assertIn(
             'labeledSelect("Board", "Corkboard", "select-board")',
-            file_pane_tools,
+            corkboard_pane_tools,
         )
         self.assertIn(
             'labeledSelect("Layout", "Corkboard layout", "set-layout")',
-            file_pane_tools,
+            corkboard_pane_tools,
         )
-        self.assertIn('menu("Auto-organize"', file_pane_tools)
-        self.assertIn('postBoardTool("organize-grid")', file_pane_tools)
-        self.assertIn('postBoardTool("organize-layout")', file_pane_tools)
+        self.assertIn('menu("Auto-organize"', corkboard_pane_tools)
+        self.assertIn('postBoardTool("organize-grid")', corkboard_pane_tools)
+        self.assertIn('postBoardTool("organize-layout")', corkboard_pane_tools)
         self.assertIn(
             'postBoardTool("set-auto-layout", autoLayoutInput.checked)',
-            file_pane_tools,
+            corkboard_pane_tools,
         )
-        self.assertIn('postBoardTool("undo-organize")', file_pane_tools)
+        self.assertIn('postBoardTool("undo-organize")', corkboard_pane_tools)
         self.assertIn(".pane-tool-toggle {", pane_css)
-        self.assertIn('controller.addSection("corkboard-color", "Selected card")', file_pane_tools)
-        self.assertIn('controller.addSection("corkboard-export", "Export")', file_pane_tools)
-        self.assertIn('postBoardTool("random-card-color")', file_pane_tools)
-        self.assertIn('postBoardTool("export", exportFormat.value)', file_pane_tools)
-        self.assertIn('type: "electroboy-corkboard-tool"', file_pane_tools)
-        self.assertIn("const supportsCardColor = state.canChangeColor !== false;", file_pane_tools)
-        self.assertIn("This board does not support card color changes.", file_pane_tools)
-        self.assertIn("Select a card, then choose a color.", file_pane_tools)
+        self.assertIn(
+            'controller.addSection("corkboard-color", "Selected card")',
+            corkboard_pane_tools,
+        )
+        self.assertIn(
+            'controller.addSection("corkboard-export", "Export")',
+            corkboard_pane_tools,
+        )
+        self.assertIn('postBoardTool("random-card-color")', corkboard_pane_tools)
+        self.assertIn(
+            'postBoardTool("export", exportFormat.value)',
+            corkboard_pane_tools,
+        )
+        self.assertIn('type: "electroboy-corkboard-tool"', corkboard_pane_tools)
+        self.assertIn(
+            "const supportsCardColor = state.canChangeColor !== false;",
+            corkboard_pane_tools,
+        )
+        self.assertIn(
+            "This board does not support card color changes.",
+            corkboard_pane_tools,
+        )
+        self.assertIn(
+            "Select a card, then choose a color.",
+            corkboard_pane_tools,
+        )
         self.assertIn("terminal.hasSelection()", terminal_behavior)
         self.assertIn("navigator.clipboard.writeText", terminal_behavior)
         self.assertIn("terminal.registerMarker", terminal_behavior)
@@ -1543,6 +1574,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function reset(terminal)", terminal_behavior)
         self.assertIn("terminal.reset()", terminal_behavior)
         self.assertIn("window.ElectroBoyFilePaneTools", file_pane_tools)
+        self.assertIn("window.ElectroBoyCorkboardPaneTools", corkboard_pane_tools)
         self.assertIn('controller.addSection("find", "Find")', file_pane_tools)
         self.assertIn('controller.addSection("actions", "Actions")', file_pane_tools)
         self.assertIn('setActionStatus("Agent started")', file_pane_tools)
@@ -1558,7 +1590,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('menu("Mode", "pane-tool-mode-menu")', file_pane_tools)
         self.assertIn('menu("Export", "pane-tool-export-menu")', file_pane_tools)
         self.assertNotIn("fileMenu.details.hidden = isBoard ||", file_pane_tools)
-        self.assertIn("openInIDE.hidden = isBoard || !current.path;", file_pane_tools)
+        self.assertIn("openInIDE.hidden = !current.path;", file_pane_tools)
         self.assertIn(
             "actionsBody.closest(\"details\").hidden = startAgent.hidden\n"
             "        && pop.hidden\n"
@@ -3016,6 +3048,15 @@ class ServiceTests(unittest.TestCase):
                     server,
                     "/assets/service/js/modules/file-pane-tools.js",
                 )
+                (
+                    corkboard_tools_status,
+                    corkboard_tools_body,
+                    corkboard_tools_type,
+                    _,
+                ) = request_bytes(
+                    server,
+                    "/assets/service/js/modules/corkboard-pane-tools.js",
+                )
                 agent_tools_status, agent_tools_body, agent_tools_type, _ = (
                     request_bytes(
                         server,
@@ -3141,6 +3182,15 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(file_tools_status, 200)
         self.assertEqual(file_tools_type, "application/javascript; charset=utf-8")
         self.assertIn(b"window.ElectroBoyFilePaneTools", file_tools_body)
+        self.assertEqual(corkboard_tools_status, 200)
+        self.assertEqual(
+            corkboard_tools_type,
+            "application/javascript; charset=utf-8",
+        )
+        self.assertIn(
+            b"window.ElectroBoyCorkboardPaneTools",
+            corkboard_tools_body,
+        )
         self.assertEqual(agent_tools_status, 200)
         self.assertEqual(agent_tools_type, "application/javascript; charset=utf-8")
         self.assertIn(b"window.ElectroBoyAgentPaneTools", agent_tools_body)
@@ -3292,6 +3342,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('/assets/service/js/modules/document-navigation.js', page)
         self.assertIn('/assets/service/js/modules/agent-pane-tools.js', page)
         self.assertIn('/assets/service/js/modules/file-pane-tools.js', page)
+        self.assertIn('/assets/service/js/modules/corkboard-pane-tools.js', page)
         self.assertLess(
             page.index('/assets/service/js/modules/document-navigation.js'),
             page.index('/assets/service/js/modules/agent-pane-tools.js'),
@@ -3299,6 +3350,10 @@ class ServiceTests(unittest.TestCase):
         self.assertLess(
             page.index('/assets/service/js/modules/agent-pane-tools.js'),
             page.index('/assets/service/js/modules/file-pane-tools.js'),
+        )
+        self.assertLess(
+            page.index('/assets/service/js/modules/file-pane-tools.js'),
+            page.index('/assets/service/js/modules/corkboard-pane-tools.js'),
         )
         self.assertIn('paneParameters.set("embedded", "1")', page)
         self.assertIn('paneParameters.set("pane_instance_id", item.id);', page)
@@ -3473,6 +3528,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="paneToolsContent"', page)
         self.assertIn("ElectroBoyPaneTools.create", page)
         self.assertIn("ElectroBoyFilePaneTools.mount", page)
+        self.assertIn("ElectroBoyCorkboardPaneTools.mount", page)
         self.assertIn('id="dockPane"', page)
         self.assertIn('id="refreshArtifact"', page)
         self.assertIn('id="previewArtifact"', page)
@@ -3515,10 +3571,10 @@ class ServiceTests(unittest.TestCase):
             "path: paneDocumentBrowserStartPath(activeProjectRoot)",
             page,
         )
-        self.assertIn('? requestPaneCorkboardDocument("open")', page)
-        self.assertIn('? requestPaneCorkboardDocument("new")', page)
-        self.assertIn(': openPaneDocumentFileBrowser("document")', page)
-        self.assertIn(': openPaneDocumentFileBrowser("document-new")', page)
+        self.assertIn('open: () => requestPaneCorkboardDocument("open")', page)
+        self.assertIn('new: () => requestPaneCorkboardDocument("new")', page)
+        self.assertIn('open: () => openPaneDocumentFileBrowser("document")', page)
+        self.assertIn('new: () => openPaneDocumentFileBrowser("document-new")', page)
         self.assertIn("close: closePaneDocument", page)
         self.assertIn("function closePaneDocument()", page)
         self.assertIn('postDocumentFileAction("close", target);', page)

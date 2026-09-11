@@ -1027,6 +1027,7 @@
   <script src="/assets/service/js/modules/document-navigation.js"></script>
   <script src="/assets/service/js/modules/agent-pane-tools.js"></script>
   <script src="/assets/service/js/modules/file-pane-tools.js"></script>
+  <script src="/assets/service/js/modules/corkboard-pane-tools.js"></script>
   <script src="/assets/service/js/modules/agenda-pane-tools.js"></script>
   <script src="/assets/service/js/modules/mind-map-pane-tools.js"></script>
   <script src="/assets/service/js/core/registry.js"></script>
@@ -1244,6 +1245,7 @@
     let paneToolsController = null;
     let agentPaneTools = null;
     let filePaneTools = null;
+    let corkboardPaneTools = null;
     let mindMapPaneTools = null;
     const paneDocumentNavigation = window.ElectroBoyDocumentNavigation.create();
     let directPaneActivationNotifier = null;
@@ -2338,7 +2340,7 @@
         artifactFrame.classList.add("loading");
         artifactFrame.removeAttribute("srcdoc");
         artifactFrame.src = url;
-        filePaneTools?.refresh();
+        refreshArtifactPaneTools();
         return;
       }
       const existingTarget = openFileTargets.find(
@@ -2360,7 +2362,7 @@
           normalized.target.path,
           normalized.location,
         );
-        filePaneTools?.refresh();
+        refreshArtifactPaneTools();
         return;
       }
       selectFileTarget(target, normalized.location);
@@ -2390,7 +2392,7 @@
           destination.location.fragment,
         );
       }
-      filePaneTools?.refresh();
+      refreshArtifactPaneTools();
     }
 
     function navigatePaneDocumentHistory(direction) {
@@ -2401,7 +2403,7 @@
       if (destination) {
         openPaneDocumentNavigationEntry(destination);
       }
-      filePaneTools?.refresh();
+      refreshArtifactPaneTools();
     }
 
     function notifyPaneArtifactChange(item) {
@@ -4104,7 +4106,12 @@
         artifactEventSource = null;
       }
       connectArtifactStream();
+      refreshArtifactPaneTools();
+    }
+
+    function refreshArtifactPaneTools() {
       if (filePaneTools) filePaneTools.refresh();
+      if (corkboardPaneTools) corkboardPaneTools.refresh();
     }
 
     function artifactUrl() {
@@ -4309,7 +4316,7 @@
       artifactEventSource = window.ElectroBoyLiveTransport.eventSource(eventUrl);
       artifactEventSource.addEventListener("artifact-event", refreshArtifact);
       artifactEventSource.onerror = () => {};
-      if (filePaneTools) filePaneTools.refresh();
+      refreshArtifactPaneTools();
     }
 
     function showScratchPad() {
@@ -5142,7 +5149,7 @@
       side: PANE_KIND === "agenda" ? "left" : "right",
       onResize: fitTerminal,
     });
-    if (IS_ARTIFACT_PANE && window.ElectroBoyFilePaneTools) {
+    if (PANE_KIND === "artifact" && window.ElectroBoyFilePaneTools) {
       filePaneTools = window.ElectroBoyFilePaneTools.mount({
         controller: paneToolsController,
         frame: artifactFrame,
@@ -5159,12 +5166,8 @@
         }),
         actions: {
           startAgent: startPaneDocumentAgent,
-          open: () => PANE_KIND === "corkboard"
-            ? requestPaneCorkboardDocument("open")
-            : openPaneDocumentFileBrowser("document"),
-          new: () => PANE_KIND === "corkboard"
-            ? requestPaneCorkboardDocument("new")
-            : openPaneDocumentFileBrowser("document-new"),
+          open: () => openPaneDocumentFileBrowser("document"),
+          new: () => openPaneDocumentFileBrowser("document-new"),
           generateCorkboard: generatePaneDocumentCorkboard,
           back: () => navigatePaneDocumentHistory("back"),
           forward: () => navigatePaneDocumentHistory("forward"),
@@ -5178,6 +5181,27 @@
           refresh: refreshArtifactButton,
           exportFormat: exportPaneFormat,
           exportButton: exportPaneOutput,
+        },
+      });
+    }
+    if (PANE_KIND === "corkboard" && window.ElectroBoyCorkboardPaneTools) {
+      paneToolsTitle.textContent = "Corkboard tools";
+      corkboardPaneTools = window.ElectroBoyCorkboardPaneTools.mount({
+        controller: paneToolsController,
+        frame: artifactFrame,
+        getTarget: () => ({
+          kind: artifactKind,
+          path: artifactTargetPath(),
+          title: artifactTargetTitle(),
+          canPop: params.get("popped") !== "1" && artifactKind !== "empty",
+        }),
+        actions: {
+          open: () => requestPaneCorkboardDocument("open"),
+          new: () => requestPaneCorkboardDocument("new"),
+          pop: popOutCurrentArtifact,
+        },
+        controls: {
+          refresh: refreshArtifactButton,
         },
       });
     }

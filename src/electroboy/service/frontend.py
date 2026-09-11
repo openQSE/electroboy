@@ -198,7 +198,10 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             id="corkboard",
             label="Corkboard Pane",
             owner="corkboard",
-            assets=("js/modules/corkboard.js",),
+            assets=(
+                "js/modules/corkboard.js",
+                "js/modules/corkboard-pane-tools.js",
+            ),
         ),
         FrontendBundle(
             id="file-browser-module",
@@ -421,6 +424,12 @@ def _contributed_assets(
             "electroboy.modules",
             "assets",
             "mind-map-pane-tools.js",
+        ),
+        (
+            "js/modules/corkboard-pane-tools.js",
+            "electroboy.modules",
+            "assets",
+            "corkboard-pane-tools.js",
         ),
         (
             "css/agenda-pane-tools.css",

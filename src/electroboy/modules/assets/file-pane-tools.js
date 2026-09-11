@@ -20,7 +20,6 @@
     const contextUrl = options.contextUrl;
     const controls = options.controls || {};
     const actions = options.actions || {};
-    let boardState = null;
     const boundFrames = new WeakSet();
 
     function target() {
@@ -211,174 +210,6 @@
       actionStatus,
     );
 
-    const boardViewBody = controller.addSection("corkboard-view", "Board view");
-
-    function labeledSelect(labelText, ariaLabel, action) {
-      const wrapper = document.createElement("label");
-      wrapper.className = "pane-tool-slider";
-      const label = document.createElement("span");
-      label.textContent = labelText;
-      const select = document.createElement("select");
-      select.setAttribute("aria-label", ariaLabel);
-      select.addEventListener("change", () => postBoardTool(action, select.value));
-      wrapper.append(label, select);
-      boardViewBody.append(wrapper);
-      return { wrapper, select };
-    }
-
-    const boardPicker = labeledSelect("Board", "Corkboard", "select-board");
-    const boardLayout = labeledSelect("Layout", "Corkboard layout", "set-layout");
-    const organizeMenu = menu("Auto-organize", "pane-tool-organize-menu");
-    const organizeGrid = menuButton("Grid", () => {
-      postBoardTool("organize-grid");
-    });
-    const organizeLayout = menuButton("Layout", () => {
-      postBoardTool("organize-layout");
-    });
-    organizeMenu.list.append(organizeGrid, organizeLayout);
-    const autoLayout = document.createElement("label");
-    autoLayout.className = "pane-tool-toggle";
-    const autoLayoutInput = document.createElement("input");
-    autoLayoutInput.type = "checkbox";
-    autoLayoutInput.addEventListener("change", () => {
-      postBoardTool("set-auto-layout", autoLayoutInput.checked);
-    });
-    const autoLayoutText = document.createElement("span");
-    autoLayoutText.textContent = "Auto layout on card resize";
-    autoLayout.append(autoLayoutInput, autoLayoutText);
-    const undoOrganize = button("Undo organize", () => {
-      postBoardTool("undo-organize");
-    });
-    boardViewBody.append(organizeMenu.details, autoLayout, undoOrganize);
-
-    function boardSlider(label, min, max, step, action) {
-      const wrapper = document.createElement("label");
-      wrapper.className = "pane-tool-slider";
-      const heading = document.createElement("span");
-      const text = document.createElement("span");
-      text.textContent = label;
-      const output = document.createElement("output");
-      heading.append(text, output);
-      const input = document.createElement("input");
-      input.type = "range";
-      input.min = String(min);
-      input.max = String(max);
-      input.step = String(step);
-      input.addEventListener("input", () => {
-        postBoardTool(action, input.value);
-      });
-      wrapper.append(heading, input);
-      boardViewBody.append(wrapper);
-      return { input, output };
-    }
-
-    const boardZoom = boardSlider("Board zoom", 0, 1000, 1, "set-board-zoom");
-    const cardSize = boardSlider("Card size", 100, 400, 5, "set-card-size");
-    const cardFont = boardSlider("Card font", 75, 200, 5, "set-card-font");
-
-    const boardColorBody = controller.addSection("corkboard-color", "Selected card");
-    const colorRow = document.createElement("div");
-    colorRow.className = "pane-tool-color-row";
-    const cardColor = document.createElement("input");
-    cardColor.type = "color";
-    cardColor.value = "#fff6cf";
-    cardColor.setAttribute("aria-label", "Selected card color");
-    const randomColor = button("Random color", () => {
-      postBoardTool("random-card-color");
-    });
-    colorRow.append(cardColor, randomColor);
-    const colorHelp = document.createElement("div");
-    colorHelp.className = "pane-tool-status";
-    colorHelp.textContent = "Select a card to change its color.";
-    boardColorBody.append(colorRow, colorHelp);
-    cardColor.addEventListener("input", () => {
-      postBoardTool("set-card-color", cardColor.value);
-    });
-
-    const boardExportBody = controller.addSection("corkboard-export", "Export");
-    const exportFormat = document.createElement("select");
-    exportFormat.setAttribute("aria-label", "Corkboard image format");
-    for (const [value, label] of [["png", "PNG"], ["jpeg", "JPEG"]]) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      exportFormat.append(option);
-    }
-    const exportBoard = button("Export cards", () => {
-      exportHelp.textContent = "Preparing image…";
-      exportHelp.classList.remove("error");
-      postBoardTool("export", exportFormat.value);
-    }, "primary");
-    const exportHelp = document.createElement("div");
-    exportHelp.className = "pane-tool-status";
-    boardExportBody.append(exportFormat, exportBoard, exportHelp);
-
-    function postBoardTool(action, value = null) {
-      const frame = getFrame();
-      if (!frame || !frame.contentWindow) return;
-      frame.contentWindow.postMessage({
-        type: "electroboy-corkboard-tool",
-        action,
-        value,
-      }, window.location.origin);
-    }
-
-    function applyBoardState(state) {
-      boardState = state;
-      const boards = Array.isArray(state.boards) ? state.boards : [];
-      boardPicker.select.replaceChildren(...boards.map((entry) => {
-        const option = document.createElement("option");
-        option.value = String(entry.id || "");
-        option.textContent = String(entry.title || entry.id || "Untitled board");
-        return option;
-      }));
-      boardPicker.wrapper.hidden = boards.length < 2;
-      boardPicker.select.value = String(state.boardPath || "");
-      const layouts = Array.isArray(state.layoutModes) ? state.layoutModes : [];
-      boardLayout.select.replaceChildren(...layouts.map((mode) => {
-        const option = document.createElement("option");
-        option.value = mode;
-        option.textContent = mode === "grid" ? "Grid" : "Freeform";
-        return option;
-      }));
-      boardLayout.wrapper.hidden = layouts.length < 2;
-      boardLayout.select.value = String(state.layoutMode || "");
-      organizeMenu.details.hidden = !state.canAutoOrganize;
-      autoLayout.hidden = !state.canAutoLayout;
-      autoLayoutInput.checked = Boolean(state.autoLayoutEnabled);
-      undoOrganize.hidden = !state.canUndoOrganize;
-      boardZoom.input.value = String(state.zoomSlider ?? 500);
-      boardZoom.output.textContent = state.zoomLabel || "100%";
-      cardSize.input.value = String(state.cardScale ?? 100);
-      cardSize.output.textContent = `${state.cardScale ?? 100}%`;
-      cardFont.input.value = String(state.cardFontScale ?? 125);
-      cardFont.output.textContent = `${state.cardFontScale ?? 125}%`;
-      const supportsCardColor = state.canChangeColor !== false;
-      cardColor.disabled = !supportsCardColor;
-      randomColor.disabled = !supportsCardColor;
-      if (state.selectedColor) cardColor.value = state.selectedColor;
-      colorHelp.textContent = !supportsCardColor
-        ? "This board does not support card color changes."
-        : state.hasSelection
-        ? "Changes are saved to the selected card."
-        : "Select a card, then choose a color.";
-    }
-
-    function handleBoardMessage(event) {
-      const frame = getFrame();
-      if (!frame || event.source !== frame.contentWindow) return;
-      const data = event.data || {};
-      if (data.type === "electroboy-corkboard-tool-state") {
-        const currentPath = String(target().path || "");
-        if (currentPath && data.boardPath && currentPath !== data.boardPath) return;
-        applyBoardState(data);
-      } else if (data.type === "electroboy-corkboard-exported") {
-        exportHelp.textContent = data.error
-          || `Exported ${String(data.format || "image").toUpperCase()}`;
-        exportHelp.classList.toggle("error", Boolean(data.error));
-      }
-    }
-
     function searchable() {
       const current = target();
       return current.kind === "document" || current.kind === "requirements";
@@ -456,13 +287,7 @@
           frame.addEventListener("load", () => {
             controller.bindKeyboardTarget(frame.contentWindow);
             frame.contentWindow.addEventListener("keydown", handleFindShortcut);
-            if (target().kind === "corkboard" || target().kind === "creative-corkboard") {
-              postBoardTool("request-state");
-            }
           });
-        }
-        if (target().kind === "corkboard" || target().kind === "creative-corkboard") {
-          postBoardTool("request-state");
         }
       } catch (error) {
         // Cross-origin content keeps its native keyboard behavior.
@@ -505,13 +330,9 @@
         typeof actions.forward !== "function" || current.canGoForward !== true;
       findBody.closest("details").hidden = !canSearch;
       startAgent.hidden = current.kind !== "document" || !current.path;
-      const isBoard = current.kind === "corkboard" || current.kind === "creative-corkboard";
-      viewBody.closest("details").hidden = isBoard;
-      boardViewBody.closest("details").hidden = !isBoard;
-      boardColorBody.closest("details").hidden = !isBoard;
-      boardExportBody.closest("details").hidden = !isBoard;
+      viewBody.closest("details").hidden = false;
       pop.hidden = typeof actions.pop !== "function" || current.canPop === false;
-      openInIDE.hidden = isBoard || !current.path;
+      openInIDE.hidden = !current.path;
       open.hidden = typeof actions.open !== "function";
       create.hidden = typeof actions.new !== "function";
       generateCorkboard.hidden =
@@ -530,8 +351,8 @@
       const canSwitchMode = current.canSwitchMode !== false;
       preview.hidden = !canSwitchMode;
       edit.hidden = !canSwitchMode;
-      modeMenu.details.hidden = isBoard || !canSwitchMode;
-      exportMenu.details.hidden = isBoard || current.canExport === false;
+      modeMenu.details.hidden = !canSwitchMode;
+      exportMenu.details.hidden = current.canExport === false;
       actionsBody.closest("details").hidden = startAgent.hidden
         && pop.hidden
         && openInIDE.hidden
@@ -553,13 +374,6 @@
       controller.setEnabled(hasTarget);
       bindFrameShortcuts();
       setActionStatus("");
-      if (isBoard) {
-        if (boardState && current.path && boardState.boardPath !== current.path) {
-          boardState = null;
-        }
-        applyBoardState(boardState || {});
-        window.setTimeout(() => postBoardTool("request-state"), 0);
-      }
     }
 
     findInput.addEventListener("input", () => find(1));
@@ -575,7 +389,6 @@
     });
     matchCase.addEventListener("change", () => find(1));
     window.addEventListener("keydown", handleFindShortcut);
-    window.addEventListener("message", handleBoardMessage);
     if (fixedFrame) fixedFrame.addEventListener("load", bindFrameShortcuts);
     bindFrameShortcuts();
     refresh();
