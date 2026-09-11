@@ -511,7 +511,7 @@
       boardColorBody.closest("details").hidden = !isBoard;
       boardExportBody.closest("details").hidden = !isBoard;
       pop.hidden = typeof actions.pop !== "function" || current.canPop === false;
-      actionsBody.closest("details").hidden = isBoard && pop.hidden;
+      openInIDE.hidden = isBoard || !current.path;
       open.hidden = typeof actions.open !== "function";
       create.hidden = typeof actions.new !== "function";
       generateCorkboard.hidden =
@@ -520,7 +520,7 @@
         || !current.path;
       close.hidden = typeof actions.close !== "function" || current.canClose === false;
       refreshButton.hidden = current.canRefresh === false;
-      fileMenu.details.hidden = isBoard || (
+      fileMenu.details.hidden = (
         open.hidden
         && create.hidden
         && generateCorkboard.hidden
@@ -532,6 +532,12 @@
       edit.hidden = !canSwitchMode;
       modeMenu.details.hidden = isBoard || !canSwitchMode;
       exportMenu.details.hidden = isBoard || current.canExport === false;
+      actionsBody.closest("details").hidden = startAgent.hidden
+        && pop.hidden
+        && openInIDE.hidden
+        && fileMenu.details.hidden
+        && modeMenu.details.hidden
+        && exportMenu.details.hidden;
       preview.setAttribute("aria-pressed", String(!current.editing));
       edit.setAttribute("aria-pressed", String(Boolean(current.editing)));
       if (controls.preview) controls.preview.hidden = true;

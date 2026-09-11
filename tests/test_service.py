@@ -1557,6 +1557,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('menu("File", "pane-tool-file-menu")', file_pane_tools)
         self.assertIn('menu("Mode", "pane-tool-mode-menu")', file_pane_tools)
         self.assertIn('menu("Export", "pane-tool-export-menu")', file_pane_tools)
+        self.assertNotIn("fileMenu.details.hidden = isBoard ||", file_pane_tools)
+        self.assertIn("openInIDE.hidden = isBoard || !current.path;", file_pane_tools)
+        self.assertIn(
+            "actionsBody.closest(\"details\").hidden = startAgent.hidden\n"
+            "        && pop.hidden\n"
+            "        && openInIDE.hidden\n"
+            "        && fileMenu.details.hidden",
+            file_pane_tools,
+        )
         file_menu_start = file_pane_tools.index("const fileMenu =")
         file_menu_end = file_pane_tools.index("const modeMenu =", file_menu_start)
         file_menu_source = file_pane_tools[file_menu_start:file_menu_end]
