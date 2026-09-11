@@ -2389,17 +2389,29 @@ class ServiceTests(unittest.TestCase):
 
         self.assertIn("async function recoverWorkspaceAttachment()", runtime)
         self.assertIn("async function resumeWorkspaceAttachment()", runtime)
-        self.assertIn("recovered = await recoverWorkspaceAttachment();", runtime)
+        self.assertIn("const WORKSPACE_HEARTBEAT_MS = 60_000;", runtime)
+        self.assertIn("const WORKSPACE_LEASE_GRACE_MS = 3_600_000;", runtime)
+        self.assertIn("async function sendWorkspaceHeartbeat(options = {})", runtime)
+        self.assertIn("const shouldRecover = options.recover !== false;", runtime)
+        self.assertIn('sendWorkspaceHeartbeat({ recover: false })', runtime)
+        self.assertIn(
+            "if (await sendWorkspaceHeartbeat({ recover: false })) {\n"
+            "        startWorkspaceHeartbeat();\n"
+            "        startSharedPaneSync();\n"
+            "        return;",
+            runtime,
+        )
         self.assertIn("try {\n        response = await fetch", runtime)
         self.assertIn(
-            "} catch (error) {\n        return recoverWorkspaceAttachmentAfterHeartbeatFailure();",
+            "return shouldRecover\n"
+            "          ? recoverWorkspaceAttachmentAfterHeartbeatFailure()\n"
+            "          : false;",
             runtime,
         )
         self.assertIn(
             "async function recoverWorkspaceAttachmentAfterHeartbeatFailure()",
             runtime,
         )
-        self.assertIn("const WORKSPACE_LEASE_GRACE_MS = 180_000;", runtime)
         self.assertIn("durationMs >= WORKSPACE_LEASE_GRACE_MS", runtime)
         self.assertIn(
             'bumpFrontendDebugCounter("workspaceRecovery.failed");',
@@ -2407,12 +2419,6 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn(
             'bumpFrontendDebugCounter("workspaceRecovery.completed");',
-            runtime,
-        )
-        self.assertIn(
-            "if (recovered || (await sendWorkspaceHeartbeat())) {\n"
-            "        startWorkspaceHeartbeat();\n"
-            "        startSharedPaneSync();",
             runtime,
         )
         self.assertIn(
@@ -2432,12 +2438,25 @@ class ServiceTests(unittest.TestCase):
 
     def test_workspace_selector_clears_detached_workspaces(self) -> None:
         runtime = read_service_text_asset("js/core/runtime.js")
+        styles = read_service_text_asset("css/shell.css")
 
         self.assertIn(
             'input type="checkbox" class="workspace-selector-select-all-input"',
             runtime,
         )
         self.assertIn('input.type = "checkbox";', runtime)
+        self.assertIn("async function confirmWorkspaceAttach(choice)", runtime)
+        self.assertIn('id = "workspaceConfirmDialog";', runtime)
+        self.assertIn(
+            'className = "workspace-selector-dialog workspace-confirm-dialog"',
+            runtime,
+        )
+        self.assertIn("workspace.attached ? \"attached\" : \"detached\"", runtime)
+        self.assertIn(
+            "input.dataset.workspaceAttached = workspace.attached ? \"1\" : \"\";",
+            runtime,
+        )
+        self.assertIn("if (!await confirmWorkspaceAttach(selected[0])) {", runtime)
         self.assertIn(
             '<button class="workspace-selector-clear" type="button">Clear</button>',
             runtime,
@@ -2448,8 +2467,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('method: "POST"', runtime)
         self.assertIn("body: JSON.stringify({ workspace_ids: workspaceIds })", runtime)
         self.assertIn("submit.disabled = selected.length !== 1;", runtime)
-        self.assertIn("clear.disabled = selected.length === 0;", runtime)
+        self.assertIn(
+            "selected.some((choice) => choice.dataset.workspaceAttached === \"1\")",
+            runtime,
+        )
         self.assertIn("Running sessions in them will be stopped.", runtime)
+        self.assertIn(".workspace-confirm-dialog {", styles)
+        self.assertIn(".workspace-confirm-details {", styles)
 
     def test_agent_input_actions_are_fixed_height_and_top_aligned(self) -> None:
         styles = read_service_text_asset("css/shell.css")

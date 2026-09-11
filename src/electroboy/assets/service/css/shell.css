@@ -3009,10 +3009,18 @@
   background: rgb(8 24 45 / 55%);
 }
 
+.workspace-confirm-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
 .workspace-selector-form {
   display: grid;
   grid-template-rows: auto minmax(180px, 1fr) auto auto;
   max-height: min(760px, calc(100vh - 32px));
+}
+
+.workspace-confirm-dialog .workspace-selector-form {
+  grid-template-rows: auto auto auto;
 }
 
 .workspace-selector-header,
@@ -3117,6 +3125,14 @@
 }
 
 .workspace-selector-details {
+  overflow-wrap: anywhere;
+}
+
+.workspace-confirm-details {
+  margin: 0;
+  padding: 16px;
+  color: #172235;
+  font-size: 0.9rem;
   overflow-wrap: anywhere;
 }
 

@@ -483,7 +483,7 @@ class ServiceState:
     ) -> dict[str, object]:
         if not workflow_id.strip():
             return {"workspaces": []}
-        rows = self.workspace_registry.list_detached(workflow_id=workflow_id)
+        rows = self.workspace_registry.list_attachable(workflow_id=workflow_id)
         for row in rows:
             workspace_id = str(row.get("workspace_id") or "")
             context = self.context_store.get(workspace_id)

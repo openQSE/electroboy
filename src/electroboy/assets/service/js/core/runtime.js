@@ -125,8 +125,8 @@
     const SPLASH_DISMISSED_STORAGE_KEY = "electroboy.splash.dismissed.v1";
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
-    const WORKSPACE_HEARTBEAT_MS = 5000;
-    const WORKSPACE_LEASE_GRACE_MS = 180_000;
+    const WORKSPACE_HEARTBEAT_MS = 60_000;
+    const WORKSPACE_LEASE_GRACE_MS = 3_600_000;
     const FRONTEND_DEBUG_INTERVAL_MS = 5000;
     const FRONTEND_DEBUG_EVENT_LOOP_INTERVAL_MS = 1000;
     const FRONTEND_DEBUG_PAINT_INTERVAL_MS = 1000;
@@ -6811,10 +6811,11 @@
       return recovered;
     }
 
-    async function sendWorkspaceHeartbeat() {
+    async function sendWorkspaceHeartbeat(options = {}) {
       if (!contextId || !workspaceLeaseToken) {
         return false;
       }
+      const shouldRecover = options.recover !== false;
       let response = null;
       try {
         response = await fetch(contextUrl("/api/workspaces/heartbeat"), {
@@ -6826,14 +6827,18 @@
           }),
         });
       } catch (error) {
-        return recoverWorkspaceAttachmentAfterHeartbeatFailure();
+        return shouldRecover
+          ? recoverWorkspaceAttachmentAfterHeartbeatFailure()
+          : false;
       }
       const responseOk = response.ok;
       await drainDiscardedFetchResponse(response, {
         operation: "workspace-heartbeat",
       });
       if (!responseOk) {
-        return recoverWorkspaceAttachmentAfterHeartbeatFailure();
+        return shouldRecover
+          ? recoverWorkspaceAttachmentAfterHeartbeatFailure()
+          : false;
       }
       return true;
     }
@@ -6882,6 +6887,11 @@
       if (!contextId || !workspaceLeaseToken) {
         startSharedPaneSync();
         scheduleFrontendResumeRecovery();
+        return;
+      }
+      if (await sendWorkspaceHeartbeat({ recover: false })) {
+        startWorkspaceHeartbeat();
+        startSharedPaneSync();
         return;
       }
       let recovered = false;
@@ -7781,7 +7791,7 @@
           <header class="workspace-selector-header">
             <div>
               <h2>Open workspace</h2>
-              <p>Choose a detached workspace to continue.</p>
+              <p>Choose a workspace to continue.</p>
             </div>
             <button class="workspace-selector-close" type="button"
                     aria-label="Close">&times;</button>
@@ -7793,7 +7803,7 @@
                 <input type="checkbox" class="workspace-selector-select-all-input">
                 <span>Select all</span>
               </label>
-              <span>Select one to attach or clear; select multiple to clear.</span>
+              <span>Select one to attach. Detached workspaces can be cleared.</span>
             </div>
             <div class="workspace-selector-list"></div>
           </fieldset>
@@ -7809,8 +7819,38 @@
       return dialog;
     }
 
+    function ensureWorkspaceConfirmDialog() {
+      let dialog = document.getElementById("workspaceConfirmDialog");
+      if (dialog) {
+        return dialog;
+      }
+      dialog = document.createElement("dialog");
+      dialog.id = "workspaceConfirmDialog";
+      dialog.className = "workspace-selector-dialog workspace-confirm-dialog";
+      dialog.innerHTML = `
+        <form method="dialog" class="workspace-selector-form">
+          <header class="workspace-selector-header">
+            <div>
+              <h2 class="workspace-confirm-title">Attach workspace</h2>
+              <p class="workspace-confirm-summary"></p>
+            </div>
+            <button class="workspace-selector-close" type="button"
+                    aria-label="Close">&times;</button>
+          </header>
+          <p class="workspace-confirm-details"></p>
+          <footer class="workspace-selector-footer">
+            <button class="workspace-selector-cancel" type="button">Cancel</button>
+            <button class="workspace-selector-submit" type="submit">Attach</button>
+          </footer>
+        </form>
+      `;
+      document.body.append(dialog);
+      return dialog;
+    }
+
     function workspaceDetails(workspace) {
       const details = [];
+      details.push(workspace.attached ? "attached" : "detached");
       if (workspace.workflow_stage) {
         details.push(String(workspace.workflow_stage));
       }
@@ -7837,10 +7877,43 @@
       const submit = dialog.querySelector(".workspace-selector-submit");
       const clear = dialog.querySelector(".workspace-selector-clear");
       submit.disabled = selected.length !== 1;
-      clear.disabled = selected.length === 0;
+      clear.disabled = selected.length === 0 ||
+        selected.some((choice) => choice.dataset.workspaceAttached === "1");
       selectAll.disabled = choices.length === 0;
       selectAll.checked = choices.length > 0 && selected.length === choices.length;
       selectAll.indeterminate = selected.length > 0 && selected.length < choices.length;
+    }
+
+    async function confirmWorkspaceAttach(choice) {
+      const dialog = ensureWorkspaceConfirmDialog();
+      const title = choice.dataset.workspaceName || "Workspace";
+      const attached = choice.dataset.workspaceAttached === "1";
+      const details = choice.dataset.workspaceDetails || "";
+      dialog.querySelector(".workspace-confirm-title").textContent =
+        attached ? "Take over workspace" : "Attach workspace";
+      dialog.querySelector(".workspace-confirm-summary").textContent =
+        attached
+          ? "This workspace is attached in another tab. Attaching here will disconnect that tab."
+          : "Attach this workspace in the current tab.";
+      dialog.querySelector(".workspace-confirm-details").textContent =
+        details ? `${title} - ${details}` : title;
+      return new Promise((resolve) => {
+        const finish = (value) => {
+          dialog.close();
+          resolve(value);
+        };
+        dialog.querySelector(".workspace-selector-close").onclick = () => finish(false);
+        dialog.querySelector(".workspace-selector-cancel").onclick = () => finish(false);
+        dialog.oncancel = (event) => {
+          event.preventDefault();
+          finish(false);
+        };
+        dialog.querySelector("form").onsubmit = (event) => {
+          event.preventDefault();
+          finish(true);
+        };
+        dialog.showModal();
+      });
     }
 
     async function loadWorkspaceChoices(dialog) {
@@ -7870,7 +7943,7 @@
       }
       const workspaces = Array.isArray(payload.workspaces) ? payload.workspaces : [];
       if (workspaces.length === 0) {
-        list.textContent = "No detached workspaces are available.";
+        list.textContent = "No workspaces are available.";
         return;
       }
       list.replaceChildren(...workspaces.map((workspace) => {
@@ -7880,14 +7953,17 @@
         input.type = "checkbox";
         input.name = "workspace-selector";
         input.value = String(workspace.workspace_id || "");
+        input.dataset.workspaceAttached = workspace.attached ? "1" : "";
+        input.dataset.workspaceName = String(workspace.name || "Workspace");
         input.addEventListener("change", () => syncWorkspaceSelectorActions(dialog));
         const copy = document.createElement("span");
         copy.className = "workspace-selector-option-copy";
         const title = document.createElement("strong");
-        title.textContent = String(workspace.name || "Workspace");
+        title.textContent = input.dataset.workspaceName;
         const details = document.createElement("span");
         details.className = "workspace-selector-details";
         details.textContent = workspaceDetails(workspace);
+        input.dataset.workspaceDetails = details.textContent;
         copy.append(title, details);
         option.append(input, copy);
         return option;
@@ -7963,6 +8039,9 @@
           event.preventDefault();
           const selected = selectedWorkspaceChoices(dialog);
           if (selected.length !== 1) {
+            return;
+          }
+          if (!await confirmWorkspaceAttach(selected[0])) {
             return;
           }
           dialog.querySelector(".workspace-selector-submit").disabled = true;

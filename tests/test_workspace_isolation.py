@@ -135,7 +135,7 @@ class WorkspaceIsolationTests(unittest.TestCase):
                     f"workspace_id={second_id}&connection_id=tab-b"
                     f"&lease_token={second_token}"
                 )
-                conflict_status, _conflict = self._request(
+                attached_status, attached = self._request(
                     server,
                     "POST",
                     f"/api/workspaces/attach?{second_query}",
@@ -155,15 +155,14 @@ class WorkspaceIsolationTests(unittest.TestCase):
                     f"/api/workspaces/detach?{first_query}",
                     {"connection_id": "tab-a", "lease_token": first_token},
                 )
-                attached_status, attached = self._request(
+                new_owner_query = (
+                    f"workspace_id={workspace_id}&connection_id=tab-b"
+                    f"&lease_token={attached['lease_token']}"
+                )
+                new_owner_status, _project = self._request(
                     server,
-                    "POST",
-                    f"/api/workspaces/attach?{second_query}",
-                    {
-                        "workspace_id": workspace_id,
-                        "connection_id": "tab-b",
-                        "lease_token": second_token,
-                    },
+                    "GET",
+                    f"/api/project?{new_owner_query}",
                 )
             finally:
                 server.shutdown()
@@ -173,10 +172,40 @@ class WorkspaceIsolationTests(unittest.TestCase):
         self.assertEqual(first_status, 200)
         self.assertEqual(second_status, 200)
         self.assertEqual(rejected_status, 409)
-        self.assertEqual(conflict_status, 409)
-        self.assertEqual(detached_status, 200)
         self.assertEqual(attached_status, 200)
         self.assertEqual(attached["workspace_id"], workspace_id)
+        self.assertEqual(detached_status, 409)
+        self.assertEqual(new_owner_status, 200)
+
+    def test_workspace_payload_lists_attached_and_detached_workspaces(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = ServiceState(root)
+            attached = state.create_context("tab-a", "software")
+            attached_id = str(attached["workspace_id"])
+            state.workspace_registry.adopt_context(
+                state.context_store.require(attached_id),
+                name="Attached workspace",
+                project_identity=str(root / "attached"),
+            )
+            detached = state.create_context("tab-b", "software")
+            detached_id = str(detached["workspace_id"])
+            state.workspace_registry.adopt_context(
+                state.context_store.require(detached_id),
+                name="Detached workspace",
+                project_identity=str(root / "detached"),
+            )
+            state.workspace_registry.detach(
+                detached_id,
+                "tab-b",
+                str(detached["lease_token"]),
+            )
+
+            payload = state.workspace_payload(workflow_id="software")
+
+        rows = {row["workspace_id"]: row for row in payload["workspaces"]}
+        self.assertTrue(rows[attached_id]["attached"])
+        self.assertFalse(rows[detached_id]["attached"])
 
     def test_clear_route_removes_only_detached_workspaces_for_workflow(self) -> None:
         class FakeSession:
@@ -498,7 +527,7 @@ class WorkspaceIsolationTests(unittest.TestCase):
         self.assertTrue(attached["lease_token"])
         self.assertEqual(attached["connection_count"], 1)
 
-    def test_expired_lease_recovers_with_matching_token(self) -> None:
+    def test_expired_lease_rejects_stale_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state = ServiceState(Path(tmp))
             state.workspace_registry.lease_seconds = 0.01
@@ -510,40 +539,6 @@ class WorkspaceIsolationTests(unittest.TestCase):
             state.workspace_registry.list_detached(workflow_id="software")
             record = state.workspace_registry.require_record(workspace_id)
             self.assertNotIn("tab-a", record.connections)
-            self.assertIn("tab-a", record.expired_connections)
-            self.assertEqual(
-                record.payload()["recoverable_connection_count"],
-                1,
-            )
-
-            state.workspace_registry.validate(
-                workspace_id,
-                "tab-a",
-                lease_token,
-            )
-            renewed = state.workspace_registry.heartbeat(
-                workspace_id,
-                "tab-a",
-                lease_token,
-            )
-
-        self.assertTrue(renewed["attached"])
-        self.assertEqual(renewed["connection_count"], 1)
-        self.assertIn("tab-a", record.connections)
-        self.assertNotIn("tab-a", record.expired_connections)
-
-    def test_expired_lease_is_pruned_after_recovery_window(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            state = ServiceState(Path(tmp))
-            state.workspace_registry.lease_seconds = 0.01
-            state.workspace_registry.recovery_seconds = 0.02
-            created = state.create_context("tab-a", "software")
-            workspace_id = str(created["workspace_id"])
-            lease_token = str(created["lease_token"])
-            time.sleep(0.03)
-
-            state.workspace_registry.list_detached(workflow_id="software")
-            record = state.workspace_registry.require_record(workspace_id)
 
             with self.assertRaisesRegex(ValueError, "not attached"):
                 state.workspace_registry.validate(
@@ -552,9 +547,37 @@ class WorkspaceIsolationTests(unittest.TestCase):
                     lease_token,
                 )
 
-        self.assertEqual(record.payload()["recoverable_connection_count"], 0)
+    def test_exclusive_attachment_takes_over_active_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            first = state.create_context("tab-a", "software")
+            second = state.create_context("tab-b", "software")
+            workspace_id = str(first["workspace_id"])
+            first_token = str(first["lease_token"])
+
+            attached = state.workspace_registry.switch(
+                str(second["workspace_id"]),
+                workspace_id,
+                "tab-b",
+                str(second["lease_token"]),
+            )
+            record = state.workspace_registry.require_record(workspace_id)
+
+            with self.assertRaisesRegex(ValueError, "not attached"):
+                state.workspace_registry.heartbeat(
+                    workspace_id,
+                    "tab-a",
+                    first_token,
+                )
+            renewed = state.workspace_registry.heartbeat(
+                workspace_id,
+                "tab-b",
+                str(attached["lease_token"]),
+            )
+
         self.assertNotIn("tab-a", record.connections)
-        self.assertNotIn("tab-a", record.expired_connections)
+        self.assertIn("tab-b", record.connections)
+        self.assertEqual(renewed["connection_count"], 1)
 
     def test_shared_singleton_accepts_multiple_connections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -22,8 +22,7 @@ WORKSPACE_POLICY_SHARED_SINGLETON = "shared-singleton"
 WORKSPACE_POLICIES = frozenset(
     {WORKSPACE_POLICY_EXCLUSIVE, WORKSPACE_POLICY_SHARED_SINGLETON}
 )
-WORKSPACE_LEASE_SECONDS = 180.0
-WORKSPACE_RECOVERY_SECONDS = 1800.0
+WORKSPACE_LEASE_SECONDS = 3600.0
 
 
 def _now() -> float:
@@ -113,42 +112,24 @@ class WorkspaceRecord:
     updated_at: float = field(default_factory=_now)
     last_attached_at: float = 0.0
     connections: dict[str, WorkspaceConnection] = field(default_factory=dict)
-    expired_connections: dict[str, WorkspaceConnection] = field(
-        default_factory=dict
-    )
 
-    def expire_connections(
-        self,
-        now: float,
-        lease_timeout: float,
-        recovery_timeout: float,
-    ) -> None:
+    def expire_connections(self, now: float, timeout: float) -> None:
         expired = {
             connection_id: connection
             for connection_id, connection in self.connections.items()
-            if now - connection.heartbeat_at > lease_timeout
+            if now - connection.heartbeat_at > timeout
         }
-        self.expired_connections.update(expired)
         for connection_id in expired:
             self.connections.pop(connection_id, None)
-        stale = {
-            connection_id
-            for connection_id, connection in self.expired_connections.items()
-            if now - connection.heartbeat_at > recovery_timeout
-        }
-        for connection_id in stale:
-            self.expired_connections.pop(connection_id, None)
         if self.status != "closed" and not self.connections:
             self.status = (
                 "detached" if self.project_identity or self.owner_key else "draft"
             )
 
     def connection(self, connection_id: str) -> WorkspaceConnection | None:
-        """Return an active or recoverable browser connection."""
+        """Return an active browser connection."""
 
-        return self.connections.get(connection_id) or self.expired_connections.get(
-            connection_id
-        )
+        return self.connections.get(connection_id)
 
     def renew_connection(
         self,
@@ -160,7 +141,6 @@ class WorkspaceRecord:
         connection = self.connection(connection_id)
         if connection is None or connection.lease_token != lease_token:
             raise ValueError("workspace is not attached to this browser connection")
-        self.expired_connections.pop(connection_id, None)
         self.connections[connection_id] = connection
         connection.heartbeat_at = _now()
         self.status = "attached"
@@ -179,7 +159,6 @@ class WorkspaceRecord:
             "status": self.status,
             "attached": bool(self.connections),
             "connection_count": len(self.connections),
-            "recoverable_connection_count": len(self.expired_connections),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "last_attached_at": self.last_attached_at,
@@ -195,13 +174,11 @@ class WorkspaceRegistry:
         context_store: ContextStore,
         *,
         lease_seconds: float = WORKSPACE_LEASE_SECONDS,
-        recovery_seconds: float = WORKSPACE_RECOVERY_SECONDS,
     ) -> None:
         self.state_root = Path(state_root).expanduser().resolve()
         self.context_store = context_store
         self.lock: threading.RLock = context_store.lock
         self.lease_seconds = lease_seconds
-        self.recovery_seconds = recovery_seconds
         self.records: dict[str, WorkspaceRecord] = {}
         self._load()
 
@@ -282,7 +259,6 @@ class WorkspaceRegistry:
         payload = record.payload(context)
         payload.pop("attached", None)
         payload.pop("connection_count", None)
-        payload.pop("recoverable_connection_count", None)
         if context is None:
             return payload
         payload.update(
@@ -327,11 +303,7 @@ class WorkspaceRegistry:
     def _expire_locked(self) -> None:
         now = _now()
         for record in self.records.values():
-            record.expire_connections(
-                now,
-                self.lease_seconds,
-                self.recovery_seconds,
-            )
+            record.expire_connections(now, self.lease_seconds)
 
     def create_draft(
         self,
@@ -434,7 +406,6 @@ class WorkspaceRegistry:
                     raise ValueError(
                         f"workspace is already in use: {existing.name or name}"
                     )
-                existing.expired_connections.clear()
                 existing.connections = current_record.connections
                 existing.status = "attached" if existing.connections else "detached"
                 existing.last_attached_at = _now() if existing.connections else 0.0
@@ -499,7 +470,6 @@ class WorkspaceRegistry:
                 and current_record.workspace_id != existing.workspace_id
             ):
                 current_record.connections.pop(connection_id, None)
-                current_record.expired_connections.pop(connection_id, None)
                 if not current_record.connections and current_record.status == "draft":
                     self.records.pop(current_record.workspace_id, None)
                     self.context_store.contexts.pop(current_record.workspace_id, None)
@@ -514,19 +484,10 @@ class WorkspaceRegistry:
             raise ValueError("browser connection id is required")
         self._expire_locked()
         connection = record.connection(connection_id)
-        if (
-            record.attachment_policy == WORKSPACE_POLICY_EXCLUSIVE
-            and record.connections
-            and connection is None
-        ):
-            raise ValueError(
-                f"workspace is already in use: {record.name or record.workspace_id}"
-            )
         if connection is None:
             if record.attachment_policy == WORKSPACE_POLICY_EXCLUSIVE:
-                record.expired_connections.clear()
+                record.connections.clear()
             connection = WorkspaceConnection(connection_id, uuid4().hex)
-        record.expired_connections.pop(connection_id, None)
         record.connections[connection_id] = connection
         connection.heartbeat_at = _now()
         record.status = "attached"
@@ -573,12 +534,7 @@ class WorkspaceRegistry:
             token = self._attach_locked(target, connection_id)
             if current is not None and current.workspace_id != target.workspace_id:
                 current.connections.pop(connection_id, None)
-                current.expired_connections.pop(connection_id, None)
-                current.expire_connections(
-                    _now(),
-                    self.lease_seconds,
-                    self.recovery_seconds,
-                )
+                current.expire_connections(_now(), self.lease_seconds)
                 current.updated_at = _now()
             self._save_locked()
             return {
@@ -600,12 +556,7 @@ class WorkspaceRegistry:
                     "workspace is not attached to this browser connection"
                 )
             record.connections.pop(connection_id, None)
-            record.expired_connections.pop(connection_id, None)
-            record.expire_connections(
-                _now(),
-                self.lease_seconds,
-                self.recovery_seconds,
-            )
+            record.expire_connections(_now(), self.lease_seconds)
             record.updated_at = _now()
             self._save_locked()
             return record.payload(self.context_store.get(workspace_id))
@@ -651,7 +602,6 @@ class WorkspaceRegistry:
                         "workspace is not attached to this browser connection"
                     )
             record.connections.clear()
-            record.expired_connections.clear()
             record.status = "closed"
             record.updated_at = _now()
             self._save_locked()
@@ -718,6 +668,33 @@ class WorkspaceRegistry:
                 if record.status != "detached" or record.connections:
                     continue
                 if record.attachment_policy != WORKSPACE_POLICY_EXCLUSIVE:
+                    continue
+                if workflow_id and record.workflow_id != workflow_id:
+                    continue
+                if owner_key and record.owner_key != owner_key:
+                    continue
+                rows.append(record.payload(self.context_store.get(record.workspace_id)))
+            return sorted(
+                rows,
+                key=lambda row: float(row.get("updated_at") or 0.0),
+                reverse=True,
+            )
+
+    def list_attachable(
+        self,
+        *,
+        workflow_id: str = "",
+        owner_key: str = "",
+    ) -> list[dict[str, object]]:
+        with self.lock:
+            self._expire_locked()
+            rows = []
+            for record in self.records.values():
+                if record.status not in {"attached", "detached"}:
+                    continue
+                if record.attachment_policy != WORKSPACE_POLICY_EXCLUSIVE:
+                    continue
+                if not record.project_identity and not record.owner_key:
                     continue
                 if workflow_id and record.workflow_id != workflow_id:
                     continue
