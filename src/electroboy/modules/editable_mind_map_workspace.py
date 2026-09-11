@@ -718,6 +718,11 @@ _PAGE = r"""<!doctype html>
       if (layoutMode === "repack") reflowTree(root);
       else if (layoutMode === "local") resolveLocalOverlaps(root);
     }
+    function layoutPositionSnapshot() {
+      return JSON.stringify(documentState.nodes.map((node) => [
+        node.id, node.x, node.y, node.side,
+      ]));
+    }
     function reflowMovedRootBranch(node) {
       const root = node?.parent_id ? nodeById(node.parent_id) : null;
       if (!root || root.parent_id !== null) return;
@@ -1203,7 +1208,20 @@ _PAGE = r"""<!doctype html>
     }
     function setLayoutMode(mode) {
       if (!["local", "freeform", "repack"].includes(mode)) return;
+      const before = snapshot();
+      const beforeLayout = layoutPositionSnapshot();
       layoutMode = mode;
+      if (mode !== "freeform") {
+        childrenOf(null).forEach((root) => applyLayoutMode(root));
+      }
+      if (layoutPositionSnapshot() !== beforeLayout) {
+        undoStack.push(before);
+        if (undoStack.length > 200) undoStack.shift();
+        redoStack = [];
+        markDirty();
+        render();
+        return;
+      }
       saveView();
       updateControlsAndState();
     }
