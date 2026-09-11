@@ -22,7 +22,8 @@ WORKSPACE_POLICY_SHARED_SINGLETON = "shared-singleton"
 WORKSPACE_POLICIES = frozenset(
     {WORKSPACE_POLICY_EXCLUSIVE, WORKSPACE_POLICY_SHARED_SINGLETON}
 )
-WORKSPACE_LEASE_SECONDS = 20.0
+WORKSPACE_LEASE_SECONDS = 180.0
+WORKSPACE_RECOVERY_SECONDS = 1800.0
 
 
 def _now() -> float:
@@ -116,15 +117,27 @@ class WorkspaceRecord:
         default_factory=dict
     )
 
-    def expire_connections(self, now: float, timeout: float) -> None:
+    def expire_connections(
+        self,
+        now: float,
+        lease_timeout: float,
+        recovery_timeout: float,
+    ) -> None:
         expired = {
             connection_id: connection
             for connection_id, connection in self.connections.items()
-            if now - connection.heartbeat_at > timeout
+            if now - connection.heartbeat_at > lease_timeout
         }
         self.expired_connections.update(expired)
         for connection_id in expired:
             self.connections.pop(connection_id, None)
+        stale = {
+            connection_id
+            for connection_id, connection in self.expired_connections.items()
+            if now - connection.heartbeat_at > recovery_timeout
+        }
+        for connection_id in stale:
+            self.expired_connections.pop(connection_id, None)
         if self.status != "closed" and not self.connections:
             self.status = (
                 "detached" if self.project_identity or self.owner_key else "draft"
@@ -166,6 +179,7 @@ class WorkspaceRecord:
             "status": self.status,
             "attached": bool(self.connections),
             "connection_count": len(self.connections),
+            "recoverable_connection_count": len(self.expired_connections),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "last_attached_at": self.last_attached_at,
@@ -181,11 +195,13 @@ class WorkspaceRegistry:
         context_store: ContextStore,
         *,
         lease_seconds: float = WORKSPACE_LEASE_SECONDS,
+        recovery_seconds: float = WORKSPACE_RECOVERY_SECONDS,
     ) -> None:
         self.state_root = Path(state_root).expanduser().resolve()
         self.context_store = context_store
         self.lock: threading.RLock = context_store.lock
         self.lease_seconds = lease_seconds
+        self.recovery_seconds = recovery_seconds
         self.records: dict[str, WorkspaceRecord] = {}
         self._load()
 
@@ -266,6 +282,7 @@ class WorkspaceRegistry:
         payload = record.payload(context)
         payload.pop("attached", None)
         payload.pop("connection_count", None)
+        payload.pop("recoverable_connection_count", None)
         if context is None:
             return payload
         payload.update(
@@ -310,7 +327,11 @@ class WorkspaceRegistry:
     def _expire_locked(self) -> None:
         now = _now()
         for record in self.records.values():
-            record.expire_connections(now, self.lease_seconds)
+            record.expire_connections(
+                now,
+                self.lease_seconds,
+                self.recovery_seconds,
+            )
 
     def create_draft(
         self,
@@ -553,7 +574,11 @@ class WorkspaceRegistry:
             if current is not None and current.workspace_id != target.workspace_id:
                 current.connections.pop(connection_id, None)
                 current.expired_connections.pop(connection_id, None)
-                current.expire_connections(_now(), self.lease_seconds)
+                current.expire_connections(
+                    _now(),
+                    self.lease_seconds,
+                    self.recovery_seconds,
+                )
                 current.updated_at = _now()
             self._save_locked()
             return {
@@ -576,7 +601,11 @@ class WorkspaceRegistry:
                 )
             record.connections.pop(connection_id, None)
             record.expired_connections.pop(connection_id, None)
-            record.expire_connections(_now(), self.lease_seconds)
+            record.expire_connections(
+                _now(),
+                self.lease_seconds,
+                self.recovery_seconds,
+            )
             record.updated_at = _now()
             self._save_locked()
             return record.payload(self.context_store.get(workspace_id))

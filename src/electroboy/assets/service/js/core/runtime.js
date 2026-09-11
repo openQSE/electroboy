@@ -126,6 +126,7 @@
     const CONTEXT_OWNER_TTL_MS = 15000;
     const CONTEXT_OWNER_HEARTBEAT_MS = 5000;
     const WORKSPACE_HEARTBEAT_MS = 5000;
+    const WORKSPACE_LEASE_GRACE_MS = 180_000;
     const FRONTEND_DEBUG_INTERVAL_MS = 5000;
     const FRONTEND_DEBUG_EVENT_LOOP_INTERVAL_MS = 1000;
     const FRONTEND_DEBUG_PAINT_INTERVAL_MS = 1000;
@@ -1169,7 +1170,7 @@
           type: "timer-gap",
           duration_ms: Math.round(durationMs),
           visibility_state: document.visibilityState || "",
-          exceeded_workspace_lease: durationMs >= 20_000,
+          exceeded_workspace_lease: durationMs >= WORKSPACE_LEASE_GRACE_MS,
         },
         frontendDebugLifecycleDroppedEvents,
       );
@@ -6780,12 +6781,14 @@
           }),
         });
         if (!response.ok || contextId !== recoveringContextId) {
+          bumpFrontendDebugCounter("workspaceRecovery.failed");
           return false;
         }
         const payload = await response.json();
         workspaceLeaseToken = payload.lease_token || workspaceLeaseToken;
         saveWorkspaceLease(workspaceLeaseToken);
         updateProjectState(payload, { workspaceRecovery: true });
+        bumpFrontendDebugCounter("workspaceRecovery.completed");
         return true;
       })();
       try {
@@ -6876,14 +6879,25 @@
     }
 
     async function resumeWorkspaceAttachment() {
-      startSharedPaneSync();
-      scheduleFrontendResumeRecovery();
       if (!contextId || !workspaceLeaseToken) {
+        startSharedPaneSync();
+        scheduleFrontendResumeRecovery();
         return;
       }
-      if (await sendWorkspaceHeartbeat()) {
-        startWorkspaceHeartbeat();
+      let recovered = false;
+      try {
+        recovered = await recoverWorkspaceAttachment();
+      } catch (error) {
+        bumpFrontendDebugCounter("workspaceRecovery.failed");
+        recovered = false;
       }
+      if (recovered || (await sendWorkspaceHeartbeat())) {
+        startWorkspaceHeartbeat();
+        startSharedPaneSync();
+      } else {
+        stopSharedPaneSync();
+      }
+      scheduleFrontendResumeRecovery();
     }
 
     function startWorkspaceHeartbeat() {

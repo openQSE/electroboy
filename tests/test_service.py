@@ -2399,7 +2399,28 @@ class ServiceTests(unittest.TestCase):
             "async function recoverWorkspaceAttachmentAfterHeartbeatFailure()",
             runtime,
         )
-        self.assertIn("startSharedPaneSync();\n      scheduleFrontendResumeRecovery();", runtime)
+        self.assertIn("const WORKSPACE_LEASE_GRACE_MS = 180_000;", runtime)
+        self.assertIn("durationMs >= WORKSPACE_LEASE_GRACE_MS", runtime)
+        self.assertIn(
+            'bumpFrontendDebugCounter("workspaceRecovery.failed");',
+            runtime,
+        )
+        self.assertIn(
+            'bumpFrontendDebugCounter("workspaceRecovery.completed");',
+            runtime,
+        )
+        self.assertIn(
+            "if (recovered || (await sendWorkspaceHeartbeat())) {\n"
+            "        startWorkspaceHeartbeat();\n"
+            "        startSharedPaneSync();",
+            runtime,
+        )
+        self.assertIn(
+            "stopSharedPaneSync();\n"
+            "      }\n"
+            "      scheduleFrontendResumeRecovery();",
+            runtime,
+        )
         self.assertIn("function handleFrontendResume()", runtime)
         self.assertIn("resumeWorkspaceAttachment().catch(() => {});", runtime)
         self.assertIn('window.addEventListener("pageshow", handleFrontendResume);', runtime)

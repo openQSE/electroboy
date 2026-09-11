@@ -511,6 +511,10 @@ class WorkspaceIsolationTests(unittest.TestCase):
             record = state.workspace_registry.require_record(workspace_id)
             self.assertNotIn("tab-a", record.connections)
             self.assertIn("tab-a", record.expired_connections)
+            self.assertEqual(
+                record.payload()["recoverable_connection_count"],
+                1,
+            )
 
             state.workspace_registry.validate(
                 workspace_id,
@@ -526,6 +530,30 @@ class WorkspaceIsolationTests(unittest.TestCase):
         self.assertTrue(renewed["attached"])
         self.assertEqual(renewed["connection_count"], 1)
         self.assertIn("tab-a", record.connections)
+        self.assertNotIn("tab-a", record.expired_connections)
+
+    def test_expired_lease_is_pruned_after_recovery_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            state.workspace_registry.lease_seconds = 0.01
+            state.workspace_registry.recovery_seconds = 0.02
+            created = state.create_context("tab-a", "software")
+            workspace_id = str(created["workspace_id"])
+            lease_token = str(created["lease_token"])
+            time.sleep(0.03)
+
+            state.workspace_registry.list_detached(workflow_id="software")
+            record = state.workspace_registry.require_record(workspace_id)
+
+            with self.assertRaisesRegex(ValueError, "not attached"):
+                state.workspace_registry.validate(
+                    workspace_id,
+                    "tab-a",
+                    lease_token,
+                )
+
+        self.assertEqual(record.payload()["recoverable_connection_count"], 0)
+        self.assertNotIn("tab-a", record.connections)
         self.assertNotIn("tab-a", record.expired_connections)
 
     def test_shared_singleton_accepts_multiple_connections(self) -> None:
