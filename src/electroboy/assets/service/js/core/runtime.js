@@ -3557,6 +3557,25 @@
         return;
       }
       if (
+        message.type === "electroboy:pane-corkboard-document" &&
+        leaf.kind === "corkboard"
+      ) {
+        const action = message.mode === "new" ? "newDocument" : "openDocument";
+        Promise.resolve()
+          .then(() => window.ElectroBoyFrontend.invokeModule(
+            "corkboard",
+            action,
+            { stage: "corkboard" },
+          ))
+          .catch((error) => {
+            appendOutput(
+              `${error.message || "corkboard action failed"}\n`,
+              "error",
+            );
+          });
+        return;
+      }
+      if (
         message.type === "electroboy:pane-pop" &&
         INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)
       ) {

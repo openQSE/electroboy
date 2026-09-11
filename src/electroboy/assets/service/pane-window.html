@@ -2547,6 +2547,21 @@
       }
     }
 
+    function requestPaneCorkboardDocument(mode) {
+      const recipient = window.parent !== window ? window.parent : window.opener;
+      if (!recipient) {
+        throw new Error("corkboard actions require a workspace window");
+      }
+      recipient.postMessage(
+        {
+          type: "electroboy:pane-corkboard-document",
+          paneInstanceId,
+          mode,
+        },
+        window.location.origin,
+      );
+    }
+
     function popOutCurrentArtifact() {
       if (artifactKind === "empty") {
         return;
@@ -5144,8 +5159,12 @@
         }),
         actions: {
           startAgent: startPaneDocumentAgent,
-          open: () => openPaneDocumentFileBrowser("document"),
-          new: () => openPaneDocumentFileBrowser("document-new"),
+          open: () => PANE_KIND === "corkboard"
+            ? requestPaneCorkboardDocument("open")
+            : openPaneDocumentFileBrowser("document"),
+          new: () => PANE_KIND === "corkboard"
+            ? requestPaneCorkboardDocument("new")
+            : openPaneDocumentFileBrowser("document-new"),
           generateCorkboard: generatePaneDocumentCorkboard,
           back: () => navigatePaneDocumentHistory("back"),
           forward: () => navigatePaneDocumentHistory("forward"),

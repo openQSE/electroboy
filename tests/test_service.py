@@ -822,7 +822,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('hiddenActionStages: ["document"]', software)
         self.assertIn("hiddenActionStages.has(stageId)", app)
         self.assertNotIn('if (stageId === "document")', app)
-        self.assertIn('contextUrl("/api/corkboards")', software)
+        self.assertIn(
+            'runtimeApi.modules.invoke("corkboard", "openDocument"',
+            software,
+        )
+        self.assertIn(
+            'runtimeApi.modules.invoke("corkboard", "newDocument"',
+            software,
+        )
+        self.assertNotIn("chooseProjectCorkboard", software)
         self.assertIn('navigation: "stages"', software)
         self.assertIn("function resetSoftwareWorkflowState()", software)
         self.assertIn("deactivate,", software)
@@ -2226,6 +2234,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('provider === "project-files"', runtime)
         self.assertIn("leaf.projectRoot === activeProjectRoot", runtime)
         self.assertIn("assignArtifact: assignArtifactToPane", runtime)
+        self.assertIn('message.type === "electroboy:pane-corkboard-document"', runtime)
+        self.assertIn('"corkboard",\n            action,', runtime)
         self.assertIn("assignPane: assignPaneContent", runtime)
         self.assertIn("assignWorkspacePane: assignWorkspacePaneContent", runtime)
         self.assertIn(
@@ -3484,13 +3494,16 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function updateSelectOptions(select, options", page)
         self.assertIn("function fileSwitcherPlaceholderLabel()", page)
         self.assertIn("function openPaneDocumentFileBrowser(mode)", page)
+        self.assertIn("function requestPaneCorkboardDocument(mode)", page)
         self.assertIn("function paneDocumentBrowserStartPath(projectRoot)", page)
         self.assertIn(
             "path: paneDocumentBrowserStartPath(activeProjectRoot)",
             page,
         )
-        self.assertIn('open: () => openPaneDocumentFileBrowser("document")', page)
-        self.assertIn('new: () => openPaneDocumentFileBrowser("document-new")', page)
+        self.assertIn('? requestPaneCorkboardDocument("open")', page)
+        self.assertIn('? requestPaneCorkboardDocument("new")', page)
+        self.assertIn(': openPaneDocumentFileBrowser("document")', page)
+        self.assertIn(': openPaneDocumentFileBrowser("document-new")', page)
         self.assertIn("close: closePaneDocument", page)
         self.assertIn("function closePaneDocument()", page)
         self.assertIn('postDocumentFileAction("close", target);', page)
@@ -3826,6 +3839,23 @@ class ServiceTests(unittest.TestCase):
             page,
         )
 
+    def test_file_browser_window_html_supports_new_file_mode(self) -> None:
+        page = file_browser_window_html(
+            "~/ORNL",
+            mode="file-new",
+            new_extension=".mindmap.json",
+        )
+
+        self.assertIn('const SELECT_MODE = "file-new";', page)
+        self.assertIn('const NEW_FILE_EXTENSION = ".mindmap.json";', page)
+        self.assertIn("Create or open file", page)
+        self.assertIn("function fileNewTargetPath()", page)
+        self.assertIn("function appendNewFileExtension(path)", page)
+        self.assertIn("Select a file or choose a directory and name.", page)
+        self.assertIn('SELECT_MODE === "file-new"', page)
+        self.assertIn("new-file${NEW_FILE_EXTENSION || \"\"}", page)
+        self.assertIn("appendNewFileExtension(raw)", page)
+
     def test_file_browser_window_html_supports_new_project_mode(self) -> None:
         page = file_browser_window_html("~/ORNL", mode="project-new")
 
@@ -3954,6 +3984,33 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(content_type, "text/html; charset=utf-8")
         self.assertIn('const SELECT_MODE = "document-new";', body)
         self.assertIn("Create or open document", body)
+
+    def test_file_browser_endpoint_serves_new_file_picker_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    "/file-browser?path=%2Ftmp&mode=file-new&"
+                    "new_extension=.mindmap.json",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn('const SELECT_MODE = "file-new";', body)
+        self.assertIn('const NEW_FILE_EXTENSION = ".mindmap.json";', body)
+        self.assertIn("Create or open file", body)
 
     def test_file_browser_endpoint_serves_new_project_picker_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -6886,6 +6943,7 @@ class ServiceTests(unittest.TestCase):
             context_id="workspace-one",
             connection_id="connection-one",
             lease_token="lease-one",
+            project_root="/tmp/project-root",
         )
 
         self.assertEqual(status, HTTPStatus.OK)
@@ -6906,6 +6964,7 @@ class ServiceTests(unittest.TestCase):
             page.replace("&", "&amp;"),
         )
         self.assertIn("electroboy:editable-mind-map", page)
+        self.assertIn('const projectRoot = "/tmp/project-root";', page)
         self.assertIn('.empty[hidden] { display: none; }', page)
         self.assertIn('data-action="color-blue"', page)
         self.assertIn("function resolvedNodeColor(node)", page)
@@ -6935,6 +6994,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(".mind-map-dialog.danger", page)
         self.assertIn("mindMapDialogSubmit.onclick = submit;", page)
         self.assertIn('await chooseFile("document-new")', page)
+        self.assertIn(
+            'await chooseFile("file-new", {',
+            page,
+        )
+        self.assertIn('newExtension: ".mindmap.json"', page)
+        self.assertIn("path: projectRoot || mapDirectory()", page)
+        self.assertIn("function mindMapPathWithExtension(target)", page)
+        self.assertIn('`${requested}.mindmap.json`', page)
         self.assertIn('browseMode: type === "file" ? "link" : ""', page)
         self.assertNotIn("prompt(", page)
         self.assertNotIn("confirm(", page)

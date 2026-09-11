@@ -13,6 +13,7 @@ def render_editable_mind_map_html(
     context_id: str,
     connection_id: str,
     lease_token: str = "",
+    project_root: str = "",
 ) -> tuple[str, HTTPStatus]:
     """Render the document-backed editor without changing provider maps."""
 
@@ -25,8 +26,10 @@ def render_editable_mind_map_html(
     if lease_token:
         request_parameters["lease_token"] = lease_token
     request_context = urlencode(request_parameters)
-    page = _PAGE.replace("__MIND_MAP_DATA__", encoded).replace(
-        "__REQUEST_CONTEXT__", request_context
+    page = (
+        _PAGE.replace("__MIND_MAP_DATA__", encoded)
+        .replace("__REQUEST_CONTEXT__", request_context)
+        .replace("__PROJECT_ROOT__", json.dumps(str(project_root or "")))
     )
     return page, HTTPStatus.OK
 
@@ -260,6 +263,7 @@ _PAGE = r"""<!doctype html>
     "use strict";
     const initial = __MIND_MAP_DATA__;
     let requestContext = "__REQUEST_CONTEXT__";
+    const projectRoot = __PROJECT_ROOT__;
     const canvas = document.getElementById("canvas");
     const viewport = document.getElementById("viewport");
     const nodesLayer = document.getElementById("nodes");
@@ -424,12 +428,18 @@ _PAGE = r"""<!doctype html>
       pending.resolve(value);
     }
 
-    function chooseFile(mode) {
+    function chooseFile(mode, options = {}) {
       if (pendingFilePicker) {
         pendingFilePicker.popup?.focus();
         return Promise.resolve(null);
       }
-      const parameters = new URLSearchParams({ path: mapDirectory(), mode });
+      const parameters = new URLSearchParams({
+        path: options.path || mapDirectory(),
+        mode,
+      });
+      if (options.newExtension) {
+        parameters.set("new_extension", options.newExtension);
+      }
       const popup = window.open(
         `/file-browser?${parameters.toString()}`,
         `electroboy-mind-map-${mode}`,
@@ -446,6 +456,13 @@ _PAGE = r"""<!doctype html>
         }, 300);
         pendingFilePicker = { mode, popup, resolve, timer };
       });
+    }
+    function mindMapPathWithExtension(target) {
+      const requested = String(target || "").trim();
+      if (!requested) return "";
+      return requested.toLowerCase().endsWith(".mindmap.json")
+        ? requested
+        : `${requested}.mindmap.json`;
     }
 
     function nodeById(id) { return documentState.nodes.find((node) => node.id === id); }
@@ -1350,14 +1367,14 @@ _PAGE = r"""<!doctype html>
       window.location.search = `${requestContext}&path=${encodeURIComponent(values.path)}`;
     }
     async function saveAs() {
-      const values = await showDialog({
-        title: "Save Mind Map As",
-        description: "Save a copy at a project-relative or absolute path.",
-        submitLabel: "Save",
-        fields: [{ name: "path", label: "Path", value: path, required: true }],
-      });
-      if (!values || values.path === path) return;
-      const payload = await createAt(values.path, documentState, documentState.title);
+      const target = mindMapPathWithExtension(
+        await chooseFile("file-new", {
+          newExtension: ".mindmap.json",
+          path: projectRoot || mapDirectory(),
+        }),
+      );
+      if (!target || target === path) return;
+      const payload = await createAt(target, documentState, documentState.title);
       window.location.search = `${requestContext}&path=${encodeURIComponent(payload.path)}`;
     }
     async function addLink(type, requestedTarget = "") {

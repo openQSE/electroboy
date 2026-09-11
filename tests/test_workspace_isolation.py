@@ -90,7 +90,7 @@ class WorkspaceIsolationTests(unittest.TestCase):
                 service_index_factory=lambda: "",
                 health_payload_factory=lambda: {},
                 frontend_asset_payload_factory=lambda: [],
-                file_browser_factory=lambda _path, _mode: "",
+                file_browser_factory=lambda _path, _mode, _extension: "",
             ),
         )
 

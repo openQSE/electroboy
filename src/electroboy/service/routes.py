@@ -59,7 +59,7 @@ class RouteOperations:
     service_index_factory: Callable[[], str]
     health_payload_factory: Callable[[], dict[str, object]]
     frontend_asset_payload_factory: Callable[[], list[dict[str, object]]]
-    file_browser_factory: Callable[[str, str], str]
+    file_browser_factory: Callable[[str, str, str], str]
 
     def service_index(self) -> str:
         return self.service_index_factory()
@@ -70,8 +70,13 @@ class RouteOperations:
     def frontend_asset_payload(self) -> list[dict[str, object]]:
         return self.frontend_asset_payload_factory()
 
-    def file_browser_window_html(self, path: str, mode: str) -> str:
-        return self.file_browser_factory(path, mode)
+    def file_browser_window_html(
+        self,
+        path: str,
+        mode: str,
+        new_extension: str = "",
+    ) -> str:
+        return self.file_browser_factory(path, mode, new_extension)
 
 
 @dataclass

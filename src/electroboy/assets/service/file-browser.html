@@ -284,6 +284,7 @@
   <script>
     const INITIAL_PATH = __INITIAL_PATH__;
     const SELECT_MODE = __SELECT_MODE__;
+    const NEW_FILE_EXTENSION = __NEW_FILE_EXTENSION__;
     const SEARCH_PARAMETERS = new URLSearchParams(window.location.search);
     const PROJECT_ACTION = SEARCH_PARAMETERS.get("project_action") || "";
     const SELECTION_CHANNEL = SEARCH_PARAMETERS.get("selection_channel") || "";
@@ -305,19 +306,29 @@
         ? "Insert selected file"
       : SELECT_MODE === "document-new"
         ? "Create or open document"
+      : SELECT_MODE === "file-new"
+        ? "Create or open file"
       : SELECT_MODE === "project-new"
         ? "Create or activate project"
       : SELECT_MODE === "document"
         ? "Open selected document"
       : "Activate";
     newDocumentName.hidden =
-      SELECT_MODE !== "document-new" && SELECT_MODE !== "project-new";
+      SELECT_MODE !== "document-new" &&
+      SELECT_MODE !== "file-new" &&
+      SELECT_MODE !== "project-new";
     newDocumentName.placeholder =
-      SELECT_MODE === "project-new" ? "optional-new-folder" : "new-document.md";
+      SELECT_MODE === "project-new"
+        ? "optional-new-folder"
+        : SELECT_MODE === "file-new"
+          ? `new-file${NEW_FILE_EXTENSION || ""}`
+          : "new-document.md";
     newDocumentName.setAttribute(
       "aria-label",
       SELECT_MODE === "project-new"
         ? "Optional new project folder name"
+        : SELECT_MODE === "file-new"
+          ? "New file name"
         : "New document file name",
     );
 
@@ -552,6 +563,7 @@
         } else if (
           SELECT_MODE === "link" ||
           SELECT_MODE === "document" ||
+          SELECT_MODE === "file-new" ||
           SELECT_MODE === "document-new"
         ) {
           selectCurrentPath();
@@ -603,6 +615,12 @@
           return /\.md$/i.test(selectedPath);
         }
         return selectedType === "directory" && Boolean(documentNewTargetPath());
+      }
+      if (SELECT_MODE === "file-new") {
+        if (selectedType === "file") {
+          return true;
+        }
+        return selectedType === "directory" && Boolean(fileNewTargetPath());
       }
       if (SELECT_MODE === "project-new") {
         return selectedType === "directory";
@@ -677,6 +695,36 @@
       return `${selectedPath.replace(/\/+$/, "")}/${path}`;
     }
 
+    function appendNewFileExtension(path) {
+      if (!NEW_FILE_EXTENSION) {
+        return path;
+      }
+      return path.toLowerCase().endsWith(NEW_FILE_EXTENSION.toLowerCase())
+        ? path
+        : `${path}${NEW_FILE_EXTENSION}`;
+    }
+
+    function fileNewTargetPath() {
+      if (SELECT_MODE !== "file-new") {
+        return "";
+      }
+      if (selectedType === "file") {
+        return appendNewFileExtension(selectedPath);
+      }
+      if (selectedType !== "directory") {
+        return "";
+      }
+      const raw = newDocumentName.value.trim().replace(/\\+/g, "/");
+      if (!raw) {
+        return "";
+      }
+      const path = appendNewFileExtension(raw);
+      if (path.startsWith("/")) {
+        return path;
+      }
+      return `${selectedPath.replace(/\/+$/, "")}/${path}`;
+    }
+
     function projectNewTargetPath() {
       if (SELECT_MODE !== "project-new" || selectedType !== "directory") {
         return "";
@@ -696,6 +744,8 @@
         selectedPathLabel.textContent =
           SELECT_MODE === "link"
             ? "Select a file first."
+          : SELECT_MODE === "file-new"
+            ? "Select a file or choose a directory and name."
           : SELECT_MODE === "document-new"
             ? "Select a Markdown file or choose a directory and name."
           : SELECT_MODE === "project-new"
@@ -708,6 +758,8 @@
       const outputPath =
         SELECT_MODE === "document-new" && selectedType === "directory"
           ? documentNewTargetPath()
+        : SELECT_MODE === "file-new"
+          ? fileNewTargetPath()
         : SELECT_MODE === "project-new" && selectedType === "directory"
           ? projectNewTargetPath()
           : selectedPath;

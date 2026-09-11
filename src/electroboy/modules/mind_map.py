@@ -92,15 +92,18 @@ def _view(request: RouteRequest) -> HtmlResponse:
                 context_id=request.context_id,
                 connection_id=request.connection_id,
                 lease_token=request.lease_token,
+                project_root=str(root),
             )
         elif provider:
             page, status = render_mind_map_html(_load(request), style=_style(request))
         else:
+            root = request.services.contexts.active_project_root(request.context_id)
             page, status = render_editable_mind_map_html(
                 _default_document(request),
                 context_id=request.context_id,
                 connection_id=request.connection_id,
                 lease_token=request.lease_token,
+                project_root=str(root),
             )
     except Exception as error:
         return HtmlResponse(

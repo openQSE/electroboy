@@ -171,18 +171,40 @@ def pane_window_html(
 FILE_BROWSER_WINDOW_HTML = read_service_text_asset("file-browser.html")
 
 
-def file_browser_window_html(initial_path: str, mode: str = "project") -> str:
-    select_mode = (
-        mode
-        if mode in {"link", "document", "document-new", "project-new"}
-        else "project"
+def _new_file_extension(value: str = "") -> str:
+    requested = str(value or "").strip()
+    if not requested:
+        return ""
+    if "/" in requested or "\\" in requested:
+        return ""
+    extension = requested if requested.startswith(".") else f".{requested}"
+    allowed = set(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
     )
+    if len(extension) > 80 or any(
+        character not in allowed for character in extension
+    ):
+        return ""
+    return extension
+
+
+def file_browser_window_html(
+    initial_path: str,
+    mode: str = "project",
+    new_extension: str = "",
+) -> str:
+    valid_modes = {"link", "document", "document-new", "file-new", "project-new"}
+    select_mode = mode if mode in valid_modes else "project"
     return (
         FILE_BROWSER_WINDOW_HTML.replace(
             "__INITIAL_PATH__",
             json.dumps(initial_path),
         )
         .replace("__SELECT_MODE__", json.dumps(select_mode))
+        .replace(
+            "__NEW_FILE_EXTENSION__",
+            json.dumps(_new_file_extension(new_extension)),
+        )
     )
 
 

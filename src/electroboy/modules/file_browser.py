@@ -22,8 +22,13 @@ def _window(request: RouteRequest) -> HtmlResponse:
         or [str(request.services.files.service_root)]
     )[0]
     mode = (request.params.get("mode") or ["project"])[0]
+    new_extension = (request.params.get("new_extension") or [""])[0]
     return HtmlResponse(
-        request.operations.file_browser_window_html(initial_path, mode)
+        request.operations.file_browser_window_html(
+            initial_path,
+            mode,
+            new_extension,
+        )
     )
 
 
