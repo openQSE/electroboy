@@ -35,20 +35,30 @@ class ProjectCorkboardProvider:
     def __init__(self, services: ServiceServices) -> None:
         self.services = services
 
-    def _relative_board_path(self, board_id: str) -> str:
+    def _relative_board_path(self, root: Path, board_id: str) -> str:
         raw = board_id.strip().replace("\\", "/")
-        prefix = PROJECT_CORKBOARD_DIRECTORY.as_posix()
-        if raw.startswith(f"{prefix}/"):
+        if not raw:
+            raise StateError("invalid project corkboard id")
+        requested = Path(raw).expanduser()
+        if requested.is_absolute():
+            try:
+                candidate = requested.resolve().relative_to(root.resolve())
+            except ValueError as error:
+                raise StateError("path cannot escape the project") from error
+        elif "/" in raw or raw.endswith(CREATIVE_CORKBOARD_SUFFIX):
             candidate = Path(raw)
         else:
             name = raw.removesuffix(CREATIVE_CORKBOARD_SUFFIX)
             candidate = PROJECT_CORKBOARD_DIRECTORY / (
                 f"{_board_slug(name)}{CREATIVE_CORKBOARD_SUFFIX}"
             )
+        if not candidate.name.endswith(CREATIVE_CORKBOARD_SUFFIX):
+            candidate = Path(
+                f"{candidate.as_posix()}{CREATIVE_CORKBOARD_SUFFIX}"
+            )
         if (
             candidate.is_absolute()
             or any(part in {"", ".."} for part in candidate.parts)
-            or candidate.parent != PROJECT_CORKBOARD_DIRECTORY
             or not candidate.name.endswith(CREATIVE_CORKBOARD_SUFFIX)
         ):
             raise StateError("invalid project corkboard id")
@@ -61,11 +71,12 @@ class ProjectCorkboardProvider:
         connection_id: str = "",
     ) -> list[dict[str, object]]:
         root = self.services.contexts.active_project_root(context_id)
-        directory = root / PROJECT_CORKBOARD_DIRECTORY
-        if not directory.is_dir():
-            return []
         boards: list[dict[str, object]] = []
-        for path in sorted(directory.glob(f"*{CREATIVE_CORKBOARD_SUFFIX}")):
+        for path in sorted(root.rglob(f"*{CREATIVE_CORKBOARD_SUFFIX}")):
+            if not path.is_file():
+                continue
+            if path.relative_to(root).parts[:2] == (".electroboy", "trash"):
+                continue
             board_id = path.relative_to(root).as_posix()
             snapshot = self.get_board(
                 context_id,
@@ -90,7 +101,7 @@ class ProjectCorkboardProvider:
         connection_id: str = "",
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
-        normalized_id = self._relative_board_path(board_id)
+        normalized_id = self._relative_board_path(root, board_id)
         payload = _creative_corkboard_payload(
             root,
             normalized_id,
@@ -124,7 +135,10 @@ class ProjectCorkboardProvider:
         connection_id: str = "",
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
-        board_id = self._relative_board_path(str(payload.get("board_id") or ""))
+        board_id = self._relative_board_path(
+            root,
+            str(payload.get("board_id") or ""),
+        )
         action = str(payload.get("action") or "").strip()
         operation: dict[str, object] = {
             "board_type": "freeform",
@@ -161,7 +175,7 @@ class ProjectCorkboardProvider:
         connection_id: str = "",
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
-        normalized_id = self._relative_board_path(board_id or title or "")
+        normalized_id = self._relative_board_path(root, board_id or title or "")
         path = _create_creative_corkboard(root, normalized_id, title=title)
         return {
             "status": "created",
@@ -183,7 +197,7 @@ class ProjectCorkboardProvider:
         connection_id: str = "",
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
-        normalized_id = self._relative_board_path(board_id or title)
+        normalized_id = self._relative_board_path(root, board_id or title)
         path = create_generated_creative_corkboard(
             root,
             normalized_id,
@@ -208,7 +222,7 @@ class ProjectCorkboardProvider:
     ) -> dict[str, object]:
         root = self.services.contexts.active_project_root(context_id)
         normalized_ids = [
-            self._relative_board_path(board_id) for board_id in board_ids
+            self._relative_board_path(root, board_id) for board_id in board_ids
         ]
         return trash_corkboard_documents(
             root,

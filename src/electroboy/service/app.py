@@ -193,7 +193,14 @@ def file_browser_window_html(
     mode: str = "project",
     new_extension: str = "",
 ) -> str:
-    valid_modes = {"link", "document", "document-new", "file-new", "project-new"}
+    valid_modes = {
+        "link",
+        "document",
+        "document-new",
+        "file-open",
+        "file-new",
+        "project-new",
+    }
     select_mode = mode if mode in valid_modes else "project"
     return (
         FILE_BROWSER_WINDOW_HTML.replace(

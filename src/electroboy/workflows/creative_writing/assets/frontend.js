@@ -539,7 +539,6 @@
     const openCorkboard = (mode) => {
       const action = mode === "new" ? "newDocument" : "openDocument";
       runtime.modules.invoke("corkboard", action, {
-        directory: "corkboard",
         show: false,
         suffix: CREATIVE_CORKBOARD_SUFFIX,
       }).then((board) => {

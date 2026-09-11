@@ -8,6 +8,9 @@
   let generationContextId = "";
   let publishedGenerationSignature = "";
   let completedGenerationJobId = "";
+  let pendingFilePicker = null;
+  let filePickerSequence = 0;
+  const CORKBOARD_SUFFIX = ".corkboard.json";
 
   function contextUrl(runtime, path) {
     return runtime.http.contextUrl(path);
@@ -65,157 +68,122 @@
     return Array.isArray(payload.boards) ? payload.boards : [];
   }
 
-  function picker() {
-    let dialog = document.getElementById("corkboardDocumentPicker");
-    if (dialog) {
-      return dialog;
-    }
-    dialog = document.createElement("dialog");
-    dialog.id = "corkboardDocumentPicker";
-    dialog.className = "ad-hoc-session-dialog corkboard-picker-dialog";
-    dialog.innerHTML = `
-      <form method="dialog" class="ad-hoc-session-form">
-        <header class="ad-hoc-session-header">
-          <div><h2 class="corkboard-picker-title">Corkboard</h2>
-            <p class="corkboard-picker-description"></p></div>
-          <button class="ad-hoc-session-close" type="button"
-                  aria-label="Close">&times;</button>
-        </header>
-        <fieldset class="ad-hoc-session-options corkboard-picker-existing">
-          <legend>Corkboards</legend>
-          <div class="ad-hoc-session-list corkboard-picker-list"></div>
-        </fieldset>
-        <label class="ad-hoc-session-custom corkboard-picker-new">Name
-          <input class="ad-hoc-session-uuid corkboard-picker-name"
-                 maxlength="200" autocomplete="off"></label>
-        <p class="ad-hoc-session-error corkboard-picker-error" hidden></p>
-        <footer class="ad-hoc-session-footer">
-          <button class="corkboard-picker-cancel" type="button">Cancel</button>
-          <button class="ad-hoc-session-submit corkboard-picker-submit"
-                  type="submit">Open</button>
-        </footer>
-      </form>`;
-    document.body.append(dialog);
-    return dialog;
+  function projectRoot(runtime) {
+    const state = runtime.getState ? runtime.getState() : {};
+    return String(
+      state.activeProjectRoot || state.activationRoot || state.serviceRoot || ".",
+    );
   }
 
-  async function choose(runtime, mode) {
-    const dialog = picker();
-    const creating = mode === "new";
-    const existing = dialog.querySelector(".corkboard-picker-existing");
-    const list = dialog.querySelector(".corkboard-picker-list");
-    const nameLabel = dialog.querySelector(".corkboard-picker-new");
-    const name = dialog.querySelector(".corkboard-picker-name");
-    const error = dialog.querySelector(".corkboard-picker-error");
-    const submit = dialog.querySelector(".corkboard-picker-submit");
-    dialog.querySelector(".corkboard-picker-title").textContent = creating
-      ? "New Corkboard"
-      : "Open Corkboard";
-    dialog.querySelector(".corkboard-picker-description").textContent = creating
-      ? "Create a project corkboard."
-      : "Choose a project corkboard.";
-    existing.hidden = creating;
-    nameLabel.hidden = !creating;
-    error.hidden = true;
-    name.value = "";
-    list.replaceChildren();
-    submit.disabled = false;
-    submit.textContent = creating ? "Create" : "Open";
-    const available = creating ? [] : await boards(runtime);
-    if (!creating && available.length === 0) {
-      list.textContent = "No corkboards yet.";
-      submit.disabled = true;
+  function corkboardSuffix(options = {}) {
+    return String(options.suffix || CORKBOARD_SUFFIX);
+  }
+
+  function withCorkboardSuffix(path, options = {}) {
+    const suffix = corkboardSuffix(options);
+    const requested = String(path || "").trim();
+    if (!requested || !suffix) {
+      return requested;
     }
-    available.forEach((entry, index) => {
-      const option = document.createElement("label");
-      option.className = "ad-hoc-session-option";
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = "corkboard-document";
-      input.value = String(index);
-      input.checked = index === 0;
-      const copy = document.createElement("span");
-      copy.className = "ad-hoc-session-option-copy";
-      const title = document.createElement("strong");
-      title.textContent = String(entry.title || entry.board_id || "Corkboard");
-      const details = document.createElement("span");
-      details.className = "ad-hoc-session-details";
-      details.textContent = String(entry.board_id || "");
-      copy.append(title, details);
-      option.append(input, copy);
-      option.dataset.board = JSON.stringify(entry);
-      list.append(option);
+    return requested.toLowerCase().endsWith(suffix.toLowerCase())
+      ? requested
+      : `${requested}${suffix}`;
+  }
+
+  function projectRelativePath(runtime, target) {
+    const requested = String(target || "").trim().replace(/\\+/g, "/");
+    const root = projectRoot(runtime).replace(/\\+/g, "/").replace(/\/+$/, "");
+    if (!requested || !root) {
+      return requested;
+    }
+    if (requested === root) {
+      return "";
+    }
+    if (requested.startsWith(`${root}/`)) {
+      return requested.slice(root.length + 1);
+    }
+    return requested;
+  }
+
+  function boardBasename(path) {
+    const normalized = String(path || "").replace(/\\+/g, "/").replace(/\/+$/, "");
+    return normalized.split("/").pop() || normalized || "Corkboard";
+  }
+
+  function titleFromBoardPath(path, options = {}) {
+    const suffix = corkboardSuffix(options);
+    const name = boardBasename(path);
+    return suffix && name.toLowerCase().endsWith(suffix.toLowerCase())
+      ? name.slice(0, -suffix.length)
+      : name;
+  }
+
+  function finishFilePicker(value) {
+    if (!pendingFilePicker) return;
+    const pending = pendingFilePicker;
+    pendingFilePicker = null;
+    window.clearInterval(pending.timer);
+    window.removeEventListener("message", pending.listener);
+    pending.resolve(value);
+  }
+
+  function chooseFile(runtime, mode, options = {}) {
+    if (pendingFilePicker) {
+      pendingFilePicker.popup?.focus();
+      return Promise.resolve(null);
+    }
+    const browserMode = mode === "new" ? "file-new" : "file-open";
+    const selectionChannel = `corkboard-${Date.now()}-${++filePickerSequence}`;
+    const parameters = new URLSearchParams({
+      path: projectRoot(runtime),
+      mode: browserMode,
+      selection_channel: selectionChannel,
     });
+    const suffix = corkboardSuffix(options);
+    if (suffix) {
+      parameters.set("new_extension", suffix);
+    }
+    const popup = window.open(
+      `/file-browser?${parameters.toString()}`,
+      `electroboy-${selectionChannel}`,
+      "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,"
+        + "status=no,scrollbars=yes,resizable=yes",
+    );
+    if (!popup) {
+      return Promise.resolve(null);
+    }
     return new Promise((resolve) => {
-      let finished = false;
-      const finish = (value) => {
-        if (finished) {
-          return;
+      const listener = (event) => {
+        if (event.origin !== window.location.origin) return;
+        const data = event.data || {};
+        if (
+          data.type === "electroboy-file-browser-select"
+          && data.selection_channel === selectionChannel
+          && event.source === popup
+        ) {
+          finishFilePicker(String(data.path || "").trim() || null);
         }
-        finished = true;
-        dialog.close();
-        resolve(value);
       };
-      dialog.querySelector(".ad-hoc-session-close").onclick = () => finish(null);
-      dialog.querySelector(".corkboard-picker-cancel").onclick = () => finish(null);
-      dialog.oncancel = (event) => {
-        event.preventDefault();
-        finish(null);
-      };
-      dialog.querySelector("form").onsubmit = (event) => {
-        event.preventDefault();
-        if (creating) {
-          const title = name.value.trim();
-          if (!title) {
-            error.textContent = "Enter a name.";
-            error.hidden = false;
-            name.focus();
-            return;
-          }
-          finish({ title });
-          return;
-        }
-        const selected = list.querySelector(
-          'input[name="corkboard-document"]:checked',
-        );
-        const option = selected
-          ? selected.closest(".ad-hoc-session-option")
-          : null;
-        finish(option ? JSON.parse(option.dataset.board) : null);
-      };
-      dialog.showModal();
-      if (creating) {
-        name.focus();
-      }
+      const timer = window.setInterval(() => {
+        if (popup.closed) finishFilePicker(null);
+      }, 300);
+      pendingFilePicker = { listener, mode: browserMode, popup, resolve, timer };
+      window.addEventListener("message", listener);
     });
-  }
-
-  function newBoardId(title, existing, options = {}) {
-    const suffix = String(options.suffix || "");
-    if (!suffix) {
-      return title;
-    }
-    const directory = String(options.directory || "")
-      .trim()
-      .replace(/^\/+|\/+$/g, "");
-    const stem = String(title || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "board";
-    const prefix = directory ? `${directory}/` : "";
-    const used = new Set(existing.map((entry) => String(entry.board_id || "")));
-    let candidate = `${prefix}${stem}${suffix}`;
-    let index = 2;
-    while (used.has(candidate)) {
-      candidate = `${prefix}${stem}-${index}${suffix}`;
-      index += 1;
-    }
-    return candidate;
   }
 
   async function openDocument(runtime, options = {}) {
-    const selected = await choose(runtime, "open");
+    const target = await chooseFile(runtime, "open", options);
+    if (!target) {
+      return null;
+    }
+    const boardId = projectRelativePath(runtime, target);
+    const selected = {
+      board_id: boardId,
+      id: boardId,
+      provider: options.provider || "",
+      title: titleFromBoardPath(boardId, options),
+    };
     if (selected && options.show !== false) {
       show(runtime, selected, options);
     }
@@ -223,16 +191,19 @@
   }
 
   async function newDocument(runtime, options = {}) {
-    const choice = await choose(runtime, "new");
-    if (!choice) {
+    const target = await chooseFile(runtime, "new", options);
+    if (!target) {
       return null;
     }
-    const existing = await boards(runtime);
-    const boardId = newBoardId(choice.title, existing, options);
+    const boardId = projectRelativePath(
+      runtime,
+      withCorkboardSuffix(target, options),
+    );
+    const title = options.title || titleFromBoardPath(boardId, options);
     const response = await fetch(contextUrl(runtime, "/api/corkboards"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ board_id: boardId, title: choice.title }),
+      body: JSON.stringify({ board_id: boardId, title }),
     });
     const payload = await response.json().catch(() => ({
       error: "corkboard creation failed",
@@ -243,7 +214,7 @@
     const created = {
       ...payload,
       board_id: payload.board_id || payload.path || boardId,
-      title: payload.title || choice.title,
+      title: payload.title || title,
     };
     if (options.show !== false) {
       show(runtime, created, options);

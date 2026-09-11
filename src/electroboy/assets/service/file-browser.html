@@ -306,6 +306,8 @@
         ? "Insert selected file"
       : SELECT_MODE === "document-new"
         ? "Create or open document"
+      : SELECT_MODE === "file-open"
+        ? "Open selected file"
       : SELECT_MODE === "file-new"
         ? "Create or open file"
       : SELECT_MODE === "project-new"
@@ -563,6 +565,7 @@
         } else if (
           SELECT_MODE === "link" ||
           SELECT_MODE === "document" ||
+          SELECT_MODE === "file-open" ||
           SELECT_MODE === "file-new" ||
           SELECT_MODE === "document-new"
         ) {
@@ -609,6 +612,12 @@
       }
       if (SELECT_MODE === "document") {
         return selectedType === "file" && /\.md$/i.test(selectedPath);
+      }
+      if (SELECT_MODE === "file-open") {
+        return selectedType === "file" && (
+          !NEW_FILE_EXTENSION ||
+          selectedPath.toLowerCase().endsWith(NEW_FILE_EXTENSION.toLowerCase())
+        );
       }
       if (SELECT_MODE === "document-new") {
         if (selectedType === "file") {
@@ -744,6 +753,10 @@
         selectedPathLabel.textContent =
           SELECT_MODE === "link"
             ? "Select a file first."
+          : SELECT_MODE === "file-open"
+            ? NEW_FILE_EXTENSION
+              ? `Select a ${NEW_FILE_EXTENSION} file first.`
+              : "Select a file first."
           : SELECT_MODE === "file-new"
             ? "Select a file or choose a directory and name."
           : SELECT_MODE === "document-new"

@@ -114,6 +114,9 @@
     if (data.type !== "electroboy-file-browser-select" || !data.path) {
       return false;
     }
+    if (data.selection_channel) {
+      return false;
+    }
     const current = state();
     if (data.mode === "link") {
       runtimeApi.ui.insertTextAtCursor(data.path);

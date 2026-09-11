@@ -933,10 +933,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function publishGenerationJob(runtime, job", corkboard)
         self.assertIn('"progress", "renderBackgroundTask", job', corkboard)
         self.assertIn('"electroboy-corkboard-generation-progress"', corkboard)
-        self.assertIn(
-            'className = "ad-hoc-session-dialog corkboard-picker-dialog"',
-            corkboard,
-        )
+        self.assertIn("function chooseFile(runtime, mode, options = {})", corkboard)
+        self.assertIn('mode === "new" ? "file-new" : "file-open"', corkboard)
+        self.assertIn("path: projectRoot(runtime),", corkboard)
+        self.assertIn('parameters.set("new_extension", suffix);', corkboard)
+        self.assertIn("function projectRelativePath(runtime, target)", corkboard)
+        self.assertNotIn('id = "corkboardDocumentPicker"', corkboard)
         self.assertIn("function generationTask(job = generationJob)", corkboard)
         self.assertIn("syncGeneration,", corkboard)
         self.assertIn("run: deleteProjectCorkboards", software)
@@ -3856,6 +3858,23 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("new-file${NEW_FILE_EXTENSION || \"\"}", page)
         self.assertIn("appendNewFileExtension(raw)", page)
 
+    def test_file_browser_window_html_supports_file_open_mode(self) -> None:
+        page = file_browser_window_html(
+            "~/ORNL",
+            mode="file-open",
+            new_extension=".corkboard.json",
+        )
+
+        self.assertIn('const SELECT_MODE = "file-open";', page)
+        self.assertIn('const NEW_FILE_EXTENSION = ".corkboard.json";', page)
+        self.assertIn("Open selected file", page)
+        self.assertIn('SELECT_MODE === "file-open"', page)
+        self.assertIn("Select a ${NEW_FILE_EXTENSION} file first.", page)
+        self.assertIn(
+            "selectedPath.toLowerCase().endsWith(NEW_FILE_EXTENSION.toLowerCase())",
+            page,
+        )
+
     def test_file_browser_window_html_supports_new_project_mode(self) -> None:
         page = file_browser_window_html("~/ORNL", mode="project-new")
 
@@ -4011,6 +4030,33 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('const SELECT_MODE = "file-new";', body)
         self.assertIn('const NEW_FILE_EXTENSION = ".mindmap.json";', body)
         self.assertIn("Create or open file", body)
+
+    def test_file_browser_endpoint_serves_file_open_picker_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                server = create_server(root, port=0)
+            except PermissionError as error:
+                self.skipTest(f"local socket creation is not permitted: {error}")
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            try:
+                status, body, content_type = request(
+                    server,
+                    "/file-browser?path=%2Ftmp&mode=file-open&"
+                    "new_extension=.corkboard.json",
+                )
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn('const SELECT_MODE = "file-open";', body)
+        self.assertIn('const NEW_FILE_EXTENSION = ".corkboard.json";', body)
+        self.assertIn("Open selected file", body)
 
     def test_file_browser_endpoint_serves_new_project_picker_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -6188,6 +6234,16 @@ class ServiceTests(unittest.TestCase):
                 "Release tasks",
                 title="Release tasks",
             )
+            picker_created = provider.create_board(
+                context_id,
+                str(project_root / "release-plan.corkboard.json"),
+                title="Release plan",
+            )
+            nested_created = provider.create_board(
+                context_id,
+                "planning/iteration",
+                title="Iteration board",
+            )
             saved = provider.apply_operation(
                 context_id,
                 {
@@ -6213,9 +6269,23 @@ class ServiceTests(unittest.TestCase):
             )
             boards = provider.list_boards(context_id)
             snapshot = provider.get_board(context_id, created["board_id"])
+            picker_snapshot = provider.get_board(
+                context_id,
+                picker_created["board_id"],
+            )
+            picker_file_created = (
+                project_root / "release-plan.corkboard.json"
+            ).is_file()
+            nested_file_created = (
+                project_root / "planning" / "iteration.corkboard.json"
+            ).is_file()
             deleted_boards = provider.delete_boards(
                 context_id,
-                [created["board_id"]],
+                [
+                    created["board_id"],
+                    picker_created["board_id"],
+                    nested_created["board_id"],
+                ],
             )
             remaining_boards = provider.list_boards(context_id)
             project_trash_item_exists = (
@@ -6231,8 +6301,26 @@ class ServiceTests(unittest.TestCase):
             created["board_id"],
             ".electroboy/shared/corkboards/release-tasks.corkboard.json",
         )
-        self.assertEqual(boards[0]["title"], "Release tasks")
+        self.assertEqual(
+            picker_created["board_id"],
+            "release-plan.corkboard.json",
+        )
+        self.assertEqual(
+            nested_created["board_id"],
+            "planning/iteration.corkboard.json",
+        )
+        self.assertTrue(picker_file_created)
+        self.assertTrue(nested_file_created)
+        self.assertEqual(
+            sorted(board["board_id"] for board in boards),
+            [
+                ".electroboy/shared/corkboards/release-tasks.corkboard.json",
+                "planning/iteration.corkboard.json",
+                "release-plan.corkboard.json",
+            ],
+        )
         self.assertEqual(snapshot["provider"], "project-files")
+        self.assertEqual(picker_snapshot["title"], "Release plan")
         self.assertEqual(snapshot["board_type"], "freeform")
         self.assertNotIn("group-card", snapshot["capabilities"])
         self.assertEqual(saved["card"]["id"], "verify-package")
