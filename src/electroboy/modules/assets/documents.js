@@ -965,7 +965,7 @@
       applyStoredArtifactPaneSize();
       renderArtifactPreviewItems();
       applyOutputPaneVisibility();
-      runtimeApi.layout.assignArtifact(nextItems[0]);
+      runtimeApi.layout.assignArtifact(nextItems[0], options.requestedLeafId || "");
       connectArtifactEvents();
     }
 

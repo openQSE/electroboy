@@ -1044,7 +1044,7 @@
       { id: "agent", label: "AI Agent" },
       { id: "progress", label: "Progress", singleton: true },
       { id: "artifact", label: "File" },
-      { id: "corkboard", label: "Corkboard", singleton: true },
+      { id: "corkboard", label: "Corkboard" },
       { id: "agenda", label: "Agenda" },
       { id: "assignments", label: "Assignments" },
       { id: "calendar", label: "Calendar" },
@@ -1107,6 +1107,7 @@
     let artifactMindMapStyle = params.get("mind_map_style") ||
       params.get("style") || "";
     let artifactMindMapPath = params.get("mind_map_path") || "";
+    let artifactMindMapTitle = params.get("mind_map_title") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const AGENT_INPUT_HEIGHT_STORAGE_KEY = "electroboy.paneAgentInputHeight";
@@ -2167,6 +2168,172 @@
       }
     }
 
+    function contentCatalogPaneKind() {
+      if (PANE_KIND === "artifact") {
+        return "document";
+      }
+      if (PANE_KIND === "corkboard") {
+        return "corkboard";
+      }
+      if (PANE_KIND === "mind-map") {
+        return "mind-map";
+      }
+      return "";
+    }
+
+    function contentCatalogSyncName() {
+      const kind = contentCatalogPaneKind();
+      return kind ? `${kind}-catalog` : "";
+    }
+
+    function contentTargetKey(target) {
+      if (!target || typeof target !== "object") {
+        return "";
+      }
+      return String(target.path || target.id || target.provider || "").trim();
+    }
+
+    function contentTargetLabel(target) {
+      return String(target?.label || target?.title || contentTargetKey(target));
+    }
+
+    function contentTargetMatchesPane(target) {
+      const kind = String(target?.kind || contentCatalogPaneKind());
+      const catalogKind = contentCatalogPaneKind();
+      if (catalogKind === "document") {
+        return kind === "document";
+      }
+      if (catalogKind === "corkboard") {
+        return kind === "corkboard" || kind === "creative-corkboard";
+      }
+      if (catalogKind === "mind-map") {
+        return kind === "mind-map";
+      }
+      return false;
+    }
+
+    function normalizeContentTarget(target, fallbackKind = contentCatalogPaneKind()) {
+      if (!target || typeof target !== "object") {
+        return null;
+      }
+      const kind = String(target.kind || fallbackKind || "").trim();
+      const path = contentTargetKey(target);
+      if (!kind || !path || !contentTargetMatchesPane({ ...target, kind })) {
+        return null;
+      }
+      const normalized = {
+        kind,
+        path,
+        label: contentTargetLabel(target),
+      };
+      if (target.provider) {
+        normalized.provider = String(target.provider);
+      }
+      if (target.style) {
+        normalized.style = String(target.style);
+      }
+      return normalized;
+    }
+
+    function currentContentTarget() {
+      if (artifactKind === "document" && artifactDocumentPath) {
+        return {
+          kind: "document",
+          path: artifactDocumentPath,
+          label: artifactDocumentTitle || artifactDocumentPath,
+        };
+      }
+      if (
+        (artifactKind === "corkboard" || artifactKind === "creative-corkboard") &&
+        artifactCorkboardId
+      ) {
+        return {
+          kind: artifactKind,
+          path: artifactCorkboardId,
+          label: artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId,
+          provider: artifactCorkboardProvider,
+        };
+      }
+      if (
+        artifactKind === "mind-map" &&
+        artifactMindMapPath
+      ) {
+        return {
+          kind: "mind-map",
+          path: artifactMindMapPath,
+          label: artifactMindMapTitle || artifactMindMapPath || "Mind Map",
+          provider: artifactMindMapProvider,
+          style: artifactMindMapStyle,
+        };
+      }
+      return null;
+    }
+
+    function rememberContentTarget(target, options = {}) {
+      const storedTarget = normalizeContentTarget(target);
+      if (!storedTarget) {
+        return null;
+      }
+      const existingIndex = openFileTargets.findIndex(
+        (item) => contentTargetKey(item) === contentTargetKey(storedTarget),
+      );
+      if (existingIndex >= 0) {
+        openFileTargets.splice(existingIndex, 1, storedTarget);
+      } else {
+        openFileTargets.push(storedTarget);
+      }
+      if (options.publish !== false) {
+        contentCatalogSync?.publish({ files: openFileTargets });
+      }
+      return storedTarget;
+    }
+
+    function itemForContentTarget(target) {
+      const current = normalizeContentTarget(target);
+      if (!current) {
+        return null;
+      }
+      if (current.kind === "document") {
+        return {
+          id: `document:${current.path}`,
+          kind: "document",
+          title: current.label,
+          target: {
+            path: current.path,
+            label: current.label,
+          },
+        };
+      }
+      if (current.kind === "corkboard" || current.kind === "creative-corkboard") {
+        return {
+          id: `corkboard-${current.provider || "active"}-${current.path}`,
+          kind: current.kind,
+          title: current.label,
+          board: {
+            id: current.path,
+            label: current.label,
+            provider: current.provider || "",
+          },
+        };
+      }
+      if (current.kind === "mind-map") {
+        return {
+          id: `mind-map-document-${current.path}`,
+          kind: "mind-map",
+          title: current.label,
+          editing: true,
+          mindMap: {
+            path: current.path,
+            label: current.label,
+            provider: current.provider || "",
+            style: current.style || artifactMindMapStyle,
+            editable: true,
+          },
+        };
+      }
+      return null;
+    }
+
     function renderFileSwitcher() {
       const placeholderLabel = fileSwitcherPlaceholderLabel();
       const options = [{
@@ -2177,37 +2344,45 @@
         options[0].label = placeholderLabel;
       }
       const files = [...openFileTargets];
+      const currentTarget = currentContentTarget();
+      const currentKey = contentTargetKey(currentTarget);
       if (
-        artifactKind === "document"
-        && artifactDocumentPath
-        && !files.some((file) => file.path === artifactDocumentPath)
+        currentTarget
+        && !files.some((file) => contentTargetKey(file) === currentKey)
       ) {
-        files.unshift({
-          path: artifactDocumentPath,
-          label: artifactDocumentTitle || artifactDocumentPath,
-        });
+        files.unshift(currentTarget);
       }
       if (files.length === 0) {
         if (!placeholderLabel) {
-          options[0].label = "No open files";
+          options[0].label =
+            PANE_KIND === "corkboard" ? "No open corkboards" :
+            PANE_KIND === "mind-map" ? "No open mind maps" : "No open files";
         }
         updateSelectOptions(contentSwitcher, options, "", true);
         return;
       }
       files.forEach((file) => {
         options.push({
-          value: file.path,
-          label: file.label || file.path,
+          value: contentTargetKey(file),
+          label: contentTargetLabel(file),
         });
       });
       updateSelectOptions(
         contentSwitcher,
         options,
-        artifactKind === "document" ? artifactDocumentPath : "",
+        currentKey,
         false,
       );
-      if (artifactKind === "document" && files.length > 0 && !contentSwitcher.value) {
-        selectFileTarget(files[0]);
+      if (
+        (
+          artifactKind === "document" ||
+          artifactKind === "mind-map" ||
+          (artifactKind === "empty" && contentCatalogPaneKind() !== "document")
+        ) &&
+        files.length > 0 &&
+        !contentSwitcher.value
+      ) {
+        selectContentTarget(files[0]);
       }
     }
 
@@ -2223,15 +2398,34 @@
         return "Calendar";
       }
       if (artifactKind === "mind-map") {
-        return "Mind Map";
+        return artifactMindMapTitle || artifactMindMapPath || "Mind Map";
       }
       if (artifactKind === "requirements") {
         return "Requirements";
       }
       if (artifactKind === "empty") {
-        return PANE_KIND === "corkboard" ? "No corkboard open" : "No file open";
+        return PANE_KIND === "corkboard" ? "No corkboard open" :
+          PANE_KIND === "mind-map" ? "No mind map open" : "No file open";
       }
       return "";
+    }
+
+    function selectContentTarget(target, navigationLocation = null) {
+      const normalizedTarget = normalizeContentTarget(target);
+      if (!normalizedTarget) {
+        return;
+      }
+      if (normalizedTarget.kind !== "document") {
+        const item = itemForContentTarget(normalizedTarget);
+        if (!item) {
+          return;
+        }
+        rememberContentTarget(normalizedTarget);
+        applyArtifactItem(item);
+        notifyPaneArtifactChange(item);
+        return;
+      }
+      selectFileTarget(normalizedTarget, navigationLocation);
     }
 
     function selectFileTarget(target, navigationLocation = null) {
@@ -2241,18 +2435,11 @@
       const normalizedLocation = window.ElectroBoyDocumentNavigation.location(
         navigationLocation,
       );
-      const existingIndex = openFileTargets.findIndex(
-        (file) => file.path === target.path,
-      );
-      const storedTarget = {
+      const storedTarget = rememberContentTarget({
+        kind: "document",
         path: target.path,
         label: target.label || target.path,
-      };
-      if (existingIndex >= 0) {
-        openFileTargets.splice(existingIndex, 1, storedTarget);
-      } else {
-        openFileTargets.push(storedTarget);
-      }
+      }, { publish: false });
       artifactKind = "document";
       artifactDocumentPath = target.path;
       artifactDocumentTitle = target.label || target.path;
@@ -2729,18 +2916,24 @@
         );
         return;
       }
-      if (PANE_KIND === "artifact") {
+      if (
+        PANE_KIND === "artifact" ||
+        PANE_KIND === "corkboard" ||
+        PANE_KIND === "mind-map"
+      ) {
         paneContentControl.hidden = false;
-        paneContentLabel.textContent = "File";
-        if (artifactKind === "document" && artifactDocumentPath) {
-          openFileTargets = [{
-            path: artifactDocumentPath,
-            label: artifactDocumentTitle || artifactDocumentPath,
-          }];
+        paneContentLabel.textContent = PANE_KIND === "corkboard"
+          ? "Corkboard"
+          : PANE_KIND === "mind-map"
+            ? "Mind Map"
+            : "File";
+        const currentTarget = currentContentTarget();
+        if (currentTarget) {
+          openFileTargets = [currentTarget];
         }
         renderFileSwitcher();
         contentCatalogSync = window.ElectroBoyPaneSync.connect({
-          pane: "file-catalog",
+          pane: contentCatalogSyncName(),
           context: () => `${contextId}:${connectionId}`,
           priority: 10,
           snapshot: () => ({ files: openFileTargets }),
@@ -2749,11 +2942,8 @@
               return;
             }
             openFileTargets = state.files
-              .map((file) => ({
-                path: String(file.path || ""),
-                label: String(file.label || file.path || ""),
-              }))
-              .filter((file) => file.path);
+              .map((file) => normalizeContentTarget(file))
+              .filter(Boolean);
             renderFileSwitcher();
           },
         });
@@ -3827,6 +4017,9 @@
       if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
         return artifactCorkboardId;
       }
+      if (artifactKind === "mind-map") {
+        return artifactMindMapPath || artifactMindMapProvider;
+      }
       return "";
     }
 
@@ -3847,7 +4040,7 @@
         return "Calendar";
       }
       if (artifactKind === "mind-map") {
-        return "Mind Map";
+        return artifactMindMapTitle || artifactMindMapPath || "Mind Map";
       }
       if (artifactKind === "requirements") {
         return "Requirements";
@@ -3882,6 +4075,7 @@
       artifactMindMapProvider = "";
       artifactMindMapStyle = "";
       artifactMindMapPath = "";
+      artifactMindMapTitle = "";
       if (mindMapPaneTools) mindMapPaneTools.setEditable(false);
       artifactEditing = false;
     }
@@ -3935,10 +4129,14 @@
         artifactMindMapProvider = String(mindMap.provider || "");
         artifactMindMapStyle = String(mindMap.style || "");
         artifactMindMapPath = String(mindMap.path || "");
+        artifactMindMapTitle = String(
+          mindMap.label || next.title || artifactMindMapPath || "Mind Map",
+        );
         if (mindMapPaneTools) {
           mindMapPaneTools.setEditable(Boolean(artifactMindMapPath));
         }
       }
+      rememberContentTarget(currentContentTarget());
       syncArtifactUrlState();
       renderFileSwitcher();
       reconnectArtifactStream();
@@ -3982,6 +4180,19 @@
           },
         };
       }
+      if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
+        return {
+          id: `corkboard-${artifactCorkboardProvider || "active"}-${artifactCorkboardId}`,
+          kind: artifactKind,
+          title: artifactTargetTitle(),
+          editing: false,
+          board: {
+            id: artifactCorkboardId,
+            label: artifactTargetTitle(),
+            provider: artifactCorkboardProvider,
+          },
+        };
+      }
       return null;
     }
 
@@ -4002,6 +4213,55 @@
         },
         window.location.origin,
       );
+    }
+
+    function applyCorkboardToolSelection(data = {}) {
+      if (PANE_KIND !== "corkboard") {
+        return;
+      }
+      const boardId = String(data.board_id || data.boardPath || "").trim();
+      if (!boardId || boardId === artifactCorkboardId) {
+        return;
+      }
+      artifactKind = "corkboard";
+      artifactCorkboardId = boardId;
+      artifactCorkboardPath = boardId;
+      artifactCorkboardProvider = String(data.provider || artifactCorkboardProvider || "");
+      artifactCorkboardTitle = String(data.title || data.label || boardId);
+      const item = currentArtifactItem();
+      rememberContentTarget(currentContentTarget());
+      syncArtifactUrlState();
+      renderFileSwitcher();
+      refreshArtifactPaneTools();
+      if (item) {
+        notifyPaneArtifactChange(item);
+      }
+    }
+
+    function applyMindMapToolState(data = {}) {
+      if (PANE_KIND !== "mind-map") {
+        return;
+      }
+      const mapPath = String(data.mapPath || "").trim();
+      if (!mapPath || mapPath === artifactMindMapPath) {
+        return;
+      }
+      artifactKind = "mind-map";
+      artifactMindMapPath = mapPath;
+      artifactMindMapTitle = String(data.mapTitle || data.title || mapPath);
+      if (data.style) {
+        artifactMindMapStyle = String(data.style);
+      }
+      const item = currentArtifactItem();
+      rememberContentTarget(currentContentTarget());
+      syncArtifactUrlState();
+      renderFileSwitcher();
+      if (mindMapPaneTools) {
+        mindMapPaneTools.setEditable(true);
+      }
+      if (item) {
+        notifyPaneArtifactChange(item);
+      }
     }
 
     function applyCalendarMonthChange(data) {
@@ -4042,6 +4302,7 @@
         "mind_map_provider",
         "mind_map_style",
         "mind_map_path",
+        "mind_map_title",
       ]) {
         nextUrl.searchParams.delete(key);
       }
@@ -4092,6 +4353,9 @@
         }
         if (artifactMindMapPath) {
           nextUrl.searchParams.set("mind_map_path", artifactMindMapPath);
+        }
+        if (artifactMindMapTitle) {
+          nextUrl.searchParams.set("mind_map_title", artifactMindMapTitle);
         }
         if (artifactMindMapStyle) {
           nextUrl.searchParams.set("mind_map_style", artifactMindMapStyle);
@@ -5087,12 +5351,17 @@
     contentSwitcher.addEventListener("change", () => {
       if (PANE_KIND === "input" || PANE_KIND === "agent") {
         selectAgentInputSession(contentSwitcher.value).catch(() => {});
-      } else if (PANE_KIND === "artifact") {
+      } else if (
+        PANE_KIND === "artifact" ||
+        PANE_KIND === "corkboard" ||
+        PANE_KIND === "mind-map"
+      ) {
         if (!contentSwitcher.value) {
           return;
         }
-        selectFileTarget(
-          openFileTargets.find((file) => file.path === contentSwitcher.value),
+        selectContentTarget(
+          openFileTargets.find((file) =>
+            contentTargetKey(file) === contentSwitcher.value),
         );
       } else if (PANE_KIND === "shell") {
         selectShellSession(contentSwitcher.value);
@@ -5189,6 +5458,7 @@
       corkboardPaneTools = window.ElectroBoyCorkboardPaneTools.mount({
         controller: paneToolsController,
         frame: artifactFrame,
+        onBoardChange: applyCorkboardToolSelection,
         getTarget: () => ({
           kind: artifactKind,
           path: artifactTargetPath(),
@@ -5253,6 +5523,7 @@
       mindMapPaneTools = window.ElectroBoyMindMapPaneTools.mount({
         controller: paneToolsController,
         frame: artifactFrame,
+        onState: applyMindMapToolState,
       });
       mindMapPaneTools.setEditable(Boolean(artifactMindMapPath));
     }

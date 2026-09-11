@@ -419,7 +419,7 @@
       ...WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS,
       "corkboard",
     ]);
-    const SINGLETON_PANE_LAYOUT_KINDS = new Set(["progress", "corkboard"]);
+    const SINGLETON_PANE_LAYOUT_KINDS = new Set(["progress"]);
     const RESTORABLE_PANE_LAYOUT_KINDS = new Set([
       "empty",
       "agent",
@@ -3561,11 +3561,12 @@
         leaf.kind === "corkboard"
       ) {
         const action = message.mode === "new" ? "newDocument" : "openDocument";
+        setActivePaneLayoutLeaf(leaf.id);
         Promise.resolve()
           .then(() => window.ElectroBoyFrontend.invokeModule(
             "corkboard",
             action,
-            { stage: "corkboard" },
+            { stage: "corkboard", requestedLeafId: leaf.id },
           ))
           .catch((error) => {
             appendOutput(
@@ -6047,6 +6048,9 @@
         }
         if (mindMap.path) {
           parameters.set("mind_map_path", mindMap.path);
+        }
+        if (mindMap.label || artifactItem.title) {
+          parameters.set("mind_map_title", mindMap.label || artifactItem.title);
         }
       }
       const fontPane = paneFontKeyForKind(kind);

@@ -1029,6 +1029,7 @@ _PAGE = r"""<!doctype html>
         layoutMode,
         zoom,
         mapPath: path,
+        mapTitle: documentState.title,
         canUndo: Boolean(undoStack.length), canRedo: Boolean(redoStack.length), dirty,
       }, window.location.origin);
     }

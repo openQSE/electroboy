@@ -19,6 +19,9 @@
     const getTarget = options.getTarget;
     const controls = options.controls || {};
     const actions = options.actions || {};
+    const onBoardChange = typeof options.onBoardChange === "function"
+      ? options.onBoardChange
+      : () => {};
     let boardState = null;
     const boundFrames = new WeakSet();
 
@@ -249,6 +252,9 @@
         const currentPath = String(target().path || "");
         if (currentPath && data.boardPath && currentPath !== data.boardPath) return;
         applyBoardState(data);
+        onBoardChange(data);
+      } else if (data.type === "electroboy-corkboard-selected") {
+        onBoardChange(data);
       } else if (data.type === "electroboy-corkboard-exported") {
         exportHelp.textContent = data.error
           || `Exported ${String(data.format || "image").toUpperCase()}`;

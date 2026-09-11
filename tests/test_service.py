@@ -1050,9 +1050,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("const style = normalizeStyle(descriptor.style || options.style);", calendar)
         self.assertIn('kind: "mind-map"', mind_map)
         self.assertIn('id: "mind_map"', mind_map)
-        self.assertIn("async function openDocument(runtime)", mind_map)
-        self.assertIn("async function newDocument(runtime)", mind_map)
+        self.assertIn("async function openDocument(runtime, options = {})", mind_map)
+        self.assertIn("async function newDocument(runtime, options = {})", mind_map)
         self.assertIn("runtime.layout.assignWorkspacePane", mind_map)
+        self.assertIn('options.requestedLeafId || ""', mind_map)
         self.assertIn("function chooseFile(runtime, mode)", mind_map)
         self.assertIn('mode === "new" ? "file-new" : "file-open"', mind_map)
         self.assertIn("path: projectRoot(runtime),", mind_map)
@@ -1060,6 +1061,8 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("mindMapDocumentPicker", mind_map)
         self.assertNotIn("mind-map-picker-dialog", mind_map)
         self.assertIn("ElectroBoyMindMapPaneTools", mind_map_tools)
+        self.assertIn("const onState = typeof options.onState", mind_map_tools)
+        self.assertIn("onState(data);", mind_map_tools)
         self.assertIn("const ICONS = Object.freeze", mind_map_tools)
         self.assertIn('class="mind-map-tool-icon"', mind_map_tools)
         self.assertIn(
@@ -1575,6 +1578,11 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("terminal.reset()", terminal_behavior)
         self.assertIn("window.ElectroBoyFilePaneTools", file_pane_tools)
         self.assertIn("window.ElectroBoyCorkboardPaneTools", corkboard_pane_tools)
+        self.assertIn(
+            "const onBoardChange = typeof options.onBoardChange",
+            corkboard_pane_tools,
+        )
+        self.assertIn("onBoardChange(data);", corkboard_pane_tools)
         self.assertIn('controller.addSection("find", "Find")', file_pane_tools)
         self.assertIn('controller.addSection("actions", "Actions")', file_pane_tools)
         self.assertIn('setActionStatus("Agent started")', file_pane_tools)
@@ -1950,7 +1958,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("existing.kind = previousKind", runtime)
         self.assertIn(
             'const SINGLETON_PANE_LAYOUT_KINDS = new Set('
-            '["progress", "corkboard"]);',
+            '["progress"]);',
             runtime,
         )
         self.assertIn("const RESTORABLE_PANE_LAYOUT_KINDS = new Set([", runtime)
@@ -1988,6 +1996,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('item.kind === "agenda"', runtime)
         self.assertIn('item.kind === "calendar"', runtime)
         self.assertIn("SINGLETON_PANE_LAYOUT_KINDS.has(kind)", runtime)
+        singleton_start = runtime.index("const SINGLETON_PANE_LAYOUT_KINDS")
+        singleton_end = runtime.index("const RESTORABLE_PANE_LAYOUT_KINDS", singleton_start)
+        singleton_source = runtime[singleton_start:singleton_end]
+        self.assertNotIn('"corkboard"', singleton_source)
         self.assertIn(
             "const DEDICATED_ARTIFACT_PANE_LAYOUT_KINDS = new Set([",
             runtime,
@@ -2394,6 +2406,14 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("refreshPaneLayoutInstanceFrameForLeaf(", assign_source)
         self.assertIn("reconcilePaneLayout(`assignPaneContent:${kind}`);", assign_source)
+        self.assertIn(
+            '{ stage: "corkboard", requestedLeafId: leaf.id }',
+            runtime,
+        )
+        self.assertIn(
+            "runtimeApi.layout.assignArtifact(nextItems[0], options.requestedLeafId || \"\")",
+            documents,
+        )
         workspace_assign_start = runtime.index("function assignWorkspacePaneContent(")
         workspace_assign_end = runtime.index(
             "function openPaneLayoutKind(",
@@ -2412,7 +2432,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("paneLayout.reconcileRender", runtime)
         self.assertIn("consistency: paneLayoutConsistencyPayload()", runtime)
         self.assertIn("reconcile: reconcilePaneLayout", runtime)
-        self.assertIn("runtimeApi.layout.assignArtifact(nextItems[0]);", documents)
+        self.assertIn(
+            'runtimeApi.layout.assignArtifact(nextItems[0], options.requestedLeafId || "")',
+            documents,
+        )
         self.assertIn("runtime.layout.assignWorkspacePane", agenda)
         self.assertIn("kindMap.get(kind)?.singleton", workspace)
         self.assertIn(".pane-layout-leaf.active::before", styles)
@@ -3372,7 +3395,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('function initialPaneWorkspaceLayout()', page)
         self.assertIn('initialLayout: initialPaneWorkspaceLayout()', page)
         self.assertIn('{ id: "mind-map", label: "Mind Map" }', page)
-        self.assertIn(
+        self.assertIn('{ id: "corkboard", label: "Corkboard" }', page)
+        self.assertNotIn(
             '{ id: "corkboard", label: "Corkboard", singleton: true }',
             page,
         )
@@ -3529,6 +3553,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("ElectroBoyPaneTools.create", page)
         self.assertIn("ElectroBoyFilePaneTools.mount", page)
         self.assertIn("ElectroBoyCorkboardPaneTools.mount", page)
+        self.assertIn("function contentCatalogPaneKind()", page)
+        self.assertIn('return "corkboard";', page)
+        self.assertIn('return "mind-map";', page)
+        self.assertIn("function selectContentTarget(target", page)
+        self.assertIn("pane: contentCatalogSyncName()", page)
+        self.assertIn("onBoardChange: applyCorkboardToolSelection", page)
+        self.assertIn("onState: applyMindMapToolState", page)
+        self.assertIn('params.get("mind_map_title") || ""', page)
         self.assertIn('id="dockPane"', page)
         self.assertIn('id="refreshArtifact"', page)
         self.assertIn('id="previewArtifact"', page)
@@ -3579,17 +3611,15 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function closePaneDocument()", page)
         self.assertIn('postDocumentFileAction("close", target);', page)
         self.assertIn('return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId', page)
-        self.assertIn('"No corkboard open" : "No file open"', page)
+        self.assertIn('PANE_KIND === "mind-map" ? "No mind map open"', page)
         file_switcher_start = page.index("function renderFileSwitcher()")
         file_switcher_end = page.index("function fileSwitcherPlaceholderLabel()", file_switcher_start)
         file_switcher_source = page[file_switcher_start:file_switcher_end]
         self.assertIn("updateSelectOptions(", file_switcher_source)
         self.assertIn('label: placeholderLabel || "Choose file"', file_switcher_source)
         self.assertNotIn("replaceChildren", file_switcher_source)
-        self.assertIn(
-            'if (artifactKind === "document" && files.length > 0 && !contentSwitcher.value)',
-            page,
-        )
+        self.assertIn('artifactKind === "empty" && contentCatalogPaneKind() !== "document"', page)
+        self.assertIn("selectContentTarget(files[0]);", page)
         self.assertIn("path: artifactTargetPath()", page)
         self.assertIn("title: artifactTargetTitle()", page)
         self.assertIn("editing: artifactEditing", page)
@@ -3597,7 +3627,7 @@ class ServiceTests(unittest.TestCase):
             'if (!contentSwitcher.value) {\n'
             "          return;\n"
             "        }\n"
-            "        selectFileTarget(",
+            "        selectContentTarget(",
             page,
         )
         self.assertIn("function artifactDocumentExportUrl(format)", page)
@@ -3687,7 +3717,9 @@ class ServiceTests(unittest.TestCase):
             PANE_WINDOW_HTML.index('id="terminalHost"'),
         )
         self.assertIn('paneContentLabel.textContent = "Agent";', PANE_WINDOW_HTML)
-        self.assertIn('paneContentLabel.textContent = "File";', PANE_WINDOW_HTML)
+        self.assertIn('paneContentLabel.textContent = PANE_KIND === "corkboard"', PANE_WINDOW_HTML)
+        self.assertIn('? "Mind Map"', PANE_WINDOW_HTML)
+        self.assertIn(': "File";', PANE_WINDOW_HTML)
         self.assertIn('paneContentLabel.textContent = "Shell";', PANE_WINDOW_HTML)
         self.assertIn("function updateSelectOptions(select, options", PANE_WINDOW_HTML)
         self.assertIn("function renderFileSwitcher()", PANE_WINDOW_HTML)
@@ -7140,6 +7172,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('"font-size-set": (data) => setNodeFontSize', page)
         self.assertIn('"zoom-set": (data) => adjustZoom(data?.zoom)', page)
         self.assertIn("zoom,", page)
+        self.assertIn("mapTitle: documentState.title", page)
         self.assertIn("selectedFontSize:", page)
         self.assertIn("return new Set([selectedId]);", page)
         self.assertIn('className = "node-resize-handle"', page)

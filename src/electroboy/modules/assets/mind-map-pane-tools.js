@@ -138,6 +138,9 @@
   function mount(options) {
     const controller = options.controller;
     const frame = options.frame;
+    const onState = typeof options.onState === "function"
+      ? options.onState
+      : () => {};
     const controls = [];
     const selectionChannel = `mind-map-${Date.now().toString(36)}-${
       Math.random().toString(36).slice(2, 8)}`;
@@ -271,6 +274,7 @@
       }
       if (data.type !== "electroboy-mind-map-state") return;
       mapPath = String(data.mapPath || mapPath);
+      onState(data);
       fontControls.input.disabled = !data.selected;
       if (document.activeElement !== zoomPercent) {
         const percent = Math.round(Number(data.zoom || 1) * 100);

@@ -41,7 +41,7 @@
         runtime.layout.assignWorkspacePane
       ? runtime.layout.assignWorkspacePane
       : runtime.layout.assignPane;
-    assign("mind-map", item);
+    assign("mind-map", item, options.requestedLeafId || "");
   }
 
   function showDocument(runtime, source = {}, options = {}) {
@@ -59,7 +59,7 @@
     };
     const assign = options.replaceWorkspacePane && runtime.layout.assignWorkspacePane
       ? runtime.layout.assignWorkspacePane : runtime.layout.assignPane;
-    assign("mind-map", item);
+    assign("mind-map", item, options.requestedLeafId || "");
   }
 
   function contextUrl(runtime, path) {
@@ -144,12 +144,15 @@
     });
   }
 
-  async function openDocument(runtime) {
+  async function openDocument(runtime, options = {}) {
     const path = await chooseFile(runtime, "open");
-    if (path) showDocument(runtime, { path }, { replaceWorkspacePane: true });
+    if (path) showDocument(runtime, { path }, {
+      replaceWorkspacePane: true,
+      requestedLeafId: options.requestedLeafId || "",
+    });
   }
 
-  async function newDocument(runtime) {
+  async function newDocument(runtime, options = {}) {
     const path = mindMapPathWithExtension(await chooseFile(runtime, "new"));
     if (!path) return;
     const title = titleFromMindMapPath(path);
@@ -166,7 +169,10 @@
         path: payload.path || path,
         title: payload.document?.title || title,
       },
-      { replaceWorkspacePane: true },
+      {
+        replaceWorkspacePane: true,
+        requestedLeafId: options.requestedLeafId || "",
+      },
     );
   }
 
