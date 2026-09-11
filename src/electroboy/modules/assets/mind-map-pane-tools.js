@@ -109,6 +109,32 @@
     return { decrease, input, increase, automatic };
   }
 
+  function zoomPercentInput(body, post) {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "10";
+    input.max = "500";
+    input.step = "5";
+    input.value = "100";
+    input.className = "mind-map-tool-zoom-percent";
+    input.setAttribute("aria-label", "Mind map zoom percent");
+    input.title = "Mind map zoom percent";
+    function submit() {
+      const percent = Number(input.value);
+      if (!Number.isFinite(percent) || percent <= 0) return;
+      post("zoom-set", { zoom: percent / 100 });
+    }
+    input.addEventListener("change", submit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      submit();
+      input.blur();
+    });
+    body.append(input);
+    return input;
+  }
+
   function mount(options) {
     const controller = options.controller;
     const frame = options.frame;
@@ -196,7 +222,8 @@
       ["Create document", "create-document", "Create linked document", "file-plus"],
       ["Remove", "remove-link", "Remove link", "unlink"],
     ], post);
-    group(section(controller, "mind-map-view", "View"), [
+    const viewSection = section(controller, "mind-map-view", "View");
+    group(viewSection, [
       ["Compact", "compact", "Use compact nodes", "compact"],
       ["Expanded", "expand", "Expand node text", "expanded"],
       ["Zoom out", "zoom-out", "Zoom out", "zoom-out"],
@@ -206,6 +233,7 @@
       ["Collapse All", "collapse", "Collapse all branches", "collapse"],
       ["Tidy Branch", "tidy", "Tidy selected branch", "tidy"],
     ], post);
+    const zoomPercent = zoomPercentInput(viewSection, post);
     group(section(controller, "mind-map-layout", "Layout"), [
       ["Local", "layout-local", "Move only branches whose nodes overlap"],
       ["Freeform", "layout-freeform", "Preserve positions and allow overlap"],
@@ -244,6 +272,10 @@
       if (data.type !== "electroboy-mind-map-state") return;
       mapPath = String(data.mapPath || mapPath);
       fontControls.input.disabled = !data.selected;
+      if (document.activeElement !== zoomPercent) {
+        const percent = Math.round(Number(data.zoom || 1) * 100);
+        zoomPercent.value = Number.isFinite(percent) ? String(percent) : "100";
+      }
       if (document.activeElement !== fontControls.input) {
         fontControls.input.value = data.selected
           ? String(data.selectedFontSize || 16)

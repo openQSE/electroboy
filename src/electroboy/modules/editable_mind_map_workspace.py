@@ -53,16 +53,7 @@ _PAGE = r"""<!doctype html>
     button:disabled { opacity: .42; cursor: default; }
     button[aria-pressed="true"] { border-color: #66d9e8; background: #174050;
       box-shadow: inset 0 0 0 1px #66d9e8; color: #e9fbff; }
-    .shell { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
-    body.embedded .shell { grid-template-rows: 1fr auto; }
-    body.embedded .tools { display: none; }
-    .tools { display: flex; gap: .7rem; align-items: stretch; padding: .45rem .55rem;
-      border-bottom: 1px solid #344258; background: #182131; overflow-x: auto; }
-    .tool-group { display: flex; align-items: center; gap: .3rem; padding-right: .65rem;
-      border-right: 1px solid #344258; white-space: nowrap; }
-    .tool-group:last-child { border-right: 0; }
-    .tool-group strong { color: #93a5be; font-size: .75rem; text-transform: uppercase;
-      letter-spacing: .05em; margin-right: .1rem; }
+    .shell { display: grid; grid-template-rows: 1fr auto; height: 100%; }
     .workspace { position: relative; min-height: 0; overflow: hidden; }
     .canvas { position: absolute; inset: 0; overflow: hidden; outline: none;
       background-color: #111824;
@@ -178,53 +169,11 @@ _PAGE = r"""<!doctype html>
     .status.error { color: #ff9f9f; }
     @media (max-width: 760px) {
       .overlay { width: 90%; }
-      .tool-group strong { display: none; }
     }
   </style>
 </head>
 <body class="pane-service-page">
   <main class="shell">
-    <nav class="tools" aria-label="Mind map context tools">
-      <section class="tool-group"><strong>File</strong>
-        <button data-action="new">New</button><button data-action="open">Open</button>
-        <button data-action="save">Save</button><button data-action="save-as">Save As</button>
-      </section>
-      <section class="tool-group"><strong>Edit</strong>
-        <button data-action="undo" title="Undo (Ctrl/Cmd+Z)">↶</button>
-        <button data-action="redo" title="Redo (Ctrl/Cmd+Shift+Z)">↷</button>
-      </section>
-      <section class="tool-group"><strong>Node</strong>
-        <button data-action="root">Independent</button><button data-action="child">Child</button>
-        <button data-action="sibling">Sibling</button><button data-action="edit">Edit</button>
-        <button data-action="delete">Delete</button>
-      </section>
-      <section class="tool-group"><strong>Color</strong>
-        <button data-action="color-default">Inherit</button>
-        <button data-action="color-violet">Violet</button>
-        <button data-action="color-blue">Blue</button>
-        <button data-action="color-teal">Teal</button>
-        <button data-action="color-green">Green</button>
-        <button data-action="color-amber">Amber</button>
-        <button data-action="color-rose">Rose</button>
-      </section>
-      <section class="tool-group"><strong>Link</strong>
-        <button data-action="link-file">File</button><button data-action="link-web">Web</button>
-        <button data-action="create-document">Create document</button>
-        <button data-action="remove-link">Remove</button>
-      </section>
-      <section class="tool-group"><strong>View</strong>
-        <button data-action="compact">Compact</button><button data-action="expand">Expanded</button>
-        <button data-action="zoom-out">−</button><input id="zoomValue" aria-label="Zoom percent"
-          title="Zoom percent" value="100" style="width:4.4rem"><button data-action="zoom-in">+</button>
-        <button data-action="fit">Fit</button><button data-action="focus">Focus</button>
-        <button data-action="collapse">Collapse All</button><button data-action="tidy">Tidy Branch</button>
-      </section>
-      <section class="tool-group"><strong>Layout</strong>
-        <button data-action="layout-local">Local</button>
-        <button data-action="layout-freeform">Freeform</button>
-        <button data-action="layout-repack">Repack</button>
-      </section>
-    </nav>
     <section class="workspace">
       <div id="canvas" class="canvas" tabindex="0" role="tree"
            aria-label="Editable mind map canvas">
@@ -425,6 +374,7 @@ _PAGE = r"""<!doctype html>
       const pending = pendingFilePicker;
       pendingFilePicker = null;
       window.clearInterval(pending.timer);
+      window.removeEventListener("message", pending.listener);
       pending.resolve(value);
     }
 
@@ -433,9 +383,12 @@ _PAGE = r"""<!doctype html>
         pendingFilePicker.popup?.focus();
         return Promise.resolve(null);
       }
+      const selectionChannel = `mind-map-document-${Date.now()}-${
+        Math.random().toString(36).slice(2, 8)}`;
       const parameters = new URLSearchParams({
         path: options.path || mapDirectory(),
         mode,
+        selection_channel: selectionChannel,
       });
       if (options.newExtension) {
         parameters.set("new_extension", options.newExtension);
@@ -451,10 +404,22 @@ _PAGE = r"""<!doctype html>
         return Promise.resolve(null);
       }
       return new Promise((resolve) => {
+        const listener = (event) => {
+          if (event.origin !== window.location.origin) return;
+          const data = event.data || {};
+          if (
+            data.type === "electroboy-file-browser-select"
+            && data.selection_channel === selectionChannel
+            && event.source === popup
+          ) {
+            finishFilePicker(String(data.path || "").trim() || null);
+          }
+        };
         const timer = window.setInterval(() => {
           if (popup.closed) finishFilePicker(null);
         }, 300);
-        pendingFilePicker = { mode, popup, resolve, timer };
+        pendingFilePicker = { listener, mode, popup, resolve, timer };
+        window.addEventListener("message", listener);
       });
     }
     function mindMapPathWithExtension(target) {
@@ -463,6 +428,13 @@ _PAGE = r"""<!doctype html>
       return requested.toLowerCase().endsWith(".mindmap.json")
         ? requested
         : `${requested}.mindmap.json`;
+    }
+    function titleFromMindMapPath(target) {
+      const requested = String(target || "").trim().replace(/\\+/g, "/");
+      const name = requested.split("/").pop() || "Untitled mind map";
+      return name.toLowerCase().endsWith(".mindmap.json")
+        ? name.slice(0, -".mindmap.json".length)
+        : name;
     }
 
     function nodeById(id) { return documentState.nodes.find((node) => node.id === id); }
@@ -955,7 +927,6 @@ _PAGE = r"""<!doctype html>
     }
     function transform() {
       viewport.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
-      document.getElementById("zoomValue").value = String(Math.round(zoom * 100));
       saveView();
     }
     function renderEdges(visibleIds = new Set(documentState.nodes.map((node) => node.id))) {
@@ -1032,12 +1003,16 @@ _PAGE = r"""<!doctype html>
       overlayLink = link; showOverlay("preview");
     }
     function updateControlsAndState() {
-      document.querySelector('[data-action="undo"]').disabled = !undoStack.length;
-      document.querySelector('[data-action="redo"]').disabled = !redoStack.length;
+      const undoControl = document.querySelector('[data-action="undo"]');
+      const redoControl = document.querySelector('[data-action="redo"]');
+      if (undoControl) undoControl.disabled = !undoStack.length;
+      if (redoControl) redoControl.disabled = !redoStack.length;
       document.querySelectorAll('[data-action="child"], [data-action="sibling"], [data-action="edit"], [data-action="delete"], [data-action^="color-"], [data-action^="link-"], [data-action="create-document"], [data-action="remove-link"], [data-action="focus"]')
         .forEach((button) => { button.disabled = !selectedId; });
-      document.querySelector('[data-action="focus"]')
-        .setAttribute("aria-pressed", String(Boolean(focusMode && selectedId)));
+      const focusControl = document.querySelector('[data-action="focus"]');
+      if (focusControl) {
+        focusControl.setAttribute("aria-pressed", String(Boolean(focusMode && selectedId)));
+      }
       document.querySelectorAll('[data-action^="layout-"]').forEach((button) => {
         button.setAttribute("aria-pressed",
           String(button.dataset.action === `layout-${layoutMode}`));
@@ -1052,6 +1027,7 @@ _PAGE = r"""<!doctype html>
         selectedFontSizeMode: nodeById(selectedId)?.font_size_mode || "auto",
         focusMode: Boolean(focusMode && selectedId),
         layoutMode,
+        zoom,
         mapPath: path,
         canUndo: Boolean(undoStack.length), canRedo: Boolean(redoStack.length), dirty,
       }, window.location.origin);
@@ -1334,18 +1310,14 @@ _PAGE = r"""<!doctype html>
         "Creating another map will discard the unsaved changes in this pane.",
         "Discard and continue",
       )) return;
-      const values = await showDialog({
-        title: "New Mind Map",
-        description: "Create a mind map at a project-relative or absolute path.",
-        submitLabel: "Create",
-        fields: [
-          { name: "title", label: "Name", value: "Untitled mind map", required: true },
-          { name: "path", label: "Path",
-            value: ".electroboy/shared/mind-maps/untitled.mindmap.json", required: true },
-        ],
-      });
-      if (!values) return;
-      const { title, path: target } = values;
+      const target = mindMapPathWithExtension(
+        await chooseFile("file-new", {
+          newExtension: ".mindmap.json",
+          path: projectRoot || mapDirectory(),
+        }),
+      );
+      if (!target) return;
+      const title = titleFromMindMapPath(target);
       const blank = { schema_version: 1, type: "electroboy.mind-map", title,
         nodes: [], relationships: [] };
       const payload = await createAt(target, blank, title);
@@ -1357,14 +1329,12 @@ _PAGE = r"""<!doctype html>
         "Opening another map will discard the unsaved changes in this pane.",
         "Discard and continue",
       )) return;
-      const values = await showDialog({
-        title: "Open Mind Map",
-        description: "Open a project-relative or absolute mind-map file.",
-        submitLabel: "Open",
-        fields: [{ name: "path", label: "Path", value: path, required: true }],
+      const target = await chooseFile("file-open", {
+        newExtension: ".mindmap.json",
+        path: projectRoot || mapDirectory(),
       });
-      if (!values) return;
-      window.location.search = `${requestContext}&path=${encodeURIComponent(values.path)}`;
+      if (!target) return;
+      window.location.search = `${requestContext}&path=${encodeURIComponent(target)}`;
     }
     async function saveAs() {
       const target = mindMapPathWithExtension(
@@ -1437,6 +1407,7 @@ _PAGE = r"""<!doctype html>
       "font-size-auto": useAutomaticNodeFontSize,
       compact: () => { compact = true; render(); }, expand: () => { compact = false; render(); },
       "zoom-out": () => adjustZoom(zoom / 1.2), "zoom-in": () => adjustZoom(zoom * 1.2),
+      "zoom-set": (data) => adjustZoom(data?.zoom),
       fit, focus: toggleFocus,
       collapse: toggleCollapseAll, tidy,
       "layout-local": () => setLayoutMode("local"),
@@ -1451,6 +1422,7 @@ _PAGE = r"""<!doctype html>
       if (
         data.type === "electroboy-file-browser-select"
         && pendingFilePicker
+        && !pendingFilePicker.listener
         && data.mode === pendingFilePicker.mode
         && event.source === pendingFilePicker.popup
       ) {
@@ -1613,9 +1585,6 @@ _PAGE = r"""<!doctype html>
     });
     overlayPreview.addEventListener("click", () => showOverlay("preview"));
     overlayEdit.addEventListener("click", () => showOverlay("edit"));
-    document.getElementById("zoomValue").addEventListener("change", (event) => {
-      const percent = Number(event.target.value); if (Number.isFinite(percent)) adjustZoom(percent / 100);
-    });
     window.addEventListener("beforeunload", (event) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } });
     if (new URLSearchParams(window.location.search).get("embed") === "1") {
       document.body.classList.add("embedded");

@@ -10,6 +10,9 @@
     "family-orbit",
     "month-hud",
   ]);
+  const MIND_MAP_SUFFIX = ".mindmap.json";
+  let pendingFilePicker = null;
+  let filePickerSequence = 0;
 
   function normalizeStyle(value) {
     const requested = String(value || "default").trim().toLowerCase();
@@ -63,126 +66,108 @@
     return runtime.http.contextUrl(path);
   }
 
-  async function maps(runtime) {
-    const response = await fetch(contextUrl(runtime, "/api/mind-map/documents"), {
-      headers: { Accept: "application/json" },
+  function projectRoot(runtime) {
+    const state = runtime.getState ? runtime.getState() : {};
+    return String(
+      state.activeProjectRoot || state.activationRoot || state.serviceRoot || ".",
+    );
+  }
+
+  function mindMapPathWithExtension(target) {
+    const requested = String(target || "").trim();
+    if (!requested) return "";
+    return requested.toLowerCase().endsWith(MIND_MAP_SUFFIX)
+      ? requested
+      : `${requested}${MIND_MAP_SUFFIX}`;
+  }
+
+  function titleFromMindMapPath(target) {
+    const requested = String(target || "").trim().replace(/\\+/g, "/");
+    const name = requested.split("/").pop() || "Untitled mind map";
+    return name.toLowerCase().endsWith(MIND_MAP_SUFFIX)
+      ? name.slice(0, -MIND_MAP_SUFFIX.length)
+      : name;
+  }
+
+  function finishFilePicker(value) {
+    if (!pendingFilePicker) return;
+    const pending = pendingFilePicker;
+    pendingFilePicker = null;
+    window.clearInterval(pending.timer);
+    window.removeEventListener("message", pending.listener);
+    pending.resolve(value);
+  }
+
+  function chooseFile(runtime, mode) {
+    if (pendingFilePicker) {
+      pendingFilePicker.popup?.focus();
+      return Promise.resolve(null);
+    }
+    const browserMode = mode === "new" ? "file-new" : "file-open";
+    const selectionChannel = `mind-map-${Date.now()}-${++filePickerSequence}`;
+    const parameters = new URLSearchParams({
+      path: projectRoot(runtime),
+      mode: browserMode,
+      new_extension: MIND_MAP_SUFFIX,
+      selection_channel: selectionChannel,
     });
-    const payload = await response.json().catch(() => ({ error: "mind map list failed" }));
-    if (!response.ok) throw new Error(payload.error || "mind map list failed");
-    return payload.mind_maps || [];
-  }
-
-  function picker() {
-    let dialog = document.getElementById("mindMapDocumentPicker");
-    if (dialog) return dialog;
-    dialog = document.createElement("dialog");
-    dialog.id = "mindMapDocumentPicker";
-    dialog.className = "ad-hoc-session-dialog mind-map-picker-dialog";
-    dialog.innerHTML = `
-      <form method="dialog" class="ad-hoc-session-form">
-        <header class="ad-hoc-session-header">
-          <div><h2 class="mind-map-picker-title">Mind Map</h2>
-            <p class="mind-map-picker-description"></p></div>
-          <button class="ad-hoc-session-close" type="button" aria-label="Close">&times;</button>
-        </header>
-        <fieldset class="ad-hoc-session-options mind-map-picker-existing">
-          <legend>Mind maps</legend>
-          <div class="ad-hoc-session-list mind-map-picker-list"></div>
-        </fieldset>
-        <label class="ad-hoc-session-custom mind-map-picker-path">Or open a path
-          <input class="ad-hoc-session-uuid mind-map-picker-path-input"
-                 autocomplete="off" placeholder="/path/to/plan.mindmap.json"></label>
-        <label class="ad-hoc-session-custom mind-map-picker-new">Name
-          <input class="ad-hoc-session-uuid mind-map-picker-name" autocomplete="off"></label>
-        <p class="ad-hoc-session-error mind-map-picker-error" hidden></p>
-        <footer class="ad-hoc-session-footer">
-          <button class="mind-map-picker-cancel" type="button">Cancel</button>
-          <button class="ad-hoc-session-submit mind-map-picker-submit" type="submit">Open</button>
-        </footer>
-      </form>`;
-    document.body.append(dialog);
-    return dialog;
-  }
-
-  async function choose(runtime, mode) {
-    const dialog = picker();
-    const creating = mode === "new";
-    const existing = dialog.querySelector(".mind-map-picker-existing");
-    const list = dialog.querySelector(".mind-map-picker-list");
-    const nameLabel = dialog.querySelector(".mind-map-picker-new");
-    const name = dialog.querySelector(".mind-map-picker-name");
-    const pathLabel = dialog.querySelector(".mind-map-picker-path");
-    const pathInput = dialog.querySelector(".mind-map-picker-path-input");
-    const error = dialog.querySelector(".mind-map-picker-error");
-    const submit = dialog.querySelector(".mind-map-picker-submit");
-    dialog.querySelector(".mind-map-picker-title").textContent = creating ? "New Mind Map" : "Open Mind Map";
-    dialog.querySelector(".mind-map-picker-description").textContent = creating
-      ? "Create a project mind map." : "Choose a project mind map.";
-    existing.hidden = creating; nameLabel.hidden = !creating; pathLabel.hidden = creating;
-    error.hidden = true; pathInput.value = "";
-    submit.textContent = creating ? "Create" : "Open"; name.value = ""; list.replaceChildren();
-    if (!creating) {
-      const documents = await maps(runtime);
-      if (!documents.length) list.textContent = "No mind maps yet.";
-      documents.forEach((entry, index) => {
-        const label = document.createElement("label");
-        label.className = "ad-hoc-session-option";
-        const input = document.createElement("input"); input.type = "radio";
-        input.name = "mind-map-document"; input.value = entry.path; input.dataset.title = entry.title;
-        if (index === 0) input.checked = true;
-        const copy = document.createElement("span"); copy.className = "ad-hoc-session-option-copy";
-        const title = document.createElement("strong"); title.textContent = entry.title;
-        const details = document.createElement("span"); details.className = "ad-hoc-session-details";
-        details.textContent = entry.relative_path;
-        copy.append(title, details); label.append(input, copy); list.append(label);
-      });
+    const popup = window.open(
+      `/file-browser?${parameters.toString()}`,
+      `electroboy-${selectionChannel}`,
+      "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,"
+        + "status=no,scrollbars=yes,resizable=yes",
+    );
+    if (!popup) {
+      runtime.notifications?.appendOutput(
+        "mind map file picker was blocked by the browser\n",
+        "error",
+      );
+      return Promise.resolve(null);
     }
     return new Promise((resolve) => {
-      let finished = false;
-      const finish = (value) => {
-        if (finished) return;
-        finished = true; dialog.close(); resolve(value);
+      const listener = (event) => {
+        if (event.origin !== window.location.origin) return;
+        const data = event.data || {};
+        if (
+          data.type === "electroboy-file-browser-select"
+          && data.selection_channel === selectionChannel
+          && event.source === popup
+        ) {
+          finishFilePicker(String(data.path || "").trim() || null);
+        }
       };
-      dialog.querySelector(".ad-hoc-session-close").onclick = () => finish(null);
-      dialog.querySelector(".mind-map-picker-cancel").onclick = () => finish(null);
-      dialog.oncancel = (event) => { event.preventDefault(); finish(null); };
-      dialog.querySelector("form").onsubmit = async (event) => {
-        event.preventDefault();
-        try {
-          if (!creating) {
-            const selected = list.querySelector('input[name="mind-map-document"]:checked');
-            const requestedPath = pathInput.value.trim();
-            if (!requestedPath && !selected) throw new Error("Choose a mind map or enter a path.");
-            finish(requestedPath
-              ? {
-                  path: requestedPath,
-                  title: runtime.paths.basename(requestedPath).replace(/\.mindmap\.json$/i, ""),
-                }
-              : { path: selected.value, title: selected.dataset.title });
-            return;
-          }
-          const title = name.value.trim(); if (!title) throw new Error("Enter a name.");
-          const response = await fetch(contextUrl(runtime, "/api/mind-map/documents"), {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title }),
-          });
-          const payload = await response.json().catch(() => ({ error: "creation failed" }));
-          if (!response.ok) throw new Error(payload.error || "creation failed");
-          finish({ path: payload.path, title: payload.document.title });
-        } catch (caught) { error.textContent = caught.message; error.hidden = false; }
-      };
-      dialog.showModal(); if (creating) name.focus();
+      const timer = window.setInterval(() => {
+        if (popup.closed) finishFilePicker(null);
+      }, 300);
+      pendingFilePicker = { listener, mode: browserMode, popup, resolve, timer };
+      window.addEventListener("message", listener);
     });
   }
 
   async function openDocument(runtime) {
-    const selected = await choose(runtime, "open");
-    if (selected) showDocument(runtime, selected, { replaceWorkspacePane: true });
+    const path = await chooseFile(runtime, "open");
+    if (path) showDocument(runtime, { path }, { replaceWorkspacePane: true });
   }
 
   async function newDocument(runtime) {
-    const selected = await choose(runtime, "new");
-    if (selected) showDocument(runtime, selected, { replaceWorkspacePane: true });
+    const path = mindMapPathWithExtension(await chooseFile(runtime, "new"));
+    if (!path) return;
+    const title = titleFromMindMapPath(path);
+    const response = await fetch(contextUrl(runtime, "/api/mind-map/documents"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, title }),
+    });
+    const payload = await response.json().catch(() => ({ error: "creation failed" }));
+    if (!response.ok) throw new Error(payload.error || "creation failed");
+    showDocument(
+      runtime,
+      {
+        path: payload.path || path,
+        title: payload.document?.title || title,
+      },
+      { replaceWorkspacePane: true },
+    );
   }
 
   window.ElectroBoyFrontend.registerModule({

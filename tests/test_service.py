@@ -1044,11 +1044,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function openDocument(runtime)", mind_map)
         self.assertIn("async function newDocument(runtime)", mind_map)
         self.assertIn("runtime.layout.assignWorkspacePane", mind_map)
-        self.assertIn(
-            'className = "ad-hoc-session-dialog mind-map-picker-dialog"',
-            mind_map,
-        )
-        self.assertIn('label.className = "ad-hoc-session-option"', mind_map)
+        self.assertIn("function chooseFile(runtime, mode)", mind_map)
+        self.assertIn('mode === "new" ? "file-new" : "file-open"', mind_map)
+        self.assertIn("path: projectRoot(runtime),", mind_map)
+        self.assertIn("new_extension: MIND_MAP_SUFFIX", mind_map)
+        self.assertNotIn("mindMapDocumentPicker", mind_map)
+        self.assertNotIn("mind-map-picker-dialog", mind_map)
         self.assertIn("ElectroBoyMindMapPaneTools", mind_map_tools)
         self.assertIn("const ICONS = Object.freeze", mind_map_tools)
         self.assertIn('class="mind-map-tool-icon"', mind_map_tools)
@@ -1073,6 +1074,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(
             'section(controller, "mind-map-font", "Font size")', mind_map_tools
         )
+        self.assertIn("function zoomPercentInput(body, post)", mind_map_tools)
+        self.assertIn('post("zoom-set", { zoom: percent / 100 })', mind_map_tools)
+        self.assertIn("mind-map-tool-zoom-percent", mind_map_tools_css)
         self.assertIn('post("font-size-set", { fontSize })', mind_map_tools)
         self.assertIn('action === "focus"', mind_map_tools)
         self.assertIn('String(Boolean(data.focusMode))', mind_map_tools)
@@ -7038,9 +7042,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('/assets/service/css/selects.css', page)
         self.assertIn('/assets/service/js/core/select-menu.js', page)
         self.assertIn('<body class="pane-service-page">', page)
-        self.assertIn('aria-label="Mind map context tools"', page)
-        self.assertIn('data-action="child"', page)
-        self.assertIn('data-action="create-document"', page)
+        self.assertNotIn('<nav class="tools"', page)
+        self.assertNotIn('aria-label="Mind map context tools"', page)
+        self.assertNotIn('<button data-action', page)
         self.assertIn('event.key === "Tab"', page)
         self.assertIn('event.key === "Enter" && event.shiftKey', page)
         self.assertIn('event.button === 1', page)
@@ -7054,7 +7058,6 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("electroboy:editable-mind-map", page)
         self.assertIn('const projectRoot = "/tmp/project-root";', page)
         self.assertIn('.empty[hidden] { display: none; }', page)
-        self.assertIn('data-action="color-blue"', page)
         self.assertIn("function resolvedNodeColor(node)", page)
         self.assertIn("function initialNodeColor(parentId)", page)
         self.assertIn("BRANCH_COLORS = Object.freeze", page)
@@ -7070,6 +7073,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('label: `Sibling · ${placement}`', page)
         self.assertIn('element.dataset.color = resolvedNodeColor(node);', page)
         self.assertIn('"font-size-set": (data) => setNodeFontSize', page)
+        self.assertIn('"zoom-set": (data) => adjustZoom(data?.zoom)', page)
+        self.assertIn("zoom,", page)
         self.assertIn("selectedFontSize:", page)
         self.assertIn("return new Set([selectedId]);", page)
         self.assertIn('className = "node-resize-handle"', page)
@@ -7086,11 +7091,16 @@ class ServiceTests(unittest.TestCase):
             'await chooseFile("file-new", {',
             page,
         )
+        self.assertIn(
+            'await chooseFile("file-open", {',
+            page,
+        )
         self.assertIn('newExtension: ".mindmap.json"', page)
         self.assertIn("path: projectRoot || mapDirectory()", page)
         self.assertIn("function mindMapPathWithExtension(target)", page)
         self.assertIn('`${requested}.mindmap.json`', page)
         self.assertIn('browseMode: type === "file" ? "link" : ""', page)
+        self.assertNotIn('id="zoomValue"', page)
         self.assertNotIn("prompt(", page)
         self.assertNotIn("confirm(", page)
         self.assertIn("commitEdit(node.id, editor)", page)

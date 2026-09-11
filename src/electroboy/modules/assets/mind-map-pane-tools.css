@@ -71,10 +71,17 @@
   text-align: left;
 }
 
-.mind-map-pane .mind-map-tool-font-size {
+.mind-map-pane .mind-map-tool-font-size,
+.mind-map-pane .mind-map-tool-zoom-percent {
   min-width: 0;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+.mind-map-pane .mind-map-tool-zoom-percent {
+  width: 100%;
+  height: 30px;
+  margin-top: 5px;
 }
 
 .mind-map-pane [data-mind-map-action^="color-"]::before {
