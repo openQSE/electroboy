@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from electroboy.artifact_types import DOCUMENT_TYPE_MARKDOWN, document_type_from_path
 from electroboy.state_store import StateError
 
 MAX_BROWSER_ENTRIES = 300
@@ -59,7 +60,7 @@ def browse_markdown_files(
     return _browse_matching_files(
         path,
         show_hidden=show_hidden,
-        suffix=".md",
+        document_type=DOCUMENT_TYPE_MARKDOWN,
     )
 
 
@@ -68,6 +69,7 @@ def _browse_matching_files(
     *,
     show_hidden: bool,
     suffix: str | None = None,
+    document_type: str | None = None,
 ) -> dict[str, object]:
     directory = _readable_directory(path)
     try:
@@ -88,7 +90,11 @@ def _browse_matching_files(
             [
                 child
                 for child in visible_children
-                if child.is_file() and (suffix is None or child.suffix.lower() == suffix)
+                if child.is_file() and _browser_file_matches(
+                    child,
+                    suffix=suffix,
+                    document_type=document_type,
+                )
             ],
             key=lambda child: child.name.lower(),
         )
@@ -96,7 +102,7 @@ def _browse_matching_files(
         raise StateError(f"could not read directory: {error}") from error
     directory_limit = (
         MAX_BROWSER_DIRECTORY_NAVIGATION_ENTRIES
-        if suffix is not None and files
+        if (suffix is not None or document_type is not None) and files
         else MAX_BROWSER_ENTRIES
     )
     children = directories[:directory_limit] + files[:MAX_BROWSER_FILES]
@@ -112,6 +118,19 @@ def _browse_matching_files(
             for child in children[:300]
         ],
     }
+
+
+def _browser_file_matches(
+    path: Path,
+    *,
+    suffix: str | None,
+    document_type: str | None,
+) -> bool:
+    if suffix is not None and path.suffix.lower() != suffix:
+        return False
+    if document_type is not None and document_type_from_path(path) != document_type:
+        return False
+    return True
 
 
 def _readable_directory(path: Path | str) -> Path:

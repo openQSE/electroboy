@@ -1337,7 +1337,7 @@ _PAGE = r"""<!doctype html>
       );
       if (!target) return;
       const title = titleFromMindMapPath(target);
-      const blank = { schema_version: 1, type: "electroboy.mind-map", title,
+      const blank = { schema_version: 1, type: "mind-map", title,
         nodes: [], relationships: [] };
       const payload = await createAt(target, blank, title);
       window.location.search = `${requestContext}&path=${encodeURIComponent(payload.path)}`;

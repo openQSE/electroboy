@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from electroboy.modules.creative_workspace import (
     _create_creative_corkboard,
+    _creative_corkboard_document_paths,
     _creative_corkboard_payload,
     create_generated_creative_corkboard,
     save_creative_corkboard,
@@ -14,7 +15,7 @@ from electroboy.service.services import ServiceServices
 
 
 class CreativeWritingCorkboardProvider:
-    """Expose creative folders and ``.corkboard.json`` files as boards."""
+    """Expose creative folders and typed corkboard files as boards."""
 
     provider_id = "creative-files"
 
@@ -29,9 +30,7 @@ class CreativeWritingCorkboardProvider:
     ) -> list[dict[str, object]]:
         root = self.services.contexts.active_project_root(context_id)
         boards: list[dict[str, object]] = []
-        for path in sorted(root.rglob("*.corkboard.json")):
-            if ".electroboy" in path.parts or not path.is_file():
-                continue
+        for path in _creative_corkboard_document_paths(root):
             board_id = path.relative_to(root).as_posix()
             snapshot = self.get_board(context_id, board_id)
             boards.append(

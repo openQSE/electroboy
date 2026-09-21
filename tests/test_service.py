@@ -22,9 +22,15 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from electroboy import __version__  # noqa: E402
 from electroboy.cli import build_parser  # noqa: E402
+from electroboy.models import (  # noqa: E402
+    STAGE_DESIGN,
+    STAGE_DESIGN_ACCEPTANCE,
+    STAGE_DESIGN_REVIEW,
+    STAGE_REQUIREMENTS,
+)
 from electroboy.modules.agenda_workspace import render_agenda_html  # noqa: E402
 from electroboy.modules.calendar_workspace import render_calendar_html  # noqa: E402
-from electroboy.modules.mind_map_workspace import render_mind_map_html  # noqa: E402
+from electroboy.modules.creative_workspace import render_corkboard_html  # noqa: E402
 from electroboy.modules.editable_mind_map_workspace import (  # noqa: E402
     render_editable_mind_map_html,
 )
@@ -35,22 +41,22 @@ from electroboy.modules.mind_map_documents import (  # noqa: E402
     normalize_mind_map,
     save_mind_map,
 )
-from electroboy.modules.creative_workspace import render_corkboard_html  # noqa: E402
+from electroboy.modules.mind_map_workspace import render_mind_map_html  # noqa: E402
 from electroboy.service import (  # noqa: E402
     CREATIVE_SPLASH_IMAGE_ROUTE,
     FILE_BROWSER_WINDOW_HTML,
     GENERIC_STAGE_CONFIG,
     INDEX_HTML,
-    SESSION_EVENT_REPLAY_LIMIT,
     MAX_TERMINAL_COLUMNS,
     MAX_TERMINAL_ROWS,
     MIN_TERMINAL_COLUMNS,
     MIN_TERMINAL_ROWS,
     PANE_WINDOW_HTML,
+    SESSION_ARTIFACT_LOCKS,
+    SESSION_EVENT_REPLAY_LIMIT,
     SPLASH_IMAGE_ROUTE,
     AgentSession,
     AgentSessionError,
-    SESSION_ARTIFACT_LOCKS,
     ServiceState,
     TmuxAgentSession,
     _agent_event_cursor_id,
@@ -65,14 +71,14 @@ from electroboy.service import (  # noqa: E402
     _progress_snapshot_markdown,
     _reopen_requirements_for_restart,
     _requirements_command,
-    _session_events_markdown,
     _service_session_records_path,
+    _session_events_markdown,
     _status_command,
     _status_snapshot,
-    _terminal_output_is_transient_control,
     _terminal_input_chunks_for_message,
     _terminal_input_for_key,
     _terminal_input_for_message,
+    _terminal_output_is_transient_control,
     _tmux_capture_delta,
     artifact_editor_html,
     browse_directories,
@@ -92,7 +98,6 @@ from electroboy.service import (  # noqa: E402
 )
 from electroboy.service.agenda import normalize_agenda_snapshot  # noqa: E402
 from electroboy.service.calendar import normalize_calendar_snapshot  # noqa: E402
-from electroboy.service.mind_map import normalize_mind_map_snapshot  # noqa: E402
 from electroboy.service.corkboard import (  # noqa: E402
     CorkboardWorkflowController,
     normalize_board_snapshot,
@@ -101,7 +106,7 @@ from electroboy.service.frontend import (  # noqa: E402
     read_service_text_asset,
     render_service_index,
 )
-from electroboy.service.services import ServiceServices  # noqa: E402
+from electroboy.service.mind_map import normalize_mind_map_snapshot  # noqa: E402
 from electroboy.service.registry import (  # noqa: E402
     MODULE_ENTRY_POINT_GROUP,
     WORKFLOW_ENTRY_POINT_GROUP,
@@ -114,18 +119,13 @@ from electroboy.service.registry import (  # noqa: E402
     installed_module_factories,
 )
 from electroboy.service.routes import build_route_dispatcher  # noqa: E402
+from electroboy.service.services import ServiceServices  # noqa: E402
 from electroboy.service.workflow_config import (  # noqa: E402
     WorkflowConfig,
     add_configured_workflow,
     configured_workflows,
     load_workflow_config,
     save_workflow_config,
-)
-from electroboy.models import (  # noqa: E402
-    STAGE_DESIGN,
-    STAGE_DESIGN_ACCEPTANCE,
-    STAGE_DESIGN_REVIEW,
-    STAGE_REQUIREMENTS,
 )
 from electroboy.state_store import StateError, StateStore  # noqa: E402
 
@@ -918,8 +918,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function renderTrash(runtime)", binder)
         self.assertIn('invoke("restoreCreativeTrashEntry", ...args)', binder)
         self.assertIn("function folderEntryVisible(entry)", binder)
+        self.assertIn("function entryDocumentType(entry)", binder)
+        self.assertIn("const entryActionType = documentType || type;", binder)
+        self.assertIn('entryDocumentType(entry) === "mind-map"', binder)
+        self.assertIn("action.selectCreativeMindMap(path);", binder)
         self.assertIn('String(entry.path || "") !== "corkboard"', binder)
         self.assertNotIn('["New board",', binder)
+        self.assertIn("function showMindMap(runtime, path", creative)
+        self.assertIn('"selectMindMap"', creative)
         self.assertIn("function show(runtime, source, options = {})", corkboard)
         self.assertIn('kind: "corkboard"', corkboard)
         self.assertIn("async function openDocument(runtime, options = {})", corkboard)
@@ -1057,7 +1063,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function chooseFile(runtime, mode)", mind_map)
         self.assertIn('mode === "new" ? "file-new" : "file-open"', mind_map)
         self.assertIn("path: projectRoot(runtime),", mind_map)
-        self.assertIn("new_extension: MIND_MAP_SUFFIX", mind_map)
+        self.assertIn('parameters.set("new_extension", MIND_MAP_SUFFIX);', mind_map)
         self.assertNotIn("mindMapDocumentPicker", mind_map)
         self.assertNotIn("mind-map-picker-dialog", mind_map)
         self.assertIn("ElectroBoyMindMapPaneTools", mind_map_tools)
@@ -4199,7 +4205,7 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue(target.exists())
             self.assertEqual(
                 target.read_text(encoding="utf-8"),
-                "# Guide\n\n## Overview\n\n## Notes\n",
+                "---\ntype: markdown\n---\n\n# Guide\n\n## Overview\n\n## Notes\n",
             )
 
         self.assertEqual(status, HTTPStatus.OK)
@@ -4226,7 +4232,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(status, HTTPStatus.OK)
             self.assertEqual(
                 target.read_text(encoding="utf-8"),
-                "# README\n\n## Overview\n\n## Notes\n",
+                "---\ntype: markdown\n---\n\n# README\n\n## Overview\n\n## Notes\n",
             )
             self.assertIn('<h1 id="readme">README</h1>', page)
 
@@ -4528,18 +4534,36 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(result["markdown_path"], str(external))
             self.assertEqual(
                 external.read_text(encoding="utf-8"),
-                "# Updated notes\n",
+                "---\ntype: markdown\n---\n\n# Updated notes\n",
             )
             self.assertEqual(created_status, HTTPStatus.OK)
             self.assertTrue((base / "outside.md").is_file())
+            self.assertTrue(
+                (base / "outside.md")
+                .read_text(encoding="utf-8")
+                .startswith("---\ntype: markdown\n---\n\n")
+            )
             self.assertIn('<h1 id="outside">Outside</h1>', created_page)
 
-    def test_document_target_renderer_rejects_non_markdown_paths(self) -> None:
+    def test_document_target_renderer_uses_type_header_for_non_markdown_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
 
-            with self.assertRaises(StateError):
-                document_target_html(root, "docs/guide.txt", create_missing=True)
+            page, status = document_target_html(
+                root,
+                "docs/guide.txt",
+                create_missing=True,
+            )
+            target = root / "docs" / "guide.txt"
+
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertTrue(target.is_file())
+            self.assertTrue(
+                target.read_text(encoding="utf-8").startswith(
+                    "---\ntype: markdown\n---\n\n"
+                )
+            )
+            self.assertIn('<h1 id="guide">Guide</h1>', page)
 
     def test_artifact_editor_html_imports_markdown_to_structured_jsonl(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -5567,6 +5591,11 @@ class ServiceTests(unittest.TestCase):
             self.assertNotIn(".gitignore", [entry["name"] for entry in tree["entries"]])
             self.assertEqual(scratch["path"], "scratchpad/scratchpad.md")
             self.assertIn("Keep this.", scratch["markdown"])
+            self.assertTrue(
+                (project_root / "scratchpad" / "scratchpad.md")
+                .read_text(encoding="utf-8")
+                .startswith("---\ntype: markdown\n---\n\n")
+            )
 
     def test_service_state_opens_creative_project_with_electroboy_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -5759,7 +5788,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(emptied["deleted_count"], 1)
             self.assertEqual(state.creative_tree(context_id)["trash"], [])
 
-    def test_service_state_repairs_creative_corkboard_renamed_as_markdown(self) -> None:
+    def test_service_state_opens_typed_corkboard_without_suffix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "story"
@@ -5768,33 +5797,50 @@ class ServiceTests(unittest.TestCase):
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
             board_path = project_root / "corkboard" / "ideas.corkboard.json"
-            broken_path = project_root / "corkboard" / "ideas.md"
-            board_path.rename(broken_path)
+            typed_path = project_root / "corkboard" / "ideas.md"
+            board_path.rename(typed_path)
 
             tree = state.initialize_creative_workspace(context_id)
             page, status = creative_corkboard_html(
                 project_root,
-                "corkboard/ideas.corkboard.json",
+                "corkboard/ideas.md",
                 context_id=context_id,
+            )
+            saved = state.save_creative_corkboard(
+                context_id,
+                {
+                    "board_type": "freeform",
+                    "corkboard": "corkboard/ideas.md",
+                    "card": {
+                        "id": "typed-board-card",
+                        "title": "Typed board card",
+                    },
+                },
             )
             corkboard_folder = next(
                 entry for entry in tree["entries"] if entry["path"] == "corkboard"
             )
-            repaired_entry = next(
+            typed_entry = next(
                 entry
                 for entry in corkboard_folder["children"]
-                if entry["path"] == "corkboard/ideas.corkboard.json"
+                if entry["path"] == "corkboard/ideas.md"
             )
 
-            self.assertTrue(board_path.is_file())
-            self.assertFalse(broken_path.exists())
-            self.assertTrue(repaired_entry["corkboard"])
-            self.assertFalse(repaired_entry["markdown"])
-            self.assertEqual(repaired_entry["title"], "ideas")
+            self.assertFalse(board_path.exists())
+            self.assertTrue(typed_path.is_file())
+            self.assertTrue(typed_entry["corkboard"])
+            self.assertFalse(typed_entry["markdown"])
+            self.assertEqual(typed_entry["document_type"], "corkboard")
+            self.assertEqual(typed_entry["title"], "ideas")
             self.assertEqual(status, HTTPStatus.OK)
             self.assertIn('"board_type": "freeform"', page)
+            self.assertEqual(saved["card"]["id"], "typed-board-card")
+            self.assertEqual(
+                json.loads(typed_path.read_text(encoding="utf-8"))["cards"][0]["id"],
+                "typed-board-card",
+            )
 
-    def test_creative_tree_hides_duplicate_markdown_corkboard_json(self) -> None:
+    def test_creative_tree_classifies_corkboards_by_content_type(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "story"
@@ -5810,13 +5856,75 @@ class ServiceTests(unittest.TestCase):
             corkboard_folder = next(
                 entry for entry in tree["entries"] if entry["path"] == "corkboard"
             )
-            child_paths = [
-                child["path"] for child in corkboard_folder["children"]
-            ]
+            children = {
+                child["path"]: child for child in corkboard_folder["children"]
+            }
 
-            self.assertIn("corkboard/ideas.corkboard.json", child_paths)
-            self.assertNotIn("corkboard/ideas.md", child_paths)
+            self.assertIn("corkboard/ideas.corkboard.json", children)
+            self.assertIn("corkboard/ideas.md", children)
+            self.assertEqual(
+                children["corkboard/ideas.md"]["document_type"],
+                "corkboard",
+            )
             self.assertTrue(broken_path.is_file())
+
+    def test_creative_tree_classifies_mind_maps_by_content_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            mind_maps = project_root / "mind-maps"
+            mind_maps.mkdir()
+            (mind_maps / "plot.story").write_text(
+                json.dumps(empty_mind_map("Plot")),
+                encoding="utf-8",
+            )
+
+            tree = state.creative_tree(context_id)
+            mind_map_folder = next(
+                entry for entry in tree["entries"] if entry["path"] == "mind-maps"
+            )
+            mind_map = next(
+                child
+                for child in mind_map_folder["children"]
+                if child["path"] == "mind-maps/plot.story"
+            )
+
+            self.assertEqual(mind_map["document_type"], "mind-map")
+            self.assertTrue(mind_map["mind_map"])
+            self.assertFalse(mind_map["markdown"])
+            self.assertFalse(mind_map["corkboard"])
+
+    def test_creative_tree_opens_plain_markdown_as_document(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            (project_root / "chapters" / "legacy.md").write_text(
+                "# Legacy chapter\n\nThis file predates typed headers.\n",
+                encoding="utf-8",
+            )
+
+            tree = state.creative_tree(context_id)
+            chapters = next(
+                entry for entry in tree["entries"] if entry["path"] == "chapters"
+            )
+            legacy = next(
+                child
+                for child in chapters["children"]
+                if child["path"] == "chapters/legacy.md"
+            )
+
+            self.assertEqual(legacy["document_type"], "markdown")
+            self.assertTrue(legacy["markdown"])
+            self.assertFalse(legacy["corkboard"])
+            self.assertFalse(legacy["mind_map"])
 
     def test_creative_folder_board_renders_and_saves_ordered_cards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -5913,7 +6021,7 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("const maximumPixels = 64_000_000;", page)
             self.assertIn('message.action === "set-board-zoom"', page)
             self.assertIn('message.action === "export"', page)
-            self.assertIn('"electroboy.creative.corkboard"', page)
+            self.assertIn('"electroboy.corkboard.creative"', page)
             self.assertIn("CORKBOARD_STORAGE_NAMESPACE", page)
             self.assertIn(
                 "repeat(auto-fill, var(--card-width, 320px))",
@@ -7050,6 +7158,7 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(StateError, "parent cycle"):
             normalize_mind_map(
                 {
+                    "type": "mind-map",
                     "nodes": [
                         {"id": "one", "parent_id": "two"},
                         {"id": "two", "parent_id": "one"},
@@ -7059,6 +7168,7 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(StateError, "unsupported URL"):
             normalize_mind_map(
                 {
+                    "type": "mind-map",
                     "nodes": [
                         {
                             "id": "unsafe-link",
@@ -7070,12 +7180,19 @@ class ServiceTests(unittest.TestCase):
                 }
             )
         with self.assertRaisesRegex(StateError, "invalid color"):
-            normalize_mind_map({"nodes": [{"id": "invalid", "color": "infrared"}]})
+            normalize_mind_map({
+                "type": "mind-map",
+                "nodes": [{"id": "invalid", "color": "infrared"}],
+            })
         with self.assertRaisesRegex(StateError, "invalid side"):
-            normalize_mind_map({"nodes": [{"id": "invalid", "side": "above"}]})
+            normalize_mind_map({
+                "type": "mind-map",
+                "nodes": [{"id": "invalid", "side": "above"}],
+            })
         with self.assertRaisesRegex(StateError, "greater than zero"):
             normalize_mind_map(
                 {
+                    "type": "mind-map",
                     "nodes": [
                         {
                             "id": "invalid",
@@ -7086,7 +7203,10 @@ class ServiceTests(unittest.TestCase):
                 }
             )
         with self.assertRaisesRegex(StateError, "width and min_height"):
-            normalize_mind_map({"nodes": [{"id": "invalid", "width": 0}]})
+            normalize_mind_map({
+                "type": "mind-map",
+                "nodes": [{"id": "invalid", "width": 0}],
+            })
 
     def test_editable_mind_map_defaults_font_size_by_generation(self) -> None:
         nodes = []
@@ -7099,7 +7219,7 @@ class ServiceTests(unittest.TestCase):
             nodes.append(node)
             parent_id = node_id
 
-        normalized = normalize_mind_map({"nodes": nodes})
+        normalized = normalize_mind_map({"type": "mind-map", "nodes": nodes})
 
         self.assertEqual(
             [node["font_size"] for node in normalized["nodes"]],
@@ -7109,6 +7229,7 @@ class ServiceTests(unittest.TestCase):
     def test_editable_mind_map_infers_legacy_branch_side(self) -> None:
         normalized = normalize_mind_map(
             {
+                "type": "mind-map",
                 "nodes": [
                     {"id": "root", "x": 400, "width": 260},
                     {"id": "left", "parent_id": "root", "x": 60},
@@ -10638,7 +10759,10 @@ class ServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "docs").mkdir()
-            (root / "README.md").write_text("# Readme\n", encoding="utf-8")
+            (root / "README.md").write_text(
+                "---\ntype: markdown\n---\n\n# Readme\n",
+                encoding="utf-8",
+            )
             (root / "notes.txt").write_text("notes\n", encoding="utf-8")
 
             payload = browse_markdown_files(root)
@@ -10653,7 +10777,10 @@ class ServiceTests(unittest.TestCase):
             root = Path(tmp)
             for index in range(350):
                 (root / f"tmp{index:03d}").mkdir()
-            (root / "notes.md").write_text("# Notes\n", encoding="utf-8")
+            (root / "notes.md").write_text(
+                "---\ntype: markdown\n---\n\n# Notes\n",
+                encoding="utf-8",
+            )
 
             payload = browse_markdown_files(root)
 

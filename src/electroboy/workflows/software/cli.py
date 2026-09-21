@@ -6752,7 +6752,7 @@ def _corkboard_files(root: Path) -> list[str]:
 def _empty_corkboard_document() -> dict[str, object]:
     return {
         "schema_version": 2,
-        "type": "electroboy.creative.corkboard",
+        "type": "corkboard",
         "cards": [],
         "connectors": [],
     }
@@ -6780,7 +6780,7 @@ def _load_corkboard_document(path: Path) -> dict[str, object]:
     if not isinstance(data, dict):
         return _empty_corkboard_document()
     data["schema_version"] = 2
-    data["type"] = "electroboy.creative.corkboard"
+    data["type"] = "corkboard"
     if not isinstance(data.get("cards"), list):
         data["cards"] = []
     if not isinstance(data.get("connectors"), list):

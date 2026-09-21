@@ -178,6 +178,10 @@ body.creative-row-drag-active * {
   color: #9f7aea;
 }
 
+.creative-tree-icon.mind-map {
+  color: #20a486;
+}
+
 .creative-tree-row.active .creative-tree-icon {
   color: currentColor;
 }

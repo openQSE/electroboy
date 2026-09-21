@@ -13,6 +13,13 @@ from http import HTTPStatus
 from pathlib import Path
 from uuid import uuid4
 
+from electroboy.artifact_types import (
+    DOCUMENT_TYPE_CORKBOARD,
+    DOCUMENT_TYPE_MARKDOWN,
+    DOCUMENT_TYPE_MIND_MAP,
+    document_type_from_path,
+    normalize_document_type,
+)
 from electroboy.modules.document_service import (
     _document_starter_markdown,
     _document_target_path,
@@ -154,7 +161,6 @@ def _ensure_creative_workspace(
 ) -> None:
     project_root = Path(project_root).expanduser().resolve()
     (project_root / ".electroboy").mkdir(parents=True, exist_ok=True)
-    _repair_misnamed_creative_corkboards(project_root)
     if not seed_defaults:
         return
     for folder in CREATIVE_DEFAULT_FOLDERS:
@@ -178,7 +184,7 @@ def _ensure_creative_scratchpad(project_root: Path | str) -> Path:
     _relative, path = _document_target_path(project_root, CREATIVE_SCRATCHPAD_PATH)
     if not path.exists() or not path.read_text(encoding="utf-8").strip():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("# Scratchpad\n\n", encoding="utf-8")
+        path.write_text(_document_starter_markdown("Scratchpad"), encoding="utf-8")
     return path
 
 
@@ -213,12 +219,46 @@ def _empty_creative_corkboard_document(
 ) -> dict[str, object]:
     return {
         "schema_version": 2,
-        "type": "electroboy.creative.corkboard",
+        "type": DOCUMENT_TYPE_CORKBOARD,
         "title": _normalize_creative_corkboard_title(title, "Untitled corkboard"),
         "layout": "freeform",
         "cards": [],
         "connectors": [],
     }
+
+
+def _is_creative_corkboard_document(path: Path) -> bool:
+    return path.is_file() and document_type_from_path(path) == DOCUMENT_TYPE_CORKBOARD
+
+
+def _creative_document_type_for_entry(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    return document_type_from_path(path, plain_text_is_markdown=True)
+
+
+def _creative_visible_file_paths(project_root: Path) -> list[Path]:
+    paths: list[Path] = []
+    for path in sorted(project_root.rglob("*")):
+        if not path.is_file():
+            continue
+        relative_parts = path.relative_to(project_root).parts
+        if any(
+            part.startswith(".") or part in CREATIVE_IGNORED_NAMES
+            for part in relative_parts
+        ):
+            continue
+        paths.append(path)
+    return paths
+
+
+def _creative_corkboard_document_paths(project_root: Path | str) -> list[Path]:
+    project_root_path = Path(project_root).expanduser().resolve()
+    return [
+        path
+        for path in _creative_visible_file_paths(project_root_path)
+        if _is_creative_corkboard_document(path)
+    ]
 
 
 def _creative_corkboard_lock(path: Path) -> threading.RLock:
@@ -258,8 +298,6 @@ def _create_creative_corkboard(
     title: str | None = None,
 ) -> str:
     normalized_path, corkboard_path = _creative_path(project_root, relative_path)
-    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
-        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
     default_title = corkboard_path.name.removesuffix(CREATIVE_CORKBOARD_SUFFIX)
     with _creative_corkboard_lock(corkboard_path):
         if corkboard_path.exists() and not corkboard_path.is_file():
@@ -293,8 +331,6 @@ def create_generated_creative_corkboard(
     """Atomically create a validated freeform corkboard from a generated plan."""
 
     normalized_path, corkboard_path = _creative_path(project_root, relative_path)
-    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
-        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
     document = _empty_creative_corkboard_document(title)
     document["cards"] = _freeform_corkboard_cards({"cards": cards})
     document["connectors"] = _freeform_corkboard_connectors(
@@ -306,39 +342,6 @@ def create_generated_creative_corkboard(
             raise StateError(f"corkboard path already exists: {normalized_path}")
         _atomic_write_creative_corkboard_document(corkboard_path, document)
     return normalized_path
-
-
-def _is_creative_corkboard_document(path: Path) -> bool:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return False
-    return isinstance(data, dict) and data.get("type") == "electroboy.creative.corkboard"
-
-
-def _repair_misnamed_creative_corkboards(project_root: Path | str) -> list[tuple[str, str]]:
-    """Restore corkboard JSON files that were accidentally renamed as Markdown."""
-
-    project_root_path = Path(project_root).expanduser().resolve()
-    repaired: list[tuple[str, str]] = []
-    for source in sorted(project_root_path.rglob("*.md")):
-        if ".electroboy" in source.parts or not source.is_file():
-            continue
-        if not _is_creative_corkboard_document(source):
-            continue
-        destination = source.with_name(f"{source.stem}{CREATIVE_CORKBOARD_SUFFIX}")
-        if destination.exists():
-            continue
-        source.rename(destination)
-        old_relative_path = source.relative_to(project_root_path).as_posix()
-        new_relative_path = destination.relative_to(project_root_path).as_posix()
-        _remap_creative_corkboard_paths(
-            project_root_path,
-            old_relative_path,
-            new_relative_path,
-        )
-        repaired.append((old_relative_path, new_relative_path))
-    return repaired
 
 
 def _normalize_creative_entry_name(name: str) -> str:
@@ -501,11 +504,16 @@ def _trash_creative_entry(
     trash_id = uuid4().hex
     container = _creative_trash_container(project_root, trash_id)
     payload_path = container / "item"
+    document_type = _creative_document_type_for_entry(path)
     entry_type = (
         "directory"
         if path.is_dir()
         else "corkboard"
-        if normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX)
+        if document_type == DOCUMENT_TYPE_CORKBOARD
+        else "mind-map"
+        if document_type == DOCUMENT_TYPE_MIND_MAP
+        else "markdown"
+        if document_type == DOCUMENT_TYPE_MARKDOWN
         else "file"
     )
     creative_metadata = _creative_corkboard_metadata_snapshot(
@@ -564,10 +572,6 @@ def trash_corkboard_documents(
         normalized_id, path = _creative_path(project_root, board_id)
         if normalized_id in seen:
             continue
-        if not normalized_id.endswith(CREATIVE_CORKBOARD_SUFFIX):
-            raise StateError(
-                f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}"
-            )
         if (
             Path(normalized_id).parts[0] == ".electroboy"
             and not allow_project_state
@@ -575,6 +579,8 @@ def trash_corkboard_documents(
             raise StateError("ElectroBoy project state cannot be moved to Trash")
         if not path.is_file():
             raise StateError(f"corkboard does not exist: {normalized_id}")
+        if not _is_creative_corkboard_document(path):
+            raise StateError(f"corkboard document has invalid type: {normalized_id}")
         seen.add(normalized_id)
         normalized_ids.append(normalized_id)
     if not normalized_ids:
@@ -693,7 +699,6 @@ def _set_creative_folder_color(
 
 def _creative_tree_payload(project_root: Path | str) -> dict[str, object]:
     project_root = Path(project_root).expanduser().resolve()
-    _repair_misnamed_creative_corkboards(project_root)
     state = _load_creative_corkboard_state(project_root)
     folder_states = state.get("folders")
     if not isinstance(folder_states, dict):
@@ -757,16 +762,16 @@ def _creative_tree_entries(
                 }
             )
             continue
-        is_corkboard = child.name.endswith(CREATIVE_CORKBOARD_SUFFIX)
-        if not is_corkboard and child.suffix.lower() == ".md":
-            if _is_creative_corkboard_document(child):
-                continue
+        document_type = _creative_document_type_for_entry(child)
+        is_corkboard = document_type == DOCUMENT_TYPE_CORKBOARD
         entry: dict[str, object] = {
             "name": child.name,
             "path": relative_path,
             "type": "file",
-            "markdown": child.suffix.lower() == ".md",
+            "document_type": document_type,
+            "markdown": document_type == DOCUMENT_TYPE_MARKDOWN,
             "corkboard": is_corkboard,
+            "mind_map": document_type == DOCUMENT_TYPE_MIND_MAP,
         }
         if is_corkboard:
             data = _load_creative_corkboard_document(child)
@@ -1816,7 +1821,7 @@ def render_corkboard_html(
       : null;
     const CORKBOARD_STORAGE_NAMESPACE = CORKBOARD_DATA.provider
       ? `electroboy.corkboard.${{CORKBOARD_DATA.provider}}`
-      : "electroboy.creative.corkboard";
+      : "electroboy.corkboard.creative";
     const CARD_SCALE_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.cardScale.`;
     const CARD_FONT_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.cardFont.`;
     const AUTO_LAYOUT_STORAGE_PREFIX = `${{CORKBOARD_STORAGE_NAMESPACE}}.autoLayout.`;
@@ -4678,11 +4683,7 @@ def _creative_corkboard_payload(
             title=title,
             context_id=context_id,
         )
-    if (
-        path.exists()
-        and path.is_file()
-        and normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX)
-    ):
+    if path.exists() and path.is_file() and _is_creative_corkboard_document(path):
         return _creative_freeform_corkboard_payload(
             project_root,
             normalized_path,
@@ -4690,9 +4691,9 @@ def _creative_corkboard_payload(
             title=title,
             context_id=context_id,
         )
-    if normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
-        raise StateError(f"corkboard does not exist: {normalized_path}")
-    raise StateError(f"folder does not exist: {normalized_path}")
+    if path.exists() and path.is_file():
+        raise StateError(f"corkboard document has invalid type: {normalized_path}")
+    raise StateError(f"corkboard does not exist: {normalized_path}")
 
 
 def _creative_folder_corkboard_payload(
@@ -4829,11 +4830,7 @@ def _normalize_creative_corkboard_reference(value: object) -> str:
         relative_path = Path(raw)
     except ValueError:
         return ""
-    if (
-        relative_path.is_absolute()
-        or any(part in {"", ".."} for part in relative_path.parts)
-        or not relative_path.as_posix().endswith(CREATIVE_CORKBOARD_SUFFIX)
-    ):
+    if relative_path.is_absolute() or any(part in {"", ".."} for part in relative_path.parts):
         return ""
     return relative_path.as_posix()
 
@@ -4854,9 +4851,7 @@ def _creative_card_group_title(
     board_path: str,
 ) -> str:
     project_root_path = Path(project_root).expanduser().resolve()
-    for parent_path in project_root_path.rglob(f"*{CREATIVE_CORKBOARD_SUFFIX}"):
-        if not parent_path.is_file():
-            continue
+    for parent_path in _creative_corkboard_document_paths(project_root_path):
         try:
             data = json.loads(parent_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -4913,7 +4908,7 @@ def _creative_folder_corkboard_card(
         "name": path.name,
         "path": relative_path,
         "type": "directory" if path.is_dir() else "file",
-        "corkboard": path.name.endswith(CREATIVE_CORKBOARD_SUFFIX),
+        "corkboard": _is_creative_corkboard_document(path),
         "note": str(state.get("note") or ""),
         "rotation": style["rotation"],
         "color": color,
@@ -5187,8 +5182,9 @@ def _load_creative_corkboard_document(path: Path) -> dict[str, object]:
         raise StateError(f"corkboard document contains invalid JSON: {path}") from error
     if not isinstance(data, dict):
         raise StateError(f"corkboard document must contain an object: {path}")
-    if data.get("type") != "electroboy.creative.corkboard":
-        data["type"] = "electroboy.creative.corkboard"
+    if normalize_document_type(data.get("type")) != DOCUMENT_TYPE_CORKBOARD:
+        raise StateError(f"corkboard document has invalid type: {path}")
+    data["type"] = DOCUMENT_TYPE_CORKBOARD
     data["schema_version"] = 2
     if str(data.get("layout") or "").strip().lower() not in {"grid", "freeform"}:
         data["layout"] = "freeform"
@@ -5209,8 +5205,6 @@ def _save_creative_freeform_corkboard_layout(
     layout: object,
 ) -> str:
     normalized_path, path = _creative_path(project_root, corkboard_path)
-    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
-        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
     if not path.is_file():
         raise StateError(f"corkboard does not exist: {normalized_path}")
     normalized_layout = str(layout or "").strip().lower()
@@ -5386,8 +5380,6 @@ def _save_creative_freeform_corkboard_card(
     card_payload: dict[str, object],
 ) -> dict[str, object]:
     normalized_path, path = _creative_path(project_root, corkboard_path)
-    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
-        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
     if not path.exists():
         _create_creative_corkboard(project_root, normalized_path)
     if not path.is_file():
@@ -5482,7 +5474,7 @@ def _save_creative_freeform_corkboard_positions(
     """Persist card coordinates in one locked document mutation."""
 
     normalized_path, path = _creative_path(project_root, corkboard_path)
-    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
+    if not path.is_file():
         raise StateError(f"corkboard does not exist: {normalized_path}")
     normalized_positions: dict[str, tuple[float, float]] = {}
     for raw_position in positions:
@@ -5527,8 +5519,6 @@ def _delete_creative_freeform_corkboard_card(
     card_id: str,
 ) -> str:
     normalized_path, path = _creative_path(project_root, corkboard_path)
-    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
-        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
     if not path.is_file():
         raise StateError(f"corkboard does not exist: {normalized_path}")
     normalized_card_id = card_id.strip()[:100]
@@ -5560,7 +5550,7 @@ def _save_creative_freeform_corkboard_connector(
     connector_payload: dict[str, object],
 ) -> dict[str, object]:
     normalized_path, path = _creative_path(project_root, corkboard_path)
-    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
+    if not path.is_file():
         raise StateError(f"corkboard does not exist: {normalized_path}")
     with _creative_corkboard_lock(path):
         data = _load_creative_corkboard_document(path)
@@ -5614,7 +5604,7 @@ def _delete_creative_freeform_corkboard_connector(
     connector_id: str,
 ) -> str:
     normalized_path, path = _creative_path(project_root, corkboard_path)
-    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX) or not path.is_file():
+    if not path.is_file():
         raise StateError(f"corkboard does not exist: {normalized_path}")
     normalized_id = connector_id.strip()[:100]
     if not normalized_id:
@@ -5637,8 +5627,6 @@ def _save_creative_freeform_corkboard_title(
     title: object,
 ) -> dict[str, object]:
     normalized_path, path = _creative_path(project_root, corkboard_path)
-    if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
-        raise StateError(f"corkboard path must end with {CREATIVE_CORKBOARD_SUFFIX}")
     if not path.is_file():
         raise StateError(f"corkboard does not exist: {normalized_path}")
     normalized_title = _normalize_creative_corkboard_title(title, "")
@@ -5650,8 +5638,8 @@ def _save_creative_freeform_corkboard_title(
         _atomic_write_creative_corkboard_document(path, data)
     updated_groups: list[dict[str, str]] = []
     project_root_path = Path(project_root).expanduser().resolve()
-    for parent_path in project_root_path.rglob(f"*{CREATIVE_CORKBOARD_SUFFIX}"):
-        if not parent_path.is_file() or parent_path == path:
+    for parent_path in _creative_corkboard_document_paths(project_root_path):
+        if parent_path == path:
             continue
         with _creative_corkboard_lock(parent_path):
             try:
@@ -5870,20 +5858,30 @@ def _creative_agent_target(
             return {"type": "document", "path": normalized_path}
         if target_type == "freeform-corkboard" and target_path:
             normalized_path, path = _creative_path(root, target_path)
-            if not normalized_path.endswith(CREATIVE_CORKBOARD_SUFFIX):
-                raise StateError("freeform corkboard path must end in .corkboard.json")
             if not path.is_file():
                 raise StateError("freeform corkboard path is not a file")
+            if not _is_creative_corkboard_document(path):
+                raise StateError("freeform corkboard document has invalid type")
             return {"type": "freeform-corkboard", "path": normalized_path}
         if target_type == "folder-corkboard" and target_path:
             normalized_path, path = _creative_path(root, target_path)
             if not path.is_dir():
                 raise StateError("folder corkboard path is not a directory")
             return {"type": "folder-corkboard", "path": normalized_path}
+        if target_type == "mind-map" and target_path:
+            normalized_path, path = _creative_path(root, target_path)
+            if not path.is_file():
+                raise StateError("mind map path is not a file")
+            if document_type_from_path(path) != DOCUMENT_TYPE_MIND_MAP:
+                raise StateError("mind map document has invalid type")
+            return {"type": "mind-map", "path": normalized_path}
     if active_document:
-        if active_document.endswith(CREATIVE_CORKBOARD_SUFFIX):
-            normalized_path, _path = _creative_path(root, active_document)
+        normalized_path, path = _creative_path(root, active_document)
+        document_type = document_type_from_path(path, plain_text_is_markdown=True)
+        if document_type == DOCUMENT_TYPE_CORKBOARD:
             return {"type": "freeform-corkboard", "path": normalized_path}
+        if document_type == DOCUMENT_TYPE_MIND_MAP:
+            return {"type": "mind-map", "path": normalized_path}
         normalized_path, _path = _document_target_path(root, active_document)
         return {"type": "document", "path": normalized_path}
     return None
@@ -5957,5 +5955,11 @@ def _creative_writing_target_prompt_lines(
             "This board is backed by that folder's files and subfolders.",
             "Use `electroboy corkboard folder` commands for notes and order.",
             "Create, delete, or rename files only when the writer asks.",
+        ]
+    if target_type == "mind-map":
+        return [
+            "",
+            f"Current active target: mind map {target_path}.",
+            "Treat it as the mind-map document displayed in the planning pane.",
         ]
     return []

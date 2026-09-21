@@ -10,6 +10,10 @@ from http import HTTPStatus
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
+from electroboy.artifact_types import (
+    markdown_document_header,
+    strip_document_type_header,
+)
 from electroboy.document_export import resolve_markdown_image_path
 from electroboy.feature_artifacts import (
     artifact_paths_for_run,
@@ -436,8 +440,6 @@ def _normalize_document_target_path(target_path: str) -> str:
     if not raw:
         raise StateError("document path is required")
     path = Path(raw).expanduser()
-    if path.suffix.lower() != ".md":
-        raise StateError("document path must be a markdown file")
     return path.as_posix()
 
 
@@ -461,7 +463,7 @@ def _ensure_document_target(project_root: Path | str, relative_path: str) -> str
 
 def _document_starter_markdown(relative_path: str) -> str:
     title = _document_starter_title(relative_path)
-    return f"# {title}\n\n## Overview\n\n## Notes\n"
+    return f"{markdown_document_header()}# {title}\n\n## Overview\n\n## Notes\n"
 
 
 def _document_starter_title(relative_path: str) -> str:
@@ -534,13 +536,16 @@ def _artifact_edit_payload(
             _document_starter_markdown(markdown_path),
             encoding="utf-8",
         )
+    markdown_text = document_path.read_text(encoding="utf-8")
+    if artifact == "document":
+        markdown_text = strip_document_type_header(markdown_text)
     return {
         "mode": "markdown",
         "artifact": artifact,
         "path": requested_path,
         "title": title or markdown_path,
         "markdown_path": markdown_path,
-        "markdown": document_path.read_text(encoding="utf-8"),
+        "markdown": markdown_text,
         "rich_editor": bool(rich_editor and artifact == "document"),
         "editor_font_size": editor_font_size,
     }
@@ -706,6 +711,8 @@ def save_artifact_edit(
     if mode != "markdown":
         raise StateError("artifact is not backed by a structured JSONL document")
     markdown = str(payload.get("markdown") or "")
+    if artifact == "document":
+        markdown = f"{markdown_document_header()}{strip_document_type_header(markdown)}"
     document_path = _artifact_event_document_path(
         project_root,
         artifact,

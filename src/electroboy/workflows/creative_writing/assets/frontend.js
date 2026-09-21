@@ -14,6 +14,7 @@
   let artifactPaneRequested = false;
   let creativeTreePayload = null;
   let creativeActiveDocument = "";
+  let creativeActiveDocumentType = "";
   let creativeActiveFolder = "";
   let creativeEditingPath = "";
   let creativeEditingType = "";
@@ -57,6 +58,7 @@
     artifactPaneRequested = Boolean(state.artifactPaneRequested);
     creativeTreePayload = state.creativeTreePayload || null;
     creativeActiveDocument = state.creativeActiveDocument || "";
+    creativeActiveDocumentType = state.creativeActiveDocumentType || "";
     creativeActiveFolder = state.creativeActiveFolder || "";
     creativeEditingPath = state.creativeEditingPath || "";
     creativeEditingType = state.creativeEditingType || "";
@@ -78,6 +80,7 @@
     artifactPaneRequested = false;
     creativeTreePayload = null;
     creativeActiveDocument = "";
+    creativeActiveDocumentType = "";
     creativeActiveFolder = "";
     creativeEditingPath = "";
     creativeEditingType = "";
@@ -105,6 +108,7 @@
         artifactPaneRequested: false,
         creativeTreePayload: null,
         creativeActiveDocument: "",
+        creativeActiveDocumentType: "",
         creativeActiveFolder: "",
         creativeEditingPath: "",
         creativeEditingType: "",
@@ -119,6 +123,7 @@
       artifactPaneRequested,
       creativeTreePayload,
       creativeActiveDocument,
+      creativeActiveDocumentType,
       creativeActiveFolder,
       creativeEditingPath,
       creativeEditingType,
@@ -307,7 +312,7 @@
         creativeTreePayload && creativeTreePayload.entries,
         data.board_path,
       );
-      if (entry && entry.corkboard) {
+      if (creativeEntryDocumentType(entry) === "corkboard") {
         entry.title = String(data.title || "Untitled corkboard");
         renderCreativeTree();
       }
@@ -331,6 +336,7 @@
       );
       if (deleted.has(creativeActiveDocument)) {
         creativeActiveDocument = "";
+        creativeActiveDocumentType = "";
         publishState();
         hideArtifactPreview();
       }
@@ -348,6 +354,8 @@
       selectFolder(runtime, data.path);
     } else if (data.entry_type === "corkboard") {
       selectCorkboard(runtime, data.path, { title: data.title || "" });
+    } else if (data.entry_type === "mind-map") {
+      selectMindMap(runtime, data.path);
     } else {
       selectDocument(runtime, data.path);
     }
@@ -726,6 +734,7 @@
     runtime.updateState({
       creativeActiveFolder: path,
       creativeActiveDocument: "",
+      creativeActiveDocumentType: "",
     });
     showCreativeCorkboard(path);
     renderCreativeTree();
@@ -742,10 +751,13 @@
       path,
     );
     const title = options.title || (
-      entry && entry.corkboard ? String(entry.title || "") : ""
+      entry && creativeEntryDocumentType(entry) === "corkboard"
+        ? String(entry.title || "")
+        : ""
     );
     runtime.updateState({
       creativeActiveDocument: path,
+      creativeActiveDocumentType: "corkboard",
       creativeActiveFolder: creativeParentPath(path),
     });
     showCreativeCorkboard(path, {
@@ -787,9 +799,36 @@
     }
     runtime.updateState({
       creativeActiveDocument: path,
+      creativeActiveDocumentType: "markdown",
       creativeActiveFolder: creativeParentPath(path),
     });
     showDocument(runtime, path);
+    renderCreativeTree();
+    renderProjectStatus(runtime);
+  }
+
+  function showMindMap(runtime, path, options = {}) {
+    bindRuntime(runtime);
+    if (!path) {
+      return;
+    }
+    runtime.modules.invoke("mind_map", "showDocument", { path }, {
+      replaceWorkspacePane: true,
+      requestedLeafId: options.requestedLeafId || "",
+    });
+  }
+
+  function selectMindMap(runtime, path, options = {}) {
+    bindRuntime(runtime);
+    if (!path) {
+      return;
+    }
+    runtime.updateState({
+      creativeActiveDocument: path,
+      creativeActiveDocumentType: "mind-map",
+      creativeActiveFolder: creativeParentPath(path),
+    });
+    showMindMap(runtime, path, options);
     renderCreativeTree();
     renderProjectStatus(runtime);
   }
@@ -799,11 +838,7 @@
       setAgentInputVisible(true);
       showProgressPane(false);
       if (creativeActiveDocument) {
-        if (creativePathIsCorkboard(creativeActiveDocument)) {
-          showCreativeCorkboard(creativeActiveDocument, { freeform: true });
-        } else {
-          showCreativeDocument(creativeActiveDocument);
-        }
+        showActiveCreativeDocument();
       } else if (creativeActiveFolder) {
         showCreativeCorkboard(creativeActiveFolder);
       } else {
@@ -973,6 +1008,14 @@
       return window.ElectroBoyFrontend.invokeWorkflow(
         WORKFLOW_ID,
         "selectCorkboard",
+        path,
+      );
+    }
+
+    function selectCreativeMindMap(path) {
+      return window.ElectroBoyFrontend.invokeWorkflow(
+        WORKFLOW_ID,
+        "selectMindMap",
         path,
       );
     }
@@ -1300,9 +1343,16 @@
 
     function activeCreativeTarget() {
       if (creativeActiveDocument) {
-        if (creativePathIsCorkboard(creativeActiveDocument)) {
+        const documentType = activeCreativeDocumentType();
+        if (documentType === "corkboard") {
           return {
             type: "freeform-corkboard",
+            path: creativeActiveDocument,
+          };
+        }
+        if (documentType === "mind-map") {
+          return {
+            type: "mind-map",
             path: creativeActiveDocument,
           };
         }
@@ -1343,6 +1393,14 @@
           "API guide: docs/corkboard-api.md",
           "Use `electroboy corkboard` commands for card changes.",
           "Do not edit corkboard JSON directly unless the writer explicitly asks.",
+        ];
+      }
+      if (target.type === "mind-map") {
+        return [
+          "Active target: mind map",
+          `Path: ${target.path}`,
+          "Mode: editable node map",
+          "Use the mind-map pane as the planning target unless the writer names another file.",
         ];
       }
       return [
@@ -1439,6 +1497,34 @@
       return null;
     }
 
+    function creativeEntryDocumentType(entry) {
+      return String(
+        entry && (entry.document_type || entry.documentType) || "",
+      ).trim();
+    }
+
+    function activeCreativeDocumentType() {
+      if (!creativeActiveDocument) {
+        return "";
+      }
+      const entry = findCreativeEntry(
+        creativeTreePayload && creativeTreePayload.entries,
+        creativeActiveDocument,
+      );
+      return creativeEntryDocumentType(entry) || creativeActiveDocumentType;
+    }
+
+    function showActiveCreativeDocument() {
+      const documentType = activeCreativeDocumentType();
+      if (documentType === "corkboard") {
+        showCreativeCorkboard(creativeActiveDocument, { freeform: true });
+      } else if (documentType === "mind-map") {
+        showMindMap(runtimeApi, creativeActiveDocument);
+      } else {
+        showCreativeDocument(creativeActiveDocument);
+      }
+    }
+
     function removeCreativeTreeEntry(entries, path) {
       if (!Array.isArray(entries)) {
         return false;
@@ -1470,10 +1556,6 @@
 
     function creativeParentPath(path) {
       return path.includes("/") ? path.split("/").slice(0, -1).join("/") : "";
-    }
-
-    function creativePathIsCorkboard(path) {
-      return String(path || "").toLowerCase().endsWith(CREATIVE_CORKBOARD_SUFFIX);
     }
 
     function creativePathIsInside(path, container) {
@@ -1537,7 +1619,7 @@
       if (type === "corkboard") {
         return name.slice(0, 200);
       }
-      if (type === "file" && !/\.[^./]+$/.test(name)) {
+      if (type === "markdown" && !/\.[^./]+$/.test(name)) {
         name = `${name}.md`;
       }
       return name;
@@ -1608,11 +1690,7 @@
       await refreshCreativeBinder();
       recordProjectStatusMessage(`renamed: ${newPath}`);
       if (creativeActiveDocument) {
-        if (creativePathIsCorkboard(creativeActiveDocument)) {
-          showCreativeCorkboard(creativeActiveDocument, { freeform: true });
-        } else {
-          showCreativeDocument(creativeActiveDocument);
-        }
+        showActiveCreativeDocument();
       }
     }
 
@@ -1646,11 +1724,7 @@
       await refreshCreativeBinder({ showLoading: false });
       recordProjectStatusMessage(`moved: ${path} → ${newPath}`);
       if (activeDocumentMoved && creativeActiveDocument) {
-        if (creativePathIsCorkboard(creativeActiveDocument)) {
-          showCreativeCorkboard(creativeActiveDocument, { freeform: true });
-        } else {
-          showCreativeDocument(creativeActiveDocument);
-        }
+        showActiveCreativeDocument();
       }
     }
 
@@ -1693,6 +1767,7 @@
         return;
       }
       creativeActiveDocument = payload.path || path;
+      creativeActiveDocumentType = "markdown";
       creativeActiveFolder = basePath;
       creativeEditingPath = payload.path || path;
       creativeEditingType = "file";
@@ -1721,6 +1796,7 @@
         return;
       }
       creativeActiveDocument = payload.path || path;
+      creativeActiveDocumentType = "corkboard";
       creativeActiveFolder = basePath;
       creativeEditingPath = payload.path || path;
       creativeEditingType = "corkboard";
@@ -1794,7 +1870,9 @@
     function creativeEntryLabel(type) {
       return type === "directory"
         ? "folder"
-        : type === "corkboard" ? "corkboard" : "file";
+        : type === "corkboard" ? "corkboard"
+          : type === "mind-map" ? "mind map"
+            : type === "markdown" ? "document" : "file";
     }
 
     function confirmCreativeAction({
@@ -1885,6 +1963,7 @@
     async function applyCreativeTrashResult(path, type, trashEntry) {
       if (creativePathIsInside(creativeActiveDocument, path)) {
         creativeActiveDocument = "";
+        creativeActiveDocumentType = "";
         publishState();
         hideArtifactPreview();
       }
@@ -2077,6 +2156,7 @@
       startAgent,
       selectFolder,
       selectCorkboard,
+      selectMindMap,
       showDocument,
       selectDocument,
       applyCreativeWorkspace: (runtime, ...args) => invoke(runtime, applyCreativeWorkspace, args),
@@ -2090,6 +2170,7 @@
       showCreativeCorkboard: (runtime, ...args) => invoke(runtime, showCreativeCorkboard, args),
       selectCreativeFolder: (runtime, ...args) => invoke(runtime, selectCreativeFolder, args),
       selectCreativeCorkboard: (runtime, ...args) => invoke(runtime, selectCreativeCorkboard, args),
+      selectCreativeMindMap: (runtime, ...args) => invoke(runtime, selectCreativeMindMap, args),
       showCreativeDocument: (runtime, ...args) => invoke(runtime, showCreativeDocument, args),
       selectCreativeDocument: (runtime, ...args) => invoke(runtime, selectCreativeDocument, args),
       creativeAgentSession: (runtime, ...args) => invoke(runtime, creativeAgentSession, args),
@@ -2107,7 +2188,6 @@
       findCreativeEntry: (runtime, ...args) => invoke(runtime, findCreativeEntry, args),
       uniqueCreativeChildPath: (runtime, ...args) => invoke(runtime, uniqueCreativeChildPath, args),
       creativeParentPath: (runtime, ...args) => invoke(runtime, creativeParentPath, args),
-      creativePathIsCorkboard: (runtime, ...args) => invoke(runtime, creativePathIsCorkboard, args),
       creativePathIsInside: (runtime, ...args) => invoke(runtime, creativePathIsInside, args),
       remapCreativePath: (runtime, ...args) => invoke(runtime, remapCreativePath, args),
       moveCreativeEntry: (runtime, ...args) =>

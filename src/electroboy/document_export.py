@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from xml.sax.saxutils import escape as xml_escape
 
+from electroboy.artifact_types import strip_document_type_header
 
 SUPPORTED_DOCUMENT_EXPORT_FORMATS = {"markdown", "md", "docx", "pdf"}
 MARKDOWN_IMAGE_CONTENT_TYPES = {
@@ -100,6 +101,7 @@ def export_markdown_text(
 ) -> DocumentExport:
     """Export Markdown text as Markdown, DOCX, or PDF."""
 
+    markdown = strip_document_type_header(markdown)
     normalized_format = normalize_document_export_format(export_format)
     stem = _export_stem(source_name)
     if normalized_format == "markdown":
@@ -785,8 +787,7 @@ def _pdf_bytes(
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
-        from reportlab.lib.styles import ParagraphStyle
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.platypus import (
             Image,
             ListFlowable,

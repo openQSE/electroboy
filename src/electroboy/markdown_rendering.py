@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import re
 
+from electroboy.artifact_types import strip_document_type_header
 
 _DETAILS_TAG_RE = re.compile(r"<details(?P<attrs>[^>]*)>", re.IGNORECASE)
 _MERMAID_BLOCK_RE = re.compile(
@@ -16,6 +17,7 @@ _MERMAID_BLOCK_RE = re.compile(
 def render_markdown(text: str) -> str:
     """Render Markdown with the same behavior across ElectroBoy views."""
 
+    text = strip_document_type_header(text)
     try:
         import markdown as markdown_library
     except ImportError:

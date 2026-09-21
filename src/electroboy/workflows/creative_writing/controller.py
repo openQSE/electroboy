@@ -5,6 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from electroboy.adapters.codex_sessions import CodexSessionSummary, codex_session_paths
+from electroboy.artifact_types import (
+    markdown_document_header,
+    strip_document_type_header,
+)
 from electroboy.modules.creative_workspace import (
     _create_creative_document,
     _create_creative_folder,
@@ -26,12 +30,12 @@ from electroboy.modules.creative_workspace import (
 from electroboy.service.recent_projects import (
     remember_recent_project as _remember_recent_project,
 )
+from electroboy.service.services import ServiceServices
 from electroboy.service.sessions import (
     AgentSession,
     AgentSessionError,
     normalize_session_name,
 )
-from electroboy.service.services import ServiceServices
 from electroboy.service.workflow_controller import BoundWorkflowController
 
 from .corkboard_provider import CreativeWritingCorkboardProvider
@@ -269,7 +273,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         path = _ensure_creative_scratchpad(project_root)
         return {
             "path": path.relative_to(project_root).as_posix(),
-            "markdown": path.read_text(encoding="utf-8"),
+            "markdown": strip_document_type_header(path.read_text(encoding="utf-8")),
         }
 
     def save_creative_scratchpad(
@@ -279,7 +283,10 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
     ) -> dict[str, object]:
         project_root = self.services.contexts.active_project_root(context_id)
         path = _ensure_creative_scratchpad(project_root)
-        path.write_text(markdown, encoding="utf-8")
+        path.write_text(
+            f"{markdown_document_header()}{strip_document_type_header(markdown)}",
+            encoding="utf-8",
+        )
         return {
             "status": "saved",
             "path": path.relative_to(project_root).as_posix(),

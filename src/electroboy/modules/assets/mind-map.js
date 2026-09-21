@@ -108,9 +108,11 @@
     const parameters = new URLSearchParams({
       path: projectRoot(runtime),
       mode: browserMode,
-      new_extension: MIND_MAP_SUFFIX,
       selection_channel: selectionChannel,
     });
+    if (mode === "new") {
+      parameters.set("new_extension", MIND_MAP_SUFFIX);
+    }
     const popup = window.open(
       `/file-browser?${parameters.toString()}`,
       `electroboy-${selectionChannel}`,

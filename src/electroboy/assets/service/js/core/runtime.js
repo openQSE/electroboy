@@ -373,6 +373,7 @@
     let restoredScratchContextId = "";
     let creativeTreePayload = null;
     let creativeActiveDocument = "";
+    let creativeActiveDocumentType = "";
     let creativeActiveFolder = "";
     let creativeEditingPath = "";
     let creativeEditingType = "";
@@ -6760,6 +6761,7 @@
       openDocumentTargets = [];
       currentWorkflowStage = "project";
       creativeActiveDocument = "";
+      creativeActiveDocumentType = "";
       creativeActiveFolder = "";
       creativeEditingPath = "";
       creativeEditingType = "";
@@ -7047,6 +7049,7 @@
         hideArtifactPreview();
         openDocumentTargets = [];
         creativeActiveDocument = "";
+        creativeActiveDocumentType = "";
         creativeActiveFolder = "";
         creativeEditingPath = "";
         creativeEditingType = "";
@@ -8731,6 +8734,7 @@
       hideArtifactPreview();
       hideWorkItemPanel();
       creativeActiveDocument = "";
+      creativeActiveDocumentType = "";
       creativeActiveFolder = "";
       creativeEditingPath = "";
       creativeEditingType = "";
@@ -9118,6 +9122,7 @@
           artifactPreviewStage,
           creativeTreePayload,
           creativeActiveDocument,
+          creativeActiveDocumentType,
           creativeActiveFolder,
           creativeEditingPath,
           creativeEditingType,
@@ -9134,6 +9139,9 @@
         }
         if (Object.hasOwn(patch, "creativeActiveDocument")) {
           creativeActiveDocument = patch.creativeActiveDocument;
+        }
+        if (Object.hasOwn(patch, "creativeActiveDocumentType")) {
+          creativeActiveDocumentType = patch.creativeActiveDocumentType;
         }
         if (Object.hasOwn(patch, "creativeActiveFolder")) {
           creativeActiveFolder = patch.creativeActiveFolder;

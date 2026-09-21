@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from electroboy.artifact_types import DOCUMENT_TYPE_MIND_MAP, normalize_document_type
 from electroboy.state_store import StateError
 
 MIND_MAP_SUFFIX = ".mindmap.json"
 MIND_MAP_SCHEMA_VERSION = 1
-MIND_MAP_TYPE = "electroboy.mind-map"
+MIND_MAP_TYPE = DOCUMENT_TYPE_MIND_MAP
 DEFAULT_MIND_MAP_DIRECTORY = Path(".electroboy") / "shared" / "mind-maps"
 ROOT_NODE_FONT_SIZE = 24.0
 NODE_FONT_SIZE_STEP = 3.0
@@ -41,8 +42,6 @@ def resolve_mind_map_path(root: Path, value: str) -> Path:
     if not candidate.is_absolute():
         candidate = root / candidate
     candidate = candidate.resolve(strict=False)
-    if not candidate.name.endswith(MIND_MAP_SUFFIX):
-        raise StateError(f"mind map path must end with {MIND_MAP_SUFFIX}")
     return candidate
 
 
@@ -90,6 +89,8 @@ def normalize_mind_map(value: object) -> dict[str, object]:
 
     if not isinstance(value, dict):
         raise StateError("mind map document must be an object")
+    if normalize_document_type(value.get("type")) != MIND_MAP_TYPE:
+        raise StateError("mind map document has invalid type")
     version = value.get("schema_version", MIND_MAP_SCHEMA_VERSION)
     if version != MIND_MAP_SCHEMA_VERSION:
         raise StateError(f"unsupported mind map schema version: {version}")
@@ -320,7 +321,7 @@ def list_mind_maps(root: Path) -> list[dict[str, str]]:
     directory = root / DEFAULT_MIND_MAP_DIRECTORY
     if not directory.is_dir():
         return maps
-    for path in sorted(directory.rglob(f"*{MIND_MAP_SUFFIX}")):
+    for path in sorted(directory.rglob("*")):
         if not path.is_file():
             continue
         try:

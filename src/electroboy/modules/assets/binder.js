@@ -22,7 +22,8 @@
   }
 
   function folderEntryVisible(entry) {
-    return !entry.corkboard && String(entry.path || "") !== "corkboard";
+    return entryDocumentType(entry) !== "corkboard" &&
+      String(entry.path || "") !== "corkboard";
   }
 
   function renderTree(runtime) {
@@ -62,20 +63,25 @@
     if ((entry.type || "") === "directory") {
       return expanded ? "folder-open" : "folder";
     }
-    if (entry.corkboard) {
+    const documentType = entryDocumentType(entry);
+    if (documentType === "corkboard") {
       return "corkboard";
     }
-    return entry.markdown ? "markdown" : "file";
+    if (documentType === "mind-map") {
+      return "corkboard";
+    }
+    return documentType === "markdown" ? "markdown" : "file";
   }
 
   function iconClass(entry) {
     if ((entry.type || "") === "directory") {
       return "folder";
     }
-    if (entry.corkboard) {
-      return "corkboard";
-    }
-    return entry.markdown ? "markdown" : "file";
+    return entryDocumentType(entry) || "file";
+  }
+
+  function entryDocumentType(entry) {
+    return String(entry.document_type || entry.documentType || "").trim();
   }
 
   function actionIconSvg(name) {
@@ -92,7 +98,8 @@
     const action = creativeActions(runtime);
     const tree = runtime.elements.creativeTree;
     const type = entry.type || "file";
-    const entryActionType = entry.corkboard ? "corkboard" : type;
+    const documentType = entryDocumentType(entry);
+    const entryActionType = documentType || type;
     const path = String(entry.path || "");
     const isDirectory = type === "directory";
     const expanded = isDirectory && state.expandedCreativeFolders.has(path);
@@ -326,7 +333,8 @@
     const name = document.createElement("span");
     name.className = "creative-tree-name";
     name.textContent = String(
-      (entry.corkboard && entry.title) || entry.name || path || "Untitled",
+      (entryDocumentType(entry) === "corkboard" && entry.title) ||
+        entry.name || path || "Untitled",
     );
     return name;
   }
@@ -499,9 +507,11 @@
     const action = creativeActions(runtime);
     if (type === "directory") {
       action.selectCreativeFolder(path);
-    } else if (entry.corkboard) {
+    } else if (entryDocumentType(entry) === "corkboard") {
       action.selectCreativeCorkboard(path);
-    } else if (entry.markdown) {
+    } else if (entryDocumentType(entry) === "mind-map") {
+      action.selectCreativeMindMap(path);
+    } else if (entryDocumentType(entry) === "markdown") {
       action.selectCreativeDocument(path);
     } else {
       action.appendOutput(
@@ -517,7 +527,8 @@
     input.className = "creative-tree-name-input";
     input.type = "text";
     input.value = String(
-      (entry.corkboard && entry.title) || entry.name || basename(path),
+      (entryDocumentType(entry) === "corkboard" && entry.title) ||
+        entry.name || basename(path),
     );
     input.setAttribute("aria-label", `Rename ${path}`);
     input.addEventListener("click", (event) => event.stopPropagation());
@@ -710,6 +721,7 @@
       selectCreativeCorkboard: (...args) => invoke("selectCreativeCorkboard", ...args),
       selectCreativeDocument: (...args) => invoke("selectCreativeDocument", ...args),
       selectCreativeFolder: (...args) => invoke("selectCreativeFolder", ...args),
+      selectCreativeMindMap: (...args) => invoke("selectCreativeMindMap", ...args),
       toggleCreativeTrash: (...args) => invoke("toggleCreativeTrash", ...args),
     };
   }
