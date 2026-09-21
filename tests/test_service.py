@@ -3840,6 +3840,53 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('contextUrl("/api/sessions/message")', page)
         self.assertIn('contextUrl("/api/sessions/raw")', page)
 
+    def test_pane_window_enforces_content_kind_boundaries(self) -> None:
+        page = pane_window_html("artifact")
+
+        self.assertIn("function paneSupportsArtifactKind(kind)", page)
+        self.assertIn("function compatibleArtifactKind(kind", page)
+        self.assertIn("let artifactKind = compatibleArtifactKind(", page)
+        self.assertIn("artifactKind = compatibleArtifactKind(kind);", page)
+        self.assertIn("artifactKind = compatibleArtifactKind(artifactKind);", page)
+        artifact_support_start = page.index('if (PANE_KIND === "artifact")')
+        artifact_support_end = page.index('if (PANE_KIND === "corkboard")')
+        artifact_support_source = page[
+            artifact_support_start:artifact_support_end
+        ]
+        self.assertIn('normalizedKind === "document"', artifact_support_source)
+        self.assertIn('normalizedKind === "route"', artifact_support_source)
+        self.assertIn('normalizedKind === "requirements"', artifact_support_source)
+        self.assertNotIn('normalizedKind === "mind-map"', artifact_support_source)
+        self.assertNotIn('normalizedKind === "corkboard"', artifact_support_source)
+        self.assertIn(
+            'const nextKind = String(next.kind || "empty").trim() || "empty";',
+            page,
+        )
+        self.assertIn(
+            "if (!paneSupportsArtifactKind(nextKind)) {\n"
+            "        return;\n"
+            "      }",
+            page,
+        )
+        self.assertIn(
+            'if (PANE_KIND !== "artifact") {\n'
+            "        return;\n"
+            "      }",
+            page,
+        )
+        self.assertIn(
+            "if (!paneSupportsArtifactKind(artifactKind)) {\n"
+            "        return null;\n"
+            "      }",
+            page,
+        )
+        self.assertIn(
+            "if (!paneSupportsArtifactKind(artifactKind)) {\n"
+            '        return "";\n'
+            "      }",
+            page,
+        )
+
     def test_session_events_markdown_exports_transcript(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             session = AgentSession(

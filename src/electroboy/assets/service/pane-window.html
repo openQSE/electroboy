@@ -1037,6 +1037,60 @@
     const IS_ARTIFACT_PANE =
       PANE_KIND === "artifact" || PANE_KIND === "corkboard";
     const params = new URLSearchParams(window.location.search);
+
+    function paneDefaultArtifactKind() {
+      if (PANE_KIND === "agenda") {
+        return "agenda";
+      }
+      if (PANE_KIND === "calendar") {
+        return "calendar";
+      }
+      if (PANE_KIND === "mind-map") {
+        return "mind-map";
+      }
+      return "empty";
+    }
+
+    function paneSupportsArtifactKind(kind) {
+      const normalizedKind = String(kind || "empty").trim() || "empty";
+      if (PANE_KIND === "artifact") {
+        return normalizedKind === "empty" ||
+          normalizedKind === "document" ||
+          normalizedKind === "route" ||
+          normalizedKind === "requirements";
+      }
+      if (PANE_KIND === "corkboard") {
+        return normalizedKind === "empty" ||
+          normalizedKind === "corkboard" ||
+          normalizedKind === "creative-corkboard";
+      }
+      if (PANE_KIND === "mind-map") {
+        return normalizedKind === "empty" || normalizedKind === "mind-map";
+      }
+      if (PANE_KIND === "agenda") {
+        return normalizedKind === "empty" || normalizedKind === "agenda";
+      }
+      if (PANE_KIND === "calendar") {
+        return normalizedKind === "empty" || normalizedKind === "calendar";
+      }
+      if (PANE_KIND === "assignments") {
+        return normalizedKind === "empty" || normalizedKind === "route";
+      }
+      return normalizedKind === "empty";
+    }
+
+    function compatibleArtifactKind(kind, fallback = paneDefaultArtifactKind()) {
+      const normalizedKind = String(kind || "empty").trim() || "empty";
+      if (paneSupportsArtifactKind(normalizedKind)) {
+        return normalizedKind;
+      }
+      const fallbackKind = String(fallback || "empty").trim() || "empty";
+      if (fallbackKind !== normalizedKind && paneSupportsArtifactKind(fallbackKind)) {
+        return fallbackKind;
+      }
+      return "empty";
+    }
+
     const workflowId = params.get("workflow_id") || "";
     const workflowLabel = params.get("workflow_label") || "";
     const workflowLayoutClass = params.get("workflow_layout_class") || "";
@@ -1070,14 +1124,9 @@
     const ownedShellSessionId = params.get("shell_session_id") || "";
     let selectedShellSessionId = ownedShellSessionId;
     const disposableShell = params.get("disposable") === "1";
-    let artifactKind = PANE_KIND === "agenda"
-      ? "agenda"
-      : PANE_KIND === "calendar"
-        ? "calendar"
-        : PANE_KIND === "mind-map"
-          ? "mind-map"
-          : params.get("artifact") ||
-            (PANE_KIND === "corkboard" ? "empty" : "requirements");
+    let artifactKind = compatibleArtifactKind(
+      params.get("artifact") || paneDefaultArtifactKind(),
+    );
     let artifactDocumentPath = params.get("document_path") || "";
     let artifactDocumentTitle = params.get("document_title") || "";
     let artifactDocumentFragment = "";
@@ -2236,6 +2285,9 @@
     }
 
     function currentContentTarget() {
+      if (!paneSupportsArtifactKind(artifactKind)) {
+        return null;
+      }
       if (artifactKind === "document" && artifactDocumentPath) {
         return {
           kind: "document",
@@ -2429,6 +2481,9 @@
     }
 
     function selectFileTarget(target, navigationLocation = null) {
+      if (PANE_KIND !== "artifact") {
+        return;
+      }
       if (!target || !target.path) {
         return;
       }
@@ -4049,7 +4104,7 @@
     }
 
     function resetArtifactTargetState(kind = "empty") {
-      artifactKind = kind || "empty";
+      artifactKind = compatibleArtifactKind(kind);
       artifactDocumentPath = "";
       artifactDocumentTitle = "";
       artifactDocumentFragment = "";
@@ -4093,7 +4148,11 @@
         reconnectArtifactStream();
         return;
       }
-      resetArtifactTargetState(String(next.kind || "empty"));
+      const nextKind = String(next.kind || "empty").trim() || "empty";
+      if (!paneSupportsArtifactKind(nextKind)) {
+        return;
+      }
+      resetArtifactTargetState(nextKind);
       artifactEditing = Boolean(next.editing);
       if (artifactKind === "document" && next.target) {
         artifactDocumentPath = String(next.target.path || "");
@@ -4277,6 +4336,7 @@
     }
 
     function syncArtifactUrlState() {
+      artifactKind = compatibleArtifactKind(artifactKind);
       const nextUrl = new URL(window.location.href);
       for (const key of [
         "artifact",
@@ -4379,6 +4439,9 @@
     }
 
     function artifactUrl() {
+      if (!paneSupportsArtifactKind(artifactKind)) {
+        return "";
+      }
       if (artifactKind === "requirements") {
         return `${contextUrl("/artifacts/requirements?embed=1")}&zoom=${artifactZoom}&version=${artifactVersion}`;
       }
