@@ -3135,7 +3135,7 @@
       return renderedKinds;
     }
 
-    function renderPaneLayoutIncrementalLeaf(leaf) {
+    function renderPaneLayoutIncrementalLeaf(leaf, options = {}) {
       const existingElement = paneLayoutLeafElementById(leaf.id);
       const parent = existingElement?.parentElement || null;
       if (!existingElement || !parent) {
@@ -3149,7 +3149,9 @@
         replacementElement.classList.add("pane-layout-root");
       }
       existingElement.replaceWith(replacementElement);
-      paneLayoutLeaves().forEach(refreshPaneLayoutLeafToolbar);
+      if (options.refreshAllToolbars !== false) {
+        paneLayoutLeaves().forEach(refreshPaneLayoutLeafToolbar);
+      }
       refreshPaneLayoutVisibility();
       scheduleFitTerminal();
       bumpFrontendDebugCounter("paneLayout.incrementalLeaf");
@@ -3468,12 +3470,24 @@
       if (!leaf) {
         return;
       }
+      const previousKind = leaf.kind;
       leaf.kind = kind;
       leaf.content = clonePaneLayoutContent(item);
       leaf.projectRoot = activeProjectRoot;
       setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
-      renderPaneLayout();
+      if (
+        previousKind === kind &&
+        refreshPaneLayoutInstanceFrameForLeaf(
+          leaf,
+          `assignPaneLeafContent:${kind}`,
+        )
+      ) {
+        return;
+      }
+      if (!renderPaneLayoutIncrementalLeaf(leaf, { refreshAllToolbars: false })) {
+        renderPaneLayout();
+      }
     }
 
     function assignActivePaneContent(kind, item, requestedLeafId = "") {
@@ -3636,7 +3650,6 @@
       }
       leaf.content = clonePaneLayoutContent(message.item);
       leaf.projectRoot = activeProjectRoot;
-      setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
     }
 

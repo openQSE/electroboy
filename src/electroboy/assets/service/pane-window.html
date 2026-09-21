@@ -5307,7 +5307,6 @@
         if (frameWindow && !frameWindow.__electroBoyPaneActivationBound) {
           frameWindow.__electroBoyPaneActivationBound = true;
           frameWindow.addEventListener("focus", notifyPaneActivated);
-          frameWindow.addEventListener("blur", notifyPaneActivated);
         }
         const frameDocument = artifactFrame.contentDocument;
         if (frameDocument && !frameDocument.__electroBoyPaneActivationBound) {
@@ -5342,7 +5341,6 @@
       document.addEventListener("pointerdown", notifyPaneActivated, true);
       document.addEventListener("mousedown", notifyPaneActivated, true);
       window.addEventListener("focus", notifyPaneActivated);
-      window.addEventListener("blur", notifyPaneActivated);
       artifactFrame.addEventListener("focus", notifyPaneActivated);
       bindArtifactFrameActivation();
     decreaseArtifactZoom.addEventListener(

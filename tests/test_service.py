@@ -2084,8 +2084,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function renderPaneLayoutIncrementalClose(id)", runtime)
         self.assertIn("window.ElectroBoyStatefulDOM?.collapseSplit(", runtime)
         self.assertIn("if (!renderPaneLayoutIncrementalClose(id))", runtime)
-        self.assertIn("function renderPaneLayoutIncrementalLeaf(leaf)", runtime)
+        self.assertIn(
+            "function renderPaneLayoutIncrementalLeaf(leaf, options = {})",
+            runtime,
+        )
         self.assertIn("renderedPaneLayoutKindsExcept(leaf.id)", runtime)
+        self.assertIn("options.refreshAllToolbars !== false", runtime)
         self.assertIn("!renderPaneLayoutIncrementalLeaf(leaf)", runtime)
         self.assertIn("function setActivePaneLayoutLeaf(id)", runtime)
         self.assertIn("function ensureActivePaneLayoutLeaf(preferredKind = \"\")", runtime)
@@ -2423,6 +2427,25 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("refreshPaneLayoutInstanceFrameForLeaf(", assign_source)
         self.assertIn("reconcilePaneLayout(`assignPaneContent:${kind}`);", assign_source)
+        assign_leaf_start = runtime.index("function assignPaneLeafContent(")
+        assign_leaf_end = runtime.index(
+            "function assignActivePaneContent(",
+            assign_leaf_start,
+        )
+        assign_leaf_source = runtime[assign_leaf_start:assign_leaf_end]
+        self.assertIn("const previousKind = leaf.kind;", assign_leaf_source)
+        self.assertIn("previousKind === kind", assign_leaf_source)
+        self.assertIn("`assignPaneLeafContent:${kind}`", assign_leaf_source)
+        self.assertIn(
+            "renderPaneLayoutIncrementalLeaf(leaf, { refreshAllToolbars: false })",
+            assign_leaf_source,
+        )
+        pane_change_start = runtime.index(
+            'message.type !== "electroboy:pane-artifact-change"',
+        )
+        pane_change_end = runtime.index("function resetPaneLayout()", pane_change_start)
+        pane_change_source = runtime[pane_change_start:pane_change_end]
+        self.assertNotIn("setActivePaneLayoutLeaf(leaf.id);", pane_change_source)
         self.assertIn(
             '{ stage: "corkboard", requestedLeafId: leaf.id }',
             runtime,
@@ -3395,6 +3418,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('paneParameters.set("pane_instance_id", item.id);', page)
         self.assertIn("function workspacePaneContentForItem(item)", page)
         self.assertIn("function applyWorkspacePaneContentParameters(", page)
+        self.assertIn('addEventListener("focus", notifyPaneActivated)', page)
+        self.assertNotIn('addEventListener("blur", notifyPaneActivated)', page)
         self.assertIn(
             "const workspaceContent = workspacePaneContentForItem(item);",
             page,
