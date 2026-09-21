@@ -21,11 +21,6 @@
     }
   }
 
-  function folderEntryVisible(entry) {
-    return entryDocumentType(entry) !== "corkboard" &&
-      String(entry.path || "") !== "corkboard";
-  }
-
   function renderTree(runtime) {
     cancelCreativePointerDrag(runtime);
     const tree = runtime.elements.creativeTree;
@@ -36,13 +31,12 @@
       Array.isArray(state.creativeTreePayload.entries)
       ? state.creativeTreePayload.entries
       : [];
-    const folderEntries = entries.filter(folderEntryVisible);
-    if (folderEntries.length === 0) {
+    if (entries.length === 0) {
       showMessage(runtime, "No writing documents yet.");
       renderTrash(runtime);
       return;
     }
-    for (const entry of folderEntries) {
+    for (const entry of entries) {
       appendEntry(runtime, entry, 0);
     }
     renderTrash(runtime);
@@ -179,7 +173,7 @@
     tree.append(row);
 
     if (isDirectory && expanded) {
-      for (const child of (entry.children || []).filter(folderEntryVisible)) {
+      for (const child of entry.children || []) {
         appendEntry(runtime, child, depth + 1);
       }
       appendFolderActions(runtime, path, depth + 1);

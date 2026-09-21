@@ -736,8 +736,6 @@ def _creative_tree_entries(
         if child.name in CREATIVE_IGNORED_NAMES or child.name.startswith("."):
             continue
         relative_path = child.relative_to(project_root).as_posix()
-        if relative_path == CREATIVE_CORKBOARD_GROUP_DIRECTORY.as_posix():
-            continue
         if child.is_dir():
             folder_state = (folder_states or {}).get(relative_path)
             folder_color = (
@@ -4793,9 +4791,6 @@ def _creative_corkboard_children(project_root: Path, folder: Path) -> list[Path]
     visible_children = []
     for child in children:
         if child.name in CREATIVE_IGNORED_NAMES or child.name.startswith("."):
-            continue
-        relative_path = child.relative_to(project_root).as_posix()
-        if relative_path == CREATIVE_CORKBOARD_GROUP_DIRECTORY.as_posix():
             continue
         visible_children.append(child)
     return visible_children

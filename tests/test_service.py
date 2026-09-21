@@ -917,12 +917,13 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(".creative-tree-row.directory.creative-drop-target", creative_css)
         self.assertIn("function renderTrash(runtime)", binder)
         self.assertIn('invoke("restoreCreativeTrashEntry", ...args)', binder)
-        self.assertIn("function folderEntryVisible(entry)", binder)
+        self.assertNotIn("function folderEntryVisible(entry)", binder)
         self.assertIn("function entryDocumentType(entry)", binder)
         self.assertIn("const entryActionType = documentType || type;", binder)
         self.assertIn('entryDocumentType(entry) === "mind-map"', binder)
         self.assertIn("action.selectCreativeMindMap(path);", binder)
-        self.assertIn('String(entry.path || "") !== "corkboard"', binder)
+        self.assertNotIn('String(entry.path || "") !== "corkboard"', binder)
+        self.assertIn("for (const entry of entries)", binder)
         self.assertNotIn('["New board",', binder)
         self.assertIn("function showMindMap(runtime, path", creative)
         self.assertIn('"selectMindMap"', creative)
@@ -5926,6 +5927,26 @@ class ServiceTests(unittest.TestCase):
             self.assertFalse(legacy["corkboard"])
             self.assertFalse(legacy["mind_map"])
 
+    def test_creative_tree_lists_physical_visible_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.create_creative_project(context_id, str(project_root))
+            for directory in ("corkboards", "mind-maps", "worldbuilding"):
+                (project_root / directory).mkdir()
+
+            tree = state.creative_tree(context_id)
+            top_level_paths = {entry["path"] for entry in tree["entries"]}
+
+            self.assertIn("corkboard", top_level_paths)
+            self.assertIn("corkboards", top_level_paths)
+            self.assertIn("mind-maps", top_level_paths)
+            self.assertIn("worldbuilding", top_level_paths)
+            self.assertNotIn(".electroboy", top_level_paths)
+
     def test_creative_folder_board_renders_and_saves_ordered_cards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -7829,7 +7850,7 @@ class ServiceTests(unittest.TestCase):
                 ],
             )
             self.assertTrue((project_root / board_path).is_file())
-            self.assertNotIn("corkboard/groups", json.dumps(tree))
+            self.assertIn("corkboard/groups", json.dumps(tree))
             self.assertIn(
                 "function convertCardToGroup(card, cardElement, button)",
                 page,
