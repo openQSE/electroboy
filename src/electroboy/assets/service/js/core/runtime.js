@@ -3371,30 +3371,43 @@
       }
     }
 
-    function assignArtifactToPane(item, requestedLeafId = "") {
+    function paneKindForArtifactItem(item) {
       if (item && item.kind === "agenda") {
-        assignPaneContent("agenda", item, requestedLeafId);
-        return;
+        return "agenda";
       }
       if (item && item.kind === "calendar") {
-        assignPaneContent("calendar", item, requestedLeafId);
-        return;
+        return "calendar";
       }
       if (item && item.kind === "mind-map") {
-        assignPaneContent("mind-map", item, requestedLeafId);
-        return;
+        return "mind-map";
       }
       if (
         item &&
         (item.kind === "corkboard" || item.kind === "creative-corkboard")
       ) {
+        return "corkboard";
+      }
+      return "artifact";
+    }
+
+    function assignArtifactToPane(item, requestedLeafId = "") {
+      const kind = paneKindForArtifactItem(item);
+      if (kind === "corkboard") {
         assignPaneContent("corkboard", item, requestedLeafId, {
           createIfMissing: true,
           direction: "row",
         });
         return;
       }
-      assignPaneContent("artifact", item, requestedLeafId);
+      assignPaneContent(kind, item, requestedLeafId);
+    }
+
+    function assignActiveArtifactToPane(item, requestedLeafId = "") {
+      assignActivePaneContent(
+        paneKindForArtifactItem(item),
+        item,
+        requestedLeafId,
+      );
     }
 
     function createPaneLayoutLeafForItem(kind, options = {}) {
@@ -3463,17 +3476,34 @@
       renderPaneLayout();
     }
 
+    function assignActivePaneContent(kind, item, requestedLeafId = "") {
+      if (!INSTANCE_PANE_LAYOUT_KINDS.has(kind)) {
+        return;
+      }
+      let leaf = paneLayoutLeafById(requestedLeafId || activePaneLayoutLeafId);
+      if (!leaf) {
+        leaf = paneLayoutLeaves()[0] || null;
+      }
+      if (!leaf) {
+        assignPaneContent(kind, item, requestedLeafId, {
+          createIfMissing: true,
+          direction: "row",
+        });
+        return;
+      }
+      assignPaneLeafContent(leaf, kind, item);
+    }
+
     function assignWorkspacePaneContent(kind, item, requestedLeafId = "") {
       if (!WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS.has(kind)) {
         assignPaneContent(kind, item, requestedLeafId);
         return;
       }
-      let leaf = paneLayoutLeafById(requestedLeafId || activePaneLayoutLeafId);
-      if (leaf && WORKSPACE_INSTANCE_PANE_LAYOUT_KINDS.has(leaf.kind)) {
-        assignPaneLeafContent(leaf, kind, item);
+      if (paneLayoutLeafById(requestedLeafId || activePaneLayoutLeafId)) {
+        assignActivePaneContent(kind, item, requestedLeafId);
         return;
       }
-      leaf = paneLayoutLeafByKind(kind);
+      let leaf = paneLayoutLeafByKind(kind);
       if (leaf) {
         assignPaneLeafContent(leaf, kind, item);
         return;
@@ -9282,6 +9312,8 @@
       layout: {
         focusAgentSession: focusAgentSessionPane,
         assignArtifact: assignArtifactToPane,
+        assignActiveArtifact: assignActiveArtifactToPane,
+        assignActivePane: assignActivePaneContent,
         assignPane: assignPaneContent,
         assignWorkspacePane: assignWorkspacePaneContent,
         closePane: closeMountedPane,

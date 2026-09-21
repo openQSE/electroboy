@@ -590,12 +590,12 @@
       refreshStageActionPanel();
     }
 
-    function openDocumentTarget(target, navigationLocation = null) {
+    function openDocumentTarget(target, navigationLocation = null, options = {}) {
       if (!target) {
         return;
       }
       registerDocumentTarget(target);
-      showDocumentPreview(target, navigationLocation);
+      showDocumentPreview(target, navigationLocation, options);
     }
 
     function artifactItemForFrameWindow(frameWindow) {
@@ -965,7 +965,11 @@
       applyStoredArtifactPaneSize();
       renderArtifactPreviewItems();
       applyOutputPaneVisibility();
-      runtimeApi.layout.assignArtifact(nextItems[0], options.requestedLeafId || "");
+      const assign = options.replaceActivePane &&
+          runtimeApi.layout.assignActiveArtifact
+        ? runtimeApi.layout.assignActiveArtifact
+        : runtimeApi.layout.assignArtifact;
+      assign(nextItems[0], options.requestedLeafId || "");
       connectArtifactEvents();
     }
 
@@ -998,7 +1002,10 @@
               navigationLocation: options.navigationLocation || null,
             },
           ],
-          { manual: true },
+          {
+            manual: true,
+            replaceActivePane: options.replaceActivePane === true,
+          },
         );
         return;
       }
@@ -1010,12 +1017,16 @@
       }
     }
 
-    function showDocumentPreview(target, navigationLocation = null) {
+    function showDocumentPreview(target, navigationLocation = null, options = {}) {
       if (!target) {
         return;
       }
       rememberOpenDocumentTarget(target);
-      showArtifactPreview("document", { target, navigationLocation });
+      showArtifactPreview("document", {
+        target,
+        navigationLocation,
+        replaceActivePane: options.replaceActivePane !== false,
+      });
       refreshDocumentTargetSwitchers();
     }
 

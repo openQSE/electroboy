@@ -1036,6 +1036,7 @@
     const PANE_KIND = __PANE_KIND__;
     const IS_ARTIFACT_PANE =
       PANE_KIND === "artifact" || PANE_KIND === "corkboard";
+    const CONTENT_CATALOG_STORAGE_PREFIX = "electroboy.contentCatalog.v1";
     const params = new URLSearchParams(window.location.search);
 
     function paneDefaultArtifactKind() {
@@ -2284,6 +2285,78 @@
       return normalized;
     }
 
+    function mergeContentTargets(targets, additions) {
+      const merged = [];
+      for (const target of [...(targets || []), ...(additions || [])]) {
+        const normalizedTarget = normalizeContentTarget(target);
+        if (!normalizedTarget) {
+          continue;
+        }
+        const key = contentTargetKey(normalizedTarget);
+        const existingIndex = merged.findIndex(
+          (item) => contentTargetKey(item) === key,
+        );
+        if (existingIndex >= 0) {
+          merged.splice(existingIndex, 1, normalizedTarget);
+        } else {
+          merged.push(normalizedTarget);
+        }
+      }
+      return merged;
+    }
+
+    function publishContentCatalog(options = {}) {
+      saveStoredContentTargets();
+      if (!contentCatalogSync) {
+        return;
+      }
+      const state = { files: openFileTargets };
+      if (options.add) {
+        state.add = options.add;
+      }
+      if (options.closed) {
+        state.closed = String(options.closed || "");
+      }
+      contentCatalogSync.publish(state);
+    }
+
+    function contentCatalogStorageKey() {
+      const catalogName = contentCatalogSyncName();
+      const scope = contextId || workspaceId || "default";
+      return catalogName && scope
+        ? `${CONTENT_CATALOG_STORAGE_PREFIX}.${scope}.${catalogName}`
+        : "";
+    }
+
+    function loadStoredContentTargets() {
+      const key = contentCatalogStorageKey();
+      if (!key) {
+        return [];
+      }
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(key) || "null");
+        const files = Array.isArray(parsed?.files) ? parsed.files : [];
+        return files.map((file) => normalizeContentTarget(file)).filter(Boolean);
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function saveStoredContentTargets() {
+      const key = contentCatalogStorageKey();
+      if (!key) {
+        return;
+      }
+      try {
+        window.localStorage.setItem(
+          key,
+          JSON.stringify({ files: openFileTargets }),
+        );
+      } catch (error) {
+        // Keep pane switching available when local storage is unavailable.
+      }
+    }
+
     function currentContentTarget() {
       if (!paneSupportsArtifactKind(artifactKind)) {
         return null;
@@ -2335,7 +2408,7 @@
         openFileTargets.push(storedTarget);
       }
       if (options.publish !== false) {
-        contentCatalogSync?.publish({ files: openFileTargets });
+        publishContentCatalog({ add: storedTarget });
       }
       return storedTarget;
     }
@@ -2517,7 +2590,7 @@
           label: artifactDocumentTitle,
         },
       });
-      contentCatalogSync?.publish({ files: openFileTargets });
+      publishContentCatalog({ add: storedTarget });
       reconnectArtifactStream();
     }
 
@@ -2871,31 +2944,38 @@
       );
     }
 
-    function closePaneDocument() {
-      if (artifactKind !== "document" || !artifactDocumentPath) {
+    function closeCurrentContentTarget() {
+      const target = currentContentTarget();
+      if (!target) {
         return;
       }
-      const target = {
-        path: artifactDocumentPath,
-        label: artifactDocumentTitle || artifactDocumentPath,
-      };
+      const targetKey = contentTargetKey(target);
       const targetIndex = openFileTargets.findIndex(
-        (file) => file.path === artifactDocumentPath,
+        (file) => contentTargetKey(file) === targetKey,
       );
       openFileTargets = openFileTargets.filter(
-        (file) => file.path !== artifactDocumentPath,
+        (file) => contentTargetKey(file) !== targetKey,
       );
       const nextTarget = openFileTargets[
         Math.min(Math.max(targetIndex, 0), openFileTargets.length - 1)
       ];
       if (nextTarget) {
-        selectFileTarget(nextTarget);
+        selectContentTarget(nextTarget);
       } else {
-        applyArtifactItem(null);
+        resetArtifactTargetState("empty");
+        syncArtifactUrlState();
+        renderFileSwitcher();
+        reconnectArtifactStream();
         notifyPaneArtifactChange(null);
-        contentCatalogSync?.publish({ files: openFileTargets });
       }
-      postDocumentFileAction("close", target);
+      publishContentCatalog({ closed: targetKey });
+      if (target.kind === "document") {
+        postDocumentFileAction("close", target);
+      }
+    }
+
+    function closePaneDocument() {
+      closeCurrentContentTarget();
     }
 
     function shellSessionLabel(session) {
@@ -2983,9 +3063,10 @@
             ? "Mind Map"
             : "File";
         const currentTarget = currentContentTarget();
-        if (currentTarget) {
-          openFileTargets = [currentTarget];
-        }
+        openFileTargets = mergeContentTargets(
+          loadStoredContentTargets(),
+          currentTarget ? [currentTarget] : [],
+        );
         renderFileSwitcher();
         contentCatalogSync = window.ElectroBoyPaneSync.connect({
           pane: contentCatalogSyncName(),
@@ -2996,12 +3077,45 @@
             if (!state || !Array.isArray(state.files)) {
               return;
             }
-            openFileTargets = state.files
+            const receivedFiles = state.files
               .map((file) => normalizeContentTarget(file))
               .filter(Boolean);
+            const closedKey = String(state.closed || "");
+            if (closedKey) {
+              openFileTargets = receivedFiles;
+              const currentTarget = currentContentTarget();
+              if (contentTargetKey(currentTarget) === closedKey) {
+                resetArtifactTargetState("empty");
+                syncArtifactUrlState();
+                reconnectArtifactStream();
+                notifyPaneArtifactChange(null);
+              }
+            } else if (state.add) {
+              openFileTargets = mergeContentTargets(
+                openFileTargets,
+                [...receivedFiles, state.add],
+              );
+            } else {
+              openFileTargets = receivedFiles;
+              const currentTarget = currentContentTarget();
+              if (
+                currentTarget &&
+                !openFileTargets.some((file) =>
+                  contentTargetKey(file) === contentTargetKey(currentTarget))
+              ) {
+                openFileTargets = mergeContentTargets(
+                  openFileTargets,
+                  [currentTarget],
+                );
+              }
+            }
+            saveStoredContentTargets();
             renderFileSwitcher();
           },
         });
+        if (currentTarget) {
+          rememberContentTarget(currentTarget);
+        }
         return;
       }
       if (PANE_KIND === "shell") {
@@ -5491,7 +5605,7 @@
           path: artifactTargetPath(),
           title: artifactTargetTitle(),
           editing: artifactEditing,
-          canClose: artifactKind === "document" && Boolean(artifactDocumentPath),
+          canClose: Boolean(currentContentTarget()),
           canPop: params.get("popped") !== "1" && artifactKind !== "empty",
           canGoBack: paneDocumentNavigation.canGoBack,
           canGoForward: paneDocumentNavigation.canGoForward,
@@ -5503,7 +5617,7 @@
           generateCorkboard: generatePaneDocumentCorkboard,
           back: () => navigatePaneDocumentHistory("back"),
           forward: () => navigatePaneDocumentHistory("forward"),
-          close: closePaneDocument,
+          close: closeCurrentContentTarget,
           pop: popOutCurrentArtifact,
         },
         controls: {
@@ -5526,11 +5640,13 @@
           kind: artifactKind,
           path: artifactTargetPath(),
           title: artifactTargetTitle(),
+          canClose: Boolean(currentContentTarget()),
           canPop: params.get("popped") !== "1" && artifactKind !== "empty",
         }),
         actions: {
           open: () => requestPaneCorkboardDocument("open"),
           new: () => requestPaneCorkboardDocument("new"),
+          close: closeCurrentContentTarget,
           pop: popOutCurrentArtifact,
         },
         controls: {
@@ -5587,6 +5703,9 @@
         controller: paneToolsController,
         frame: artifactFrame,
         onState: applyMindMapToolState,
+        actions: {
+          close: closeCurrentContentTarget,
+        },
       });
       mindMapPaneTools.setEditable(Boolean(artifactMindMapPath));
     }

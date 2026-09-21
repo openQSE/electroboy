@@ -788,7 +788,11 @@
           createMissing: false,
         },
       ],
-      { manual: true, stage: WORKFLOW_ID },
+      {
+        manual: true,
+        replaceActivePane: true,
+        stage: WORKFLOW_ID,
+      },
     );
   }
 

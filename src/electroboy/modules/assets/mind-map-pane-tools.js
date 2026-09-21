@@ -141,6 +141,7 @@
     const onState = typeof options.onState === "function"
       ? options.onState
       : () => {};
+    const actions = options.actions || {};
     const controls = [];
     const selectionChannel = `mind-map-${Date.now().toString(36)}-${
       Math.random().toString(36).slice(2, 8)}`;
@@ -189,12 +190,18 @@
       send(action, details);
     }
 
-    group(section(controller, "mind-map-file", "File"), [
+    const fileSection = section(controller, "mind-map-file", "File");
+    group(fileSection, [
       ["New", "new", "New mind map", "file-plus"],
       ["Open", "open", "Open mind map", "folder-open"],
       ["Save", "save", "Save mind map", "save"],
       ["Save As", "save-as", "Save mind map as", "save-as"],
     ], post);
+    fileSection.append(button("Close", "close", () => {
+      if (typeof actions.close === "function") {
+        actions.close();
+      }
+    }, { title: "Close current mind map", icon: "unlink" }));
     group(section(controller, "mind-map-edit", "Edit"), [
       ["Undo", "undo", "Undo", "undo"],
       ["Redo", "redo", "Redo", "redo"],

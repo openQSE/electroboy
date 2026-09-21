@@ -50,7 +50,11 @@
       "documents",
       "showArtifactPreviews",
       [item],
-      { manual: true, stage: options.stage || runtime.getState().workflowMode },
+      {
+        manual: true,
+        replaceActivePane: options.replaceActivePane !== false,
+        stage: options.stage || runtime.getState().workflowMode,
+      },
     );
   }
 

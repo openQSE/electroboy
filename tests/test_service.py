@@ -1721,7 +1721,7 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn(".pane-document-menu", shell_css)
         self.assertNotIn('exportFormat.className = "document-export-format"', documents)
         self.assertIn(
-            "function openDocumentTarget(target, navigationLocation = null)",
+            "function openDocumentTarget(target, navigationLocation = null, options = {})",
             documents,
         )
         self.assertIn('data.type === "electroboy:document-link"', documents)
@@ -2300,6 +2300,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('provider === "project-files"', runtime)
         self.assertIn("leaf.projectRoot === activeProjectRoot", runtime)
         self.assertIn("assignArtifact: assignArtifactToPane", runtime)
+        self.assertIn("assignActiveArtifact: assignActiveArtifactToPane", runtime)
+        self.assertIn("assignActivePane: assignActivePaneContent", runtime)
         self.assertIn('message.type === "electroboy:pane-corkboard-document"', runtime)
         self.assertIn('"corkboard",\n            action,', runtime)
         self.assertIn("assignPane: assignPaneContent", runtime)
@@ -2400,6 +2402,14 @@ class ServiceTests(unittest.TestCase):
         assign_start = runtime.index("function assignArtifactToPane(")
         assign_end = runtime.index("function assignPaneLeafContent(", assign_start)
         assign_source = runtime[assign_start:assign_end]
+        self.assertIn("function paneKindForArtifactItem(item)", runtime)
+        self.assertIn("function assignActiveArtifactToPane(item", assign_source)
+        self.assertIn("function assignActivePaneContent(kind", runtime)
+        self.assertIn(
+            "assignActivePaneContent(\n"
+            "        paneKindForArtifactItem(item),",
+            assign_source,
+        )
         self.assertIn(
             'assignPaneContent("corkboard", item, requestedLeafId, {',
             assign_source,
@@ -2417,10 +2427,8 @@ class ServiceTests(unittest.TestCase):
             '{ stage: "corkboard", requestedLeafId: leaf.id }',
             runtime,
         )
-        self.assertIn(
-            "runtimeApi.layout.assignArtifact(nextItems[0], options.requestedLeafId || \"\")",
-            documents,
-        )
+        self.assertIn("runtimeApi.layout.assignActiveArtifact", documents)
+        self.assertIn("replaceActivePane: options.replaceActivePane !== false", documents)
         workspace_assign_start = runtime.index("function assignWorkspacePaneContent(")
         workspace_assign_end = runtime.index(
             "function openPaneLayoutKind(",
@@ -2431,6 +2439,7 @@ class ServiceTests(unittest.TestCase):
             "assignPaneContent(kind, item, requestedLeafId, {",
             workspace_assign_source,
         )
+        self.assertIn("assignActivePaneContent(kind, item, requestedLeafId);", workspace_assign_source)
         self.assertIn("createIfMissing: true", workspace_assign_source)
         self.assertIn("function paneLayoutConsistencyPayload()", runtime)
         self.assertIn("last_frame_refresh: frontendDebugLastPaneLayoutFrameRefresh", runtime)
@@ -2439,10 +2448,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("paneLayout.reconcileRender", runtime)
         self.assertIn("consistency: paneLayoutConsistencyPayload()", runtime)
         self.assertIn("reconcile: reconcilePaneLayout", runtime)
-        self.assertIn(
-            'runtimeApi.layout.assignArtifact(nextItems[0], options.requestedLeafId || "")',
-            documents,
-        )
+        self.assertIn("replaceActivePane: options.replaceActivePane === true", documents)
         self.assertIn("runtime.layout.assignWorkspacePane", agenda)
         self.assertIn("kindMap.get(kind)?.singleton", workspace)
         self.assertIn(".pane-layout-leaf.active::before", styles)
@@ -3561,6 +3567,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("ElectroBoyFilePaneTools.mount", page)
         self.assertIn("ElectroBoyCorkboardPaneTools.mount", page)
         self.assertIn("function contentCatalogPaneKind()", page)
+        self.assertIn('const CONTENT_CATALOG_STORAGE_PREFIX = "electroboy.contentCatalog.v1";', page)
+        self.assertIn("function loadStoredContentTargets()", page)
+        self.assertIn("function saveStoredContentTargets()", page)
+        self.assertIn("saveStoredContentTargets();", page)
         self.assertIn('return "corkboard";', page)
         self.assertIn('return "mind-map";', page)
         self.assertIn("function selectContentTarget(target", page)
@@ -3614,7 +3624,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('new: () => requestPaneCorkboardDocument("new")', page)
         self.assertIn('open: () => openPaneDocumentFileBrowser("document")', page)
         self.assertIn('new: () => openPaneDocumentFileBrowser("document-new")', page)
-        self.assertIn("close: closePaneDocument", page)
+        self.assertIn("close: closeCurrentContentTarget", page)
+        self.assertIn("function closeCurrentContentTarget()", page)
         self.assertIn("function closePaneDocument()", page)
         self.assertIn('postDocumentFileAction("close", target);', page)
         self.assertIn('return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId', page)
@@ -3627,6 +3638,8 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("replaceChildren", file_switcher_source)
         self.assertIn('artifactKind === "empty" && contentCatalogPaneKind() !== "document"', page)
         self.assertIn("selectContentTarget(files[0]);", page)
+        self.assertIn("loadStoredContentTargets(),", page)
+        self.assertIn("closed: targetKey", page)
         self.assertIn("path: artifactTargetPath()", page)
         self.assertIn("title: artifactTargetTitle()", page)
         self.assertIn("editing: artifactEditing", page)

@@ -83,10 +83,13 @@
     const create = menuButton("New", () => {
       runAction("new", () => {});
     });
+    const close = menuButton("Close", () => {
+      runAction("close", () => {});
+    });
     const refreshButton = menuButton("Refresh", () => {
       runAction("refresh", () => controls.refresh?.click());
     });
-    fileMenu.list.append(open, create, refreshButton);
+    fileMenu.list.append(open, create, close, refreshButton);
     const actionStatus = document.createElement("div");
     actionStatus.className = "pane-tool-status";
     actionsBody.append(pop, fileMenu.details, actionStatus);
@@ -287,8 +290,10 @@
       pop.hidden = typeof actions.pop !== "function" || current.canPop === false;
       open.hidden = typeof actions.open !== "function";
       create.hidden = typeof actions.new !== "function";
+      close.hidden = typeof actions.close !== "function" || current.canClose === false;
       refreshButton.hidden = current.canRefresh === false;
-      fileMenu.details.hidden = open.hidden && create.hidden && refreshButton.hidden;
+      fileMenu.details.hidden =
+        open.hidden && create.hidden && close.hidden && refreshButton.hidden;
       actionsBody.closest("details").hidden = pop.hidden && fileMenu.details.hidden;
       boardViewBody.closest("details").hidden = !hasBoard;
       boardColorBody.closest("details").hidden = !hasBoard;
