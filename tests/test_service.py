@@ -10869,6 +10869,7 @@ class ServiceTests(unittest.TestCase):
                 "---\ntype: markdown\n---\n\n# Readme\n",
                 encoding="utf-8",
             )
+            (root / "plain.md").write_text("# Plain Markdown\n", encoding="utf-8")
             (root / "notes.txt").write_text("notes\n", encoding="utf-8")
 
             payload = browse_markdown_files(root)
@@ -10876,6 +10877,7 @@ class ServiceTests(unittest.TestCase):
         names = {entry["name"] for entry in payload["entries"]}
         self.assertIn("docs", names)
         self.assertIn("README.md", names)
+        self.assertIn("plain.md", names)
         self.assertNotIn("notes.txt", names)
 
     def test_browse_markdown_files_keeps_files_after_many_directories(self) -> None:

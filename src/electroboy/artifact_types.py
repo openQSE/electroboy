@@ -43,13 +43,19 @@ def document_type_from_path(
 ) -> str:
     """Read a file header/content and return its canonical document type."""
 
+    document_path = Path(path)
     try:
-        return document_type_from_text(
-            Path(path).read_text(encoding="utf-8"),
+        document_type = document_type_from_text(
+            document_path.read_text(encoding="utf-8"),
             plain_text_is_markdown=plain_text_is_markdown,
         )
     except (OSError, UnicodeDecodeError):
         return ""
+    if document_type:
+        return document_type
+    if document_path.suffix.lower() == ".md":
+        return DOCUMENT_TYPE_MARKDOWN
+    return ""
 
 
 def document_type_from_text(
