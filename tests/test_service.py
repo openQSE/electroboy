@@ -3839,6 +3839,14 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('pane: "agent-sessions"', PANE_WINDOW_HTML)
         self.assertIn("function applySharedAgentSessionState(state)", PANE_WINDOW_HTML)
         self.assertIn('String(session.name || "").trim()', PANE_WINDOW_HTML)
+        self.assertIn(
+            "const previousSessionAvailable = Boolean(selectedAgentSession());",
+            PANE_WINDOW_HTML,
+        )
+        self.assertIn(
+            "!previousSessionAvailable ||\n          !eventSource",
+            PANE_WINDOW_HTML,
+        )
         self.assertIn("function scratchPadStorageKey()", PANE_WINDOW_HTML)
         self.assertIn("`${SCRATCH_PAD_STORAGE_KEY}.${contextId}`", PANE_WINDOW_HTML)
         self.assertIn("window.localStorage.getItem(storageKey)", PANE_WINDOW_HTML)

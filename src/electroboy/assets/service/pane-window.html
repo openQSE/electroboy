@@ -2156,6 +2156,7 @@
         return;
       }
       const previousSessionId = selectedSessionId || "";
+      const previousSessionAvailable = Boolean(selectedAgentSession());
       applyingAgentSessionSync = true;
       try {
         agentSessions = cloneAgentSessions(state.sessions);
@@ -2189,7 +2190,12 @@
       if (
         PANE_KIND === "agent" &&
         selectedSessionId &&
-        selectedSessionId !== previousSessionId
+        selectedAgentSession() &&
+        (
+          selectedSessionId !== previousSessionId ||
+          !previousSessionAvailable ||
+          !eventSource
+        )
       ) {
         connectAgentStream();
       }
