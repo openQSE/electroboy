@@ -1635,6 +1635,7 @@
           mind_map_provider: url.searchParams.get("mind_map_provider") || "",
           mind_map_style: url.searchParams.get("mind_map_style") || "",
           pane_instance_id: url.searchParams.get("pane_instance_id") || "",
+          session_id: url.searchParams.get("session_id") || "",
           has_lease_token: url.searchParams.has("lease_token"),
           search_keys: Array.from(url.searchParams.keys()).sort(),
         };
@@ -1663,6 +1664,7 @@
             content_title: String(content.title || ""),
             content_path: String(content.path || ""),
             content_id: String(content.id || ""),
+            content_session_id: String(content.sessionId || ""),
             element: frontendDebugElementPayload(element),
             frame: frame
               ? {

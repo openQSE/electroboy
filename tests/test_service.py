@@ -1136,6 +1136,14 @@ class ServiceTests(unittest.TestCase):
             'mind_map_style: url.searchParams.get("mind_map_style") || ""',
             app,
         )
+        self.assertIn(
+            'session_id: url.searchParams.get("session_id") || ""',
+            app,
+        )
+        self.assertIn(
+            'content_session_id: String(content.sessionId || "")',
+            app,
+        )
         self.assertIn('assignments: { label: "Assignments", element: null }', app)
         self.assertIn("pane_layout: frontendDebugPaneLayoutPayload()", app)
         self.assertIn(
