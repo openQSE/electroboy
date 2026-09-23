@@ -5119,11 +5119,23 @@
       if (!resize) {
         return;
       }
-      await fetch(contextUrl("/api/sessions/resize"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(resize),
-      }).catch(() => {});
+      try {
+        const response = await fetch(contextUrl("/api/sessions/resize"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(resize),
+        });
+        await drainDiscardedFetchResponse(response, {
+          operation: "terminal-resize",
+        });
+      } catch (error) {
+        recordDiscardedFetchRequestFailure({
+          operation: "terminal-resize",
+          method: "POST",
+          path: "/api/sessions/resize",
+          query_keys: [],
+        }, error);
+      }
     }
 
     function queueProjectShellResize(...args) {

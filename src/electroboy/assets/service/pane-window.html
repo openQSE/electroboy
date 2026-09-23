@@ -3839,16 +3839,38 @@
       }, 120);
     }
 
+    async function drainIgnoredFetchResponse(response) {
+      if (!response || response.bodyUsed) {
+        return;
+      }
+      try {
+        await response.arrayBuffer();
+      } catch (error) {
+        try {
+          if (!response.bodyUsed && response.body) {
+            await response.body.cancel();
+          }
+        } catch (cancelError) {
+          // Ignore cleanup errors for best-effort fire-and-forget requests.
+        }
+      }
+    }
+
     async function sendAgentResize(payload = null) {
       const resize = payload || agentResizePayload();
       if (!resize) {
         return;
       }
-      await fetch(contextUrl("/api/sessions/resize"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(resize),
-      }).catch(() => {});
+      try {
+        const response = await fetch(contextUrl("/api/sessions/resize"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(resize),
+        });
+        await drainIgnoredFetchResponse(response);
+      } catch (error) {
+        // Resize notifications are opportunistic; the stream can continue.
+      }
     }
 
     function queueShellResize(columns = null, rows = null) {

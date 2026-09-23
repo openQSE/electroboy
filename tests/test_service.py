@@ -2221,6 +2221,10 @@ class ServiceTests(unittest.TestCase):
             'operation: "workspace-heartbeat"',
             runtime,
         )
+        self.assertIn(
+            'operation: "terminal-resize"',
+            runtime,
+        )
         self.assertIn("const responseOk = response.ok;", runtime)
         self.assertIn("await drainDiscardedFetchResponse(response, {", runtime)
         self.assertIn('document.addEventListener("freeze", recordFrontendDebugLifecycle, true);', runtime)
@@ -3731,6 +3735,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function ensureTerminalResizeTracking()", PANE_WINDOW_HTML)
         self.assertIn("queueAgentResize(cols, rows, terminalSessionId);", PANE_WINDOW_HTML)
         self.assertIn('contextUrl("/api/sessions/resize")', PANE_WINDOW_HTML)
+        self.assertIn("function drainIgnoredFetchResponse(response)", PANE_WINDOW_HTML)
+        self.assertIn("await drainIgnoredFetchResponse(response);", PANE_WINDOW_HTML)
         self.assertIn("session_id: resizeSessionId,", PANE_WINDOW_HTML)
         self.assertIn("/assets/service/js/modules/agent-pane-tools.js", PANE_WINDOW_HTML)
         self.assertIn("let agentPaneTools = null;", PANE_WINDOW_HTML)
