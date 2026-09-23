@@ -11101,6 +11101,8 @@ class ServiceTests(unittest.TestCase):
                     ),
                 )
                 response = connection.getresponse()
+                first_path.write_text("# First\n\nUpdated.\n", encoding="utf-8")
+                second_path.write_text("# Second\n\nUpdated.\n", encoding="utf-8")
                 payloads = read_sse_payloads(response, 2)
             finally:
                 connection.close()

@@ -3386,12 +3386,15 @@ def _handler_for(
             self,
             targets: list[tuple[str, Path]],
         ) -> None:
+            last_signatures: dict[tuple[str, Path], dict[str, object]] = {
+                (artifact, document_path): _file_signature(document_path)
+                for artifact, document_path in targets
+            }
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
             self.end_headers()
-            last_signatures: dict[tuple[str, Path], dict[str, object]] = {}
             event_id = 1
             last_keep_alive = time.monotonic()
             try:
