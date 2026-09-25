@@ -9344,6 +9344,7 @@
         assignPane: assignPaneContent,
         assignWorkspacePane: assignWorkspacePaneContent,
         closePane: closeMountedPane,
+        activeKind: () => paneLayoutLeafById(activePaneLayoutLeafId)?.kind || "",
         hasPane: (kind) => Boolean(paneLayoutLeafByKind(kind)),
         isPopped: (kind) => poppedPanes.has(kind),
         popOutPane: popOutMountedPane,

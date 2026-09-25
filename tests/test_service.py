@@ -802,6 +802,12 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn('data-creative-control="new-root-folder">New Folder', creative)
         self.assertIn('data-creative-control="new-root-file">New File', creative)
+        self.assertIn("CREATIVE_BINDER_REFRESH_INTERVAL_MS", creative)
+        self.assertIn("function creativeTreeFingerprint(payload)", creative)
+        self.assertIn("function startCreativeBinderAutoRefresh()", creative)
+        self.assertIn("function stopCreativeBinderAutoRefresh()", creative)
+        self.assertIn("onlyIfChanged: true", creative)
+        self.assertIn("options.onlyIfChanged === true", creative)
         self.assertIn('data-creative-control="trash"', creative)
         self.assertIn("creativeTrashExpanded = false", creative)
         self.assertIn("creativeTrashExpanded,", app)
@@ -860,7 +866,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("if (!choice) {\n      return null;\n    }", creative)
         self.assertIn("return startPayload;", creative)
         self.assertIn('placeholder="ElectroBoy id or Codex UUID"', creative)
-        self.assertIn("function selectFolder(runtime, path)", creative)
+        self.assertIn("function selectFolder(runtime, path, options = {})", creative)
         self.assertIn("function renderNavigation(container, runtime)", creative)
         self.assertIn('const WORKFLOW_ID = "creative-writing"', creative)
         self.assertIn("runtimeApi.getState().workflowMode === WORKFLOW_ID", creative)
@@ -926,6 +932,20 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("for (const entry of entries)", binder)
         self.assertNotIn('["New board",', binder)
         self.assertIn("function showMindMap(runtime, path", creative)
+        self.assertIn("const CREATIVE_RESTORABLE_PANE_KINDS = new Set([", creative)
+        self.assertIn("function creativeWorkspaceRestoreOptions()", creative)
+        self.assertIn("runtimeApi.layout.activeKind()", creative)
+        self.assertIn("if (!restoreOptions) {\n        return;\n      }", creative)
+        self.assertIn(
+            "showActiveCreativeDocument(restoreOptions);",
+            creative,
+        )
+        self.assertIn(
+            "showCreativeCorkboard(creativeActiveFolder, restoreOptions);",
+            creative,
+        )
+        self.assertIn("function showActiveCreativeDocument(options = {})", creative)
+        self.assertIn("const replaceActivePane = options.replaceActivePane === true;", creative)
         self.assertIn('"selectMindMap"', creative)
         self.assertIn("function show(runtime, source, options = {})", corkboard)
         self.assertIn('kind: "corkboard"', corkboard)
@@ -1177,10 +1197,21 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('parameters.set("style", artifactCalendarStyle);', pane_window)
         self.assertIn('data.type === "electroboy-calendar-month-change"', pane_window)
         self.assertIn('"electroboy-agenda-action"', pane_window)
+        self.assertIn('"electroboy-corkboard-open"', pane_window)
+        self.assertIn('"electroboy-creative-open"', pane_window)
+        self.assertIn("const CORKBOARD_HOST_ACTION_TYPES = new Set([", pane_window)
+        self.assertIn(
+            'CORKBOARD_HOST_ACTION_TYPES.has(data.type) && PANE_KIND !== "corkboard"',
+            pane_window,
+        )
         self.assertIn('"electroboy-mind-map-action"', pane_window)
         self.assertIn("function forwardArtifactHostAction(event, data)", pane_window)
         self.assertIn("ARTIFACT_HOST_ACTION_TYPES.has(data.type)", pane_window)
         self.assertIn("owner.postMessage(data, window.location.origin);", pane_window)
+        self.assertIn(
+            "activeKind: () => paneLayoutLeafById(activePaneLayoutLeafId)?.kind || \"\",",
+            app,
+        )
         self.assertIn('PANE_KIND === "calendar"', pane_window)
         self.assertIn('if (kind === "assignments") return "Assignments";', pane_window)
         self.assertIn('PANE_KIND === "assignments"', pane_window)
@@ -6568,6 +6599,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function deleteFolderCard(card, button)", page)
         self.assertIn('type: "electroboy-creative-files-changed"', page)
         self.assertIn('className = "corkboard-confirm-dialog"', page)
+        self.assertIn(".card-open:hover,", page)
+        self.assertIn(".card-open:focus-visible", page)
+        self.assertIn(".card-open:active", page)
+        self.assertIn("transform: translateY(1px);", page)
         self.assertIn("electroboy-corkboard-open", page)
         self.assertNotIn("/api/creative/corkboard", page)
         self.assertEqual(deleted_boards["status"], "trashed")

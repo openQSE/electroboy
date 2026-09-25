@@ -3,6 +3,14 @@
 
   const WORKFLOW_ID = "creative-writing";
   const CREATIVE_CORKBOARD_SUFFIX = ".corkboard.json";
+  const CREATIVE_BINDER_REFRESH_INTERVAL_MS = 4000;
+  const CREATIVE_RESTORABLE_PANE_KINDS = new Set([
+    "",
+    "empty",
+    "artifact",
+    "corkboard",
+    "mind-map",
+  ]);
   const CODEX_SESSION_ID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let runtimeApi = null;
@@ -30,6 +38,8 @@
   let creativeTrashUndoToast = null;
   let creativeTrashUndoTimer = null;
   let creativeTreeRequestSequence = 0;
+  let creativeBinderRefreshTimer = null;
+  let creativeBinderRefreshInFlight = false;
 
   function creativePaneKinds(layout, result = []) {
     if (!layout || layout.type === "leaf") {
@@ -73,6 +83,7 @@
       window.clearTimeout(creativeScratchSaveTimer);
       creativeScratchSaveTimer = null;
     }
+    stopCreativeBinderAutoRefresh();
     activationRoot = "";
     activeProjectRoot = "";
     contextId = "";
@@ -302,6 +313,7 @@
     if (!options.deferWorkspaceInit) {
       ensureCreativeWorkspaceLoaded();
     }
+    startCreativeBinderAutoRefresh();
     return true;
   }
 
@@ -360,6 +372,64 @@
       selectDocument(runtime, data.path);
     }
     return true;
+  }
+
+  function creativeTreeFingerprint(payload) {
+    if (!payload || typeof payload !== "object") {
+      return "";
+    }
+    try {
+      return JSON.stringify({
+        entries: Array.isArray(payload.entries) ? payload.entries : [],
+        trash: Array.isArray(payload.trash) ? payload.trash : [],
+        folder_palette: Array.isArray(payload.folder_palette)
+          ? payload.folder_palette
+          : [],
+      });
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function creativeWorkspaceRestoreOptions() {
+    const activeKind = runtimeApi?.layout?.activeKind
+      ? runtimeApi.layout.activeKind()
+      : "";
+    if (!CREATIVE_RESTORABLE_PANE_KINDS.has(activeKind)) {
+      return null;
+    }
+    return {
+      replaceActivePane: activeKind !== "",
+    };
+  }
+
+  function stopCreativeBinderAutoRefresh() {
+    if (creativeBinderRefreshTimer) {
+      window.clearInterval(creativeBinderRefreshTimer);
+      creativeBinderRefreshTimer = null;
+    }
+    creativeBinderRefreshInFlight = false;
+  }
+
+  function startCreativeBinderAutoRefresh() {
+    stopCreativeBinderAutoRefresh();
+    if (!creativeModeActive() || !activeProjectRoot || !contextId) {
+      return;
+    }
+    creativeBinderRefreshTimer = window.setInterval(() => {
+      if (creativeBinderRefreshInFlight) {
+        return;
+      }
+      creativeBinderRefreshInFlight = true;
+      refreshCreativeBinder({
+        showLoading: false,
+        onlyIfChanged: true,
+      }).catch(() => {
+        // Keep background polling quiet; direct user refreshes surface errors.
+      }).finally(() => {
+        creativeBinderRefreshInFlight = false;
+      });
+    }, CREATIVE_BINDER_REFRESH_INTERVAL_MS);
   }
 
   function projectEndpoint(_runtime, mode) {
@@ -624,10 +694,12 @@
     applyCreativeWorkspace();
     runtime.scratch.restore();
     refreshCreativeBinder();
+    startCreativeBinderAutoRefresh();
   }
 
   function deactivate(runtime) {
     bindRuntime(runtime);
+    stopCreativeBinderAutoRefresh();
     runtime.elements.creativeTree = null;
     runtime.elements.creativeTrash = null;
     creativeProjectMenuButton = null;
@@ -726,7 +798,7 @@
     return startPayload;
   }
 
-  function selectFolder(runtime, path) {
+  function selectFolder(runtime, path, options = {}) {
     bindRuntime(runtime);
     if (!path) {
       return;
@@ -736,7 +808,9 @@
       creativeActiveDocument: "",
       creativeActiveDocumentType: "",
     });
-    showCreativeCorkboard(path);
+    showCreativeCorkboard(path, {
+      replaceActivePane: options.replaceActivePane !== false,
+    });
     renderCreativeTree();
     renderProjectStatus(runtime);
   }
@@ -763,12 +837,13 @@
     showCreativeCorkboard(path, {
       freeform: true,
       title,
+      replaceActivePane: options.replaceActivePane !== false,
     });
     renderCreativeTree();
     renderProjectStatus(runtime);
   }
 
-  function showDocument(runtime, path) {
+  function showDocument(runtime, path, options = {}) {
     bindRuntime(runtime);
     if (!path) {
       return;
@@ -790,7 +865,7 @@
       ],
       {
         manual: true,
-        replaceActivePane: true,
+        replaceActivePane: options.replaceActivePane === true,
         stage: WORKFLOW_ID,
       },
     );
@@ -806,7 +881,9 @@
       creativeActiveDocumentType: "markdown",
       creativeActiveFolder: creativeParentPath(path),
     });
-    showDocument(runtime, path);
+    showDocument(runtime, path, {
+      replaceActivePane: options.replaceActivePane !== false,
+    });
     renderCreativeTree();
     renderProjectStatus(runtime);
   }
@@ -817,7 +894,9 @@
       return;
     }
     runtime.modules.invoke("mind_map", "showDocument", { path }, {
-      replaceWorkspacePane: true,
+      replaceWorkspacePane:
+        options.replaceActivePane === true ||
+        options.replaceWorkspacePane === true,
       requestedLeafId: options.requestedLeafId || "",
     });
   }
@@ -841,10 +920,14 @@
       scratchPad.spellcheck = true;
       setAgentInputVisible(true);
       showProgressPane(false);
+      const restoreOptions = creativeWorkspaceRestoreOptions();
+      if (!restoreOptions) {
+        return;
+      }
       if (creativeActiveDocument) {
-        showActiveCreativeDocument();
+        showActiveCreativeDocument(restoreOptions);
       } else if (creativeActiveFolder) {
-        showCreativeCorkboard(creativeActiveFolder);
+        showCreativeCorkboard(creativeActiveFolder, restoreOptions);
       } else {
         artifactPaneRequested = runtimeApi.layout.hasPane("artifact");
         runtimeApi.updateState({ artifactPaneRequested });
@@ -945,10 +1028,12 @@
 
     async function refreshCreativeBinder(options = {}) {
       if (!creativeModeActive()) {
+        stopCreativeBinderAutoRefresh();
         return;
       }
       updateCreativeBinderActions();
       if (!activeProjectRoot || !contextId) {
+        stopCreativeBinderAutoRefresh();
         showCreativeTreeMessage("Open or create a project to start writing.");
         return;
       }
@@ -967,8 +1052,16 @@
         showCreativeTreeMessage(payload.error || "Binder failed");
         return;
       }
+      if (
+        options.onlyIfChanged === true &&
+        creativeTreeFingerprint(payload) ===
+          creativeTreeFingerprint(creativeTreePayload)
+      ) {
+        return;
+      }
       creativeTreePayload = payload;
       renderCreativeTree();
+      startCreativeBinderAutoRefresh();
     }
 
     function showCreativeTreeMessage(message) {
@@ -1024,12 +1117,13 @@
       );
     }
 
-    function showCreativeDocument(path) {
+    function showCreativeDocument(path, options = {}) {
       publishState();
       return window.ElectroBoyFrontend.invokeWorkflow(
         WORKFLOW_ID,
         "showDocument",
         path,
+        options,
       );
     }
 
@@ -1518,14 +1612,22 @@
       return creativeEntryDocumentType(entry) || creativeActiveDocumentType;
     }
 
-    function showActiveCreativeDocument() {
+    function showActiveCreativeDocument(options = {}) {
+      const replaceActivePane = options.replaceActivePane === true;
       const documentType = activeCreativeDocumentType();
       if (documentType === "corkboard") {
-        showCreativeCorkboard(creativeActiveDocument, { freeform: true });
+        showCreativeCorkboard(creativeActiveDocument, {
+          freeform: true,
+          replaceActivePane,
+        });
       } else if (documentType === "mind-map") {
-        showMindMap(runtimeApi, creativeActiveDocument);
+        showMindMap(runtimeApi, creativeActiveDocument, {
+          replaceActivePane,
+        });
       } else {
-        showCreativeDocument(creativeActiveDocument);
+        showCreativeDocument(creativeActiveDocument, {
+          replaceActivePane,
+        });
       }
     }
 
@@ -1671,7 +1773,11 @@
         creativeEditingType = "";
         renderCreativeTree();
         if (creativeActiveDocument === path) {
-          showCreativeCorkboard(path, { freeform: true, title: entry && entry.title });
+          showCreativeCorkboard(path, {
+            freeform: true,
+            title: entry && entry.title,
+            replaceActivePane: false,
+          });
         }
         recordProjectStatusMessage(`renamed board: ${payload.title || newName}`);
         return;
@@ -1776,7 +1882,7 @@
       creativeEditingPath = payload.path || path;
       creativeEditingType = "file";
       await refreshCreativeBinder();
-      showCreativeDocument(creativeActiveDocument);
+      showCreativeDocument(creativeActiveDocument, { replaceActivePane: true });
       recordProjectStatusMessage(`created file: ${payload.path || path}`);
     }
 
@@ -1805,7 +1911,10 @@
       creativeEditingPath = payload.path || path;
       creativeEditingType = "corkboard";
       await refreshCreativeBinder();
-      showCreativeCorkboard(creativeActiveDocument, { freeform: true });
+      showCreativeCorkboard(creativeActiveDocument, {
+        freeform: true,
+        replaceActivePane: true,
+      });
       recordProjectStatusMessage(`created board: ${payload.path || path}`);
     }
 

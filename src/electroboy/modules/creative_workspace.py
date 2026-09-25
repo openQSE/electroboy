@@ -1333,12 +1333,31 @@ def render_corkboard_html(
       border: 1px solid rgba(38, 50, 71, 0.18);
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.55);
+      box-shadow: 0 1px 2px rgba(38, 50, 71, 0.14);
       color: var(--ink);
       cursor: pointer;
       font: inherit;
       font-size: var(--card-action-font-size, 13.75px);
       font-weight: 800;
       padding: 0 10px;
+      transition:
+        background 120ms ease,
+        border-color 120ms ease,
+        box-shadow 120ms ease,
+        transform 120ms ease;
+    }}
+
+    .card-open:hover,
+    .card-open:focus-visible {{
+      border-color: rgba(31, 111, 139, 0.55);
+      background: rgba(102, 217, 232, 0.28);
+      box-shadow: 0 2px 7px rgba(31, 111, 139, 0.22);
+    }}
+
+    .card-open:active {{
+      background: rgba(31, 111, 139, 0.32);
+      box-shadow: inset 0 2px 4px rgba(38, 50, 71, 0.24);
+      transform: translateY(1px);
     }}
 
     .card-group-action {{

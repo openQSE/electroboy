@@ -1177,7 +1177,13 @@
     const ARTIFACT_HOST_ACTION_TYPES = new Set([
       "electroboy-agenda-action",
       "electroboy-agenda-state",
+      "electroboy-corkboard-open",
+      "electroboy-creative-open",
       "electroboy-mind-map-action",
+    ]);
+    const CORKBOARD_HOST_ACTION_TYPES = new Set([
+      "electroboy-corkboard-open",
+      "electroboy-creative-open",
     ]);
     let codeLearnerPane = null;
     let idePane = null;
@@ -2795,6 +2801,9 @@
 
     function forwardArtifactHostAction(event, data) {
       if (!ARTIFACT_HOST_ACTION_TYPES.has(data.type)) {
+        return false;
+      }
+      if (CORKBOARD_HOST_ACTION_TYPES.has(data.type) && PANE_KIND !== "corkboard") {
         return false;
       }
       if (event.source !== artifactFrame.contentWindow) {
