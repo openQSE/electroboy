@@ -4759,6 +4759,26 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('import("https://esm.sh/@tiptap/core")', page)
         self.assertIn('import("https://esm.sh/@tiptap/markdown")', page)
         self.assertIn("function collectMarkdownDocument()", page)
+        self.assertIn(".editor-title h1 {", page)
+        self.assertNotIn("\n    h1 {\n      margin: 0;", page)
+        self.assertIn(".rich-editor-surface .tiptap h1,", page)
+        self.assertIn(".rich-editor-surface .tiptap h2,", page)
+        self.assertIn(".rich-editor-surface .tiptap h3 {", page)
+        self.assertIn(
+            ".rich-editor-surface .tiptap h1 {\n"
+            "      font-size: calc(var(--editor-font-size) * 2);",
+            page,
+        )
+        self.assertIn(
+            ".rich-editor-surface .tiptap h2 {\n"
+            "      font-size: calc(var(--editor-font-size) * 1.5);",
+            page,
+        )
+        self.assertIn(
+            ".rich-editor-surface .tiptap h3 {\n"
+            "      font-size: calc(var(--editor-font-size) * 1.25);",
+            page,
+        )
 
     def test_save_artifact_edit_writes_jsonl_and_renders_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

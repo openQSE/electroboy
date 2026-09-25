@@ -823,7 +823,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       min-width: 0;
     }}
 
-    h1 {{
+    .editor-title h1 {{
       margin: 0;
       font-size: 17px;
       line-height: 1.25;
@@ -1132,6 +1132,25 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
 
     .rich-editor-surface .tiptap > :first-child {{
       margin-top: 0;
+    }}
+
+    .rich-editor-surface .tiptap h1,
+    .rich-editor-surface .tiptap h2,
+    .rich-editor-surface .tiptap h3 {{
+      color: #ffffff;
+      line-height: 1.2;
+    }}
+
+    .rich-editor-surface .tiptap h1 {{
+      font-size: calc(var(--editor-font-size) * 2);
+    }}
+
+    .rich-editor-surface .tiptap h2 {{
+      font-size: calc(var(--editor-font-size) * 1.5);
+    }}
+
+    .rich-editor-surface .tiptap h3 {{
+      font-size: calc(var(--editor-font-size) * 1.25);
     }}
 
     .rich-editor-surface .tiptap table {{
