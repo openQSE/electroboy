@@ -3066,6 +3066,13 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(headers["Content-Length"], str(len(body)))
 
     def test_service_asset_endpoint_serves_extracted_frontend_files(self) -> None:
+        favicon_link = (
+            '<link rel="icon" type="image/svg+xml" '
+            'href="/assets/service/favicon.svg">'
+        )
+        self.assertIn(favicon_link, INDEX_HTML)
+        self.assertIn(favicon_link, FILE_BROWSER_WINDOW_HTML)
+        self.assertIn(favicon_link, PANE_WINDOW_HTML)
         self.assertIn("/assets/service/css/shell.css", INDEX_HTML)
         self.assertIn("/assets/service/css/pane-tools.css", INDEX_HTML)
         self.assertIn("/assets/service/css/selects.css", INDEX_HTML)
@@ -3092,6 +3099,10 @@ class ServiceTests(unittest.TestCase):
             thread.start()
 
             try:
+                favicon_status, favicon_body, favicon_type, _ = request_bytes(
+                    server,
+                    "/assets/service/favicon.svg",
+                )
                 css_status, css_body, css_type, _css_headers = request_bytes(
                     server,
                     "/assets/service/css/shell.css",
@@ -3234,6 +3245,9 @@ class ServiceTests(unittest.TestCase):
                 thread.join(timeout=2)
                 server.server_close()
 
+        self.assertEqual(favicon_status, 200)
+        self.assertEqual(favicon_type, "image/svg+xml")
+        self.assertIn(b"<svg", favicon_body)
         self.assertEqual(css_status, 200)
         self.assertEqual(css_type, "text/css; charset=utf-8")
         self.assertIn(b":root", css_body)

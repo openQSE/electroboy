@@ -119,6 +119,7 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
             owner="core",
             assets=(
                 "index.html",
+                "favicon.svg",
                 "css/shell.css",
                 "css/pane-tools.css",
                 "css/selects.css",
