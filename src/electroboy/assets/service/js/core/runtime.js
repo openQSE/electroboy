@@ -3375,6 +3375,21 @@
       }
     }
 
+    function paneLayoutContentForKind(kind, item) {
+      const content = clonePaneLayoutContent(item) || {};
+      if (kind !== "agent") {
+        return Object.keys(content).length > 0 ? content : null;
+      }
+      const sessionId = String(content.sessionId || selectedSessionId || "");
+      if (!sessionId) {
+        return Object.keys(content).length > 0 ? content : null;
+      }
+      return {
+        ...content,
+        sessionId,
+      };
+    }
+
     function paneKindForArtifactItem(item) {
       if (item && item.kind === "agenda") {
         return "agenda";
@@ -3455,7 +3470,7 @@
       if (!leaf) {
         return;
       }
-      leaf.content = clonePaneLayoutContent(item);
+      leaf.content = paneLayoutContentForKind(kind, item);
       leaf.projectRoot = activeProjectRoot;
       if (shouldActivate) {
         setActivePaneLayoutLeaf(leaf.id);
@@ -3474,7 +3489,7 @@
       }
       const previousKind = leaf.kind;
       leaf.kind = kind;
-      leaf.content = clonePaneLayoutContent(item);
+      leaf.content = paneLayoutContentForKind(kind, item);
       leaf.projectRoot = activeProjectRoot;
       setActivePaneLayoutLeaf(leaf.id);
       savePaneLayout();
@@ -3542,6 +3557,10 @@
         !INSTANCE_PANE_LAYOUT_KINDS.has(kind) ||
         !paneLayoutKindAvailable(kind)
       ) {
+        return;
+      }
+      if (kind === "agent") {
+        assignActivePaneContent("agent", { sessionId: selectedSessionId });
         return;
       }
       let leaf = paneLayoutLeafByKind(kind);

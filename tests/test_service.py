@@ -1363,6 +1363,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function selectAgentTerminal(sessionId = \"\")", app)
         self.assertIn("function focusAgentSessionPane(sessionId = \"\")", app)
         self.assertIn("function assignPaneLayoutAgentSession(leaf, sessionId)", app)
+        self.assertIn("function paneLayoutContentForKind(kind, item)", app)
+        self.assertIn("const sessionId = String(content.sessionId || selectedSessionId || \"\");", app)
+        self.assertIn("leaf.content = paneLayoutContentForKind(kind, item);", app)
         focus_agent_start = app.index(
             'function focusAgentSessionPane(sessionId = "")'
         )
@@ -2507,6 +2510,16 @@ class ServiceTests(unittest.TestCase):
         )
         self.assertIn("assignActivePaneContent(kind, item, requestedLeafId);", workspace_assign_source)
         self.assertIn("createIfMissing: true", workspace_assign_source)
+        open_kind_start = runtime.index("function openPaneLayoutKind(")
+        open_kind_end = runtime.index(
+            "function handlePaneLayoutMessage(",
+            open_kind_start,
+        )
+        open_kind_source = runtime[open_kind_start:open_kind_end]
+        self.assertIn(
+            'assignActivePaneContent("agent", { sessionId: selectedSessionId });',
+            open_kind_source,
+        )
         self.assertIn("function paneLayoutConsistencyPayload()", runtime)
         self.assertIn("last_frame_refresh: frontendDebugLastPaneLayoutFrameRefresh", runtime)
         self.assertIn("function refreshPaneLayoutInstanceFrameForLeaf(", runtime)
