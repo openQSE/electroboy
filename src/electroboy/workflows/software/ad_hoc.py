@@ -16,11 +16,11 @@ from electroboy.adapters.codex_sessions import (
     codex_session_paths,
     codex_sessions_directory,
 )
+from electroboy.adapters.interactive_cli import codex_interactive_command
 from electroboy.workflows.software.agent_rules import (
     materialize_software_agent_rules,
     prompt_with_software_agent_rules,
 )
-
 
 AD_HOC_CATALOG_RELATIVE_PATH = (
     Path(".electroboy") / "service" / "ad-hoc-sessions.json"
@@ -36,13 +36,7 @@ def ad_hoc_agent_command(
 ) -> list[str]:
     """Build a new or resumed Codex TUI command for ad-hoc work."""
 
-    command = [
-        "codex",
-        "--cd",
-        str(root),
-        "--sandbox",
-        "workspace-write",
-    ]
+    command = codex_interactive_command(root)
     rules_path = materialize_software_agent_rules(root)
     if provider_session_id:
         command.extend(

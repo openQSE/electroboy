@@ -16,7 +16,10 @@ sys.path.insert(0, str(ROOT / "src"))
 from electroboy.adapters.base import AgentInvocation  # noqa: E402
 from electroboy.adapters.codex_exec import CodexExecRuntime  # noqa: E402
 from electroboy.adapters.generic_cli import GenericCliRuntime  # noqa: E402
-from electroboy.adapters.interactive_cli import CodexInteractiveRuntime  # noqa: E402
+from electroboy.adapters.interactive_cli import (  # noqa: E402
+    CodexInteractiveRuntime,
+    codex_interactive_command,
+)
 from electroboy.config import RuntimeConfig  # noqa: E402
 
 
@@ -302,7 +305,18 @@ class RuntimeAdapterTests(unittest.TestCase):
             )
 
         self.assertIn("resume", command)
+        self.assertIn("--no-alt-screen", command)
         self.assertIn("019f3cb6-60c3-7320-896b-e5eb9a6a8dd2", command)
+
+    def test_codex_interactive_command_preserves_configured_options(self) -> None:
+        command = codex_interactive_command(
+            "/tmp/project",
+            args=["--no-alt-screen", "-C", "/tmp/override", "-s", "read-only"],
+        )
+
+        self.assertEqual(command.count("--no-alt-screen"), 1)
+        self.assertEqual(command.count("-C"), 1)
+        self.assertEqual(command.count("-s"), 1)
 
     def test_codex_interactive_discovers_new_session_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

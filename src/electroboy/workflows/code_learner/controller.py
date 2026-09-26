@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from electroboy.adapters.interactive_cli import codex_interactive_command
 from electroboy.models import utc_now
 from electroboy.service.recent_projects import remember_recent_project
 from electroboy.service.services import ServiceServices
@@ -64,14 +65,8 @@ def code_learner_agent_command(
     root: Path,
     _context: dict[str, object] | None = None,
 ) -> list[str]:
-    command = [
-        "codex",
-        "--cd",
-        str(root),
-        "--sandbox",
-        "read-only",
-        tutor_bootstrap_prompt(root),
-    ]
+    command = codex_interactive_command(root, sandbox="read-only")
+    command.append(tutor_bootstrap_prompt(root))
     require_repository_read_capability(command, root)
     return command
 

@@ -6,12 +6,32 @@ import json
 import os
 import subprocess
 import time
+from collections.abc import Iterable
 from pathlib import Path
 
+from ..config import RuntimeConfig
 from .base import AgentInvocation, AgentResult
 from .codex_sessions import CODEX_SESSION_ID_RE
 from .generic_cli import GenericCliRuntime
-from ..config import RuntimeConfig
+
+
+def codex_interactive_command(
+    root: Path | str,
+    *,
+    executable: str = "codex",
+    args: Iterable[str] = (),
+    sandbox: str = "workspace-write",
+) -> list[str]:
+    """Build a scrollback-preserving command for the interactive Codex TUI."""
+
+    command = [executable, *args]
+    if "--cd" not in command and "-C" not in command:
+        command.extend(["--cd", str(Path(root).resolve())])
+    if "--no-alt-screen" not in command:
+        command.append("--no-alt-screen")
+    if "--sandbox" not in command and "-s" not in command:
+        command.extend(["--sandbox", sandbox])
+    return command
 
 
 class InteractiveCliRuntime(GenericCliRuntime):
@@ -65,12 +85,12 @@ class CodexInteractiveRuntime(InteractiveCliRuntime):
         self.root = Path(root).resolve()
 
     def _command(self, invocation: AgentInvocation) -> list[str]:
-        command = [self.config.command, *self._interactive_args()]
-        if "--cd" not in command and "-C" not in command:
-            command.extend(["--cd", str(self.root)])
-        if "--sandbox" not in command and "-s" not in command:
-            sandbox = self.config.options.get("sandbox", "workspace-write")
-            command.extend(["--sandbox", sandbox])
+        command = codex_interactive_command(
+            self.root,
+            executable=self.config.command,
+            args=self._interactive_args(),
+            sandbox=self.config.options.get("sandbox", "workspace-write"),
+        )
         if invocation.provider_session_id:
             command.extend(["resume", invocation.provider_session_id])
         return command

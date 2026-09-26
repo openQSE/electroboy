@@ -8071,6 +8071,7 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(started)
         self.assertEqual(session.kind, "creative-writing")
         self.assertIn("codex", session.command[0])
+        self.assertIn("--no-alt-screen", session.command)
         self.assertIn("--cd", session.command)
         self.assertIn("creative writing collaborator", session.command[-1])
         self.assertIn("chapters/chapter-01.md", session.command[-1])
@@ -9052,6 +9053,7 @@ class ServiceTests(unittest.TestCase):
             [older_session_id],
         )
         self.assertEqual(session.command[-3:-1], ["resume", provider_session_id])
+        self.assertIn("--no-alt-screen", session.command)
         self.assertIn("Effective rules file:", session.command[-1])
         self.assertIn("wait for the operator", session.command[-1])
         self.assertEqual(
