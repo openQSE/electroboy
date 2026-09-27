@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import textwrap
 from collections.abc import Mapping
 from http import HTTPStatus
 from pathlib import Path
@@ -61,12 +62,105 @@ _DOCUMENT_IMAGE_SRC_RE = re.compile(
     re.IGNORECASE,
 )
 
+_RICH_MARKDOWN_WRAP_COLUMN = 80
+_MARKDOWN_STRUCTURAL_LINE_RE = re.compile(
+    r"^(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s|\||<|\[[^]]+\]:\s)"
+)
+_MARKDOWN_RULE_RE = re.compile(r"^(?:-{3,}|\*{3,}|_{3,}|={3,})\s*$")
+_MARKDOWN_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+
 
 def _generic_stage_config(stage: str) -> dict[str, object]:
     try:
         return _STAGE_DOCUMENT_CONFIG[stage]
     except KeyError as error:
         raise AgentSessionError(f"unsupported workflow stage: {stage}") from error
+
+
+def _markdown_wrap_column(value: object) -> int:
+    try:
+        column = int(value)
+    except (TypeError, ValueError):
+        return 0
+    if column <= 0:
+        return 0
+    return max(40, min(column, 200))
+
+
+def _wrap_markdown_prose(markdown: str, column: int) -> str:
+    """Reflow plain Markdown paragraphs without altering structural blocks."""
+
+    column = _markdown_wrap_column(column)
+    if not markdown or not column:
+        return markdown
+
+    lines = markdown.splitlines()
+    output: list[str] = []
+    paragraph: list[str] = []
+    fence_character = ""
+    fence_length = 0
+    in_front_matter = bool(lines and lines[0].strip() == "---")
+
+    def flush_paragraph() -> None:
+        if not paragraph:
+            return
+        prose = " ".join(line.strip() for line in paragraph)
+        output.extend(
+            textwrap.wrap(
+                prose,
+                width=column,
+                break_long_words=False,
+                break_on_hyphens=False,
+            )
+            or [""]
+        )
+        paragraph.clear()
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if in_front_matter:
+            output.append(line)
+            if index > 0 and stripped in {"---", "..."}:
+                in_front_matter = False
+            continue
+
+        fence = _MARKDOWN_FENCE_RE.match(line)
+        if fence_character:
+            output.append(line)
+            if (
+                stripped.startswith(fence_character * fence_length)
+                and not stripped.strip(fence_character).strip()
+            ):
+                fence_character = ""
+                fence_length = 0
+            continue
+        if fence:
+            flush_paragraph()
+            marker = fence.group(1)
+            fence_character = marker[0]
+            fence_length = len(marker)
+            output.append(line)
+            continue
+
+        structural = bool(
+            line[:1].isspace()
+            or _MARKDOWN_STRUCTURAL_LINE_RE.match(stripped)
+            or _MARKDOWN_RULE_RE.match(stripped)
+            or "|" in stripped
+            or re.search(r"</?[A-Za-z][^>]*>", stripped)
+            or line.endswith(("  ", "\\"))
+        )
+        if not stripped or structural:
+            flush_paragraph()
+            output.append(line)
+            continue
+        paragraph.append(line)
+
+    flush_paragraph()
+    wrapped = "\n".join(output)
+    if markdown.endswith(("\n", "\r")):
+        wrapped += "\n"
+    return wrapped
 
 
 ARTIFACT_EVENT_ROUTE_PATHS = {
@@ -547,6 +641,9 @@ def _artifact_edit_payload(
         "markdown_path": markdown_path,
         "markdown": markdown_text,
         "rich_editor": bool(rich_editor and artifact == "document"),
+        "wrap_column": (
+            _RICH_MARKDOWN_WRAP_COLUMN if rich_editor and artifact == "document" else 0
+        ),
         "editor_font_size": editor_font_size,
     }
 
@@ -711,6 +808,9 @@ def save_artifact_edit(
     if mode != "markdown":
         raise StateError("artifact is not backed by a structured JSONL document")
     markdown = str(payload.get("markdown") or "")
+    wrap_column = _markdown_wrap_column(payload.get("wrap_column"))
+    if wrap_column:
+        markdown = _wrap_markdown_prose(markdown, wrap_column)
     if artifact == "document":
         markdown = f"{markdown_document_header()}{strip_document_type_header(markdown)}"
     document_path = _artifact_event_document_path(
@@ -1829,6 +1929,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
               artifact: EDIT_DATA.artifact,
               path: EDIT_DATA.path || "",
               markdown: collectMarkdownDocument(),
+              wrap_column: Number(EDIT_DATA.wrap_column || 0),
             }};
         const response = await fetch(contextUrl("/api/artifacts/edit"), {{
           method: "POST",

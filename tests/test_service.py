@@ -1645,6 +1645,12 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('scope: { type: "file", path:', documents)
         self.assertIn("function generatePaneDocumentCorkboard()", pane_window)
         self.assertIn("generateCorkboard: generatePaneDocumentCorkboard", pane_window)
+        self.assertIn(
+            'artifactEventSource.addEventListener("artifact-event", () => {\n'
+            "        if (!artifactEditing) {\n"
+            "          refreshArtifact();",
+            pane_window,
+        )
         self.assertIn('data.action === "generate-corkboard"', documents)
         self.assertIn('menu("File", "pane-tool-file-menu")', file_pane_tools)
         self.assertIn('menu("Mode", "pane-tool-mode-menu")', file_pane_tools)
@@ -4787,6 +4793,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("body.markdown-mode .editor-header", page)
         self.assertIn("body.markdown-mode .markdown-editor", page)
         self.assertIn('textarea.addEventListener("input", markDirty);', page)
+        self.assertIn('"wrap_column": 0', page)
         self.assertIn("replaceSelection: replaceEditorSelection", page)
         self.assertIn("control.setRangeText", page)
         self.assertNotIn('label.textContent = "Markdown";', page)
@@ -4822,6 +4829,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('import("https://esm.sh/@tiptap/core")', page)
         self.assertIn('import("https://esm.sh/@tiptap/markdown")', page)
         self.assertIn("function collectMarkdownDocument()", page)
+        self.assertIn('"wrap_column": 80', page)
+        self.assertIn("wrap_column: Number(EDIT_DATA.wrap_column || 0)", page)
         self.assertIn("function richEditorSelectionBounds()", page)
         self.assertIn("function replaceRichEditorSelection", page)
         self.assertIn(".editor-title h1 {", page)
@@ -4844,6 +4853,45 @@ class ServiceTests(unittest.TestCase):
             "      font-size: calc(var(--editor-font-size) * 1.25);",
             page,
         )
+
+    def test_creative_markdown_save_wraps_prose_without_reflowing_structure(
+        self,
+    ) -> None:
+        prose = (
+            "The lantern light followed them through the narrow passage while "
+            "the storm pressed against every window and the old house settled "
+            "around them."
+        )
+        list_line = "- " + ("an intentionally long list item " * 4).strip()
+        code_line = "print('" + ("unwrapped-code-" * 7) + "')"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chapter = root / "chapters" / "chapter-01.md"
+            chapter.parent.mkdir()
+            chapter.write_text("# Chapter 1\n", encoding="utf-8")
+
+            save_artifact_edit(
+                root,
+                "document",
+                "chapters/chapter-01.md",
+                {
+                    "mode": "markdown",
+                    "markdown": (
+                        f"# Chapter 1\n\n{prose}\n\n{list_line}\n\n"
+                        f"```python\n{code_line}\n```\n"
+                    ),
+                    "wrap_column": 80,
+                },
+            )
+            saved = chapter.read_text(encoding="utf-8").removeprefix(
+                "---\ntype: markdown\n---\n\n"
+            )
+
+        paragraph = saved.split("\n\n", 2)[1].splitlines()
+        self.assertTrue(all(len(line) <= 80 for line in paragraph))
+        self.assertEqual(" ".join(paragraph), prose)
+        self.assertIn(list_line, saved)
+        self.assertIn(code_line, saved)
 
     def test_save_artifact_edit_writes_jsonl_and_renders_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

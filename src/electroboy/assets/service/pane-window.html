@@ -4793,7 +4793,11 @@
         return;
       }
       artifactEventSource = window.ElectroBoyLiveTransport.eventSource(eventUrl);
-      artifactEventSource.addEventListener("artifact-event", refreshArtifact);
+      artifactEventSource.addEventListener("artifact-event", () => {
+        if (!artifactEditing) {
+          refreshArtifact();
+        }
+      });
       artifactEventSource.onerror = () => {};
       refreshArtifactPaneTools();
     }
