@@ -1867,6 +1867,181 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     saveArtifact.addEventListener("click", () => {{
       save({{ force: true }});
     }});
+
+    function comparableEditorText(value, matchCase) {{
+      const text = String(value || "");
+      return matchCase ? text : text.toLocaleLowerCase();
+    }}
+
+    function editorTextMatches(value, query, matchCase) {{
+      return comparableEditorText(value, matchCase)
+        === comparableEditorText(query, matchCase);
+    }}
+
+    function editorMatchOffset(value, query, matchCase, start = 0) {{
+      const source = comparableEditorText(value, matchCase);
+      const needle = comparableEditorText(query, matchCase);
+      if (!needle) {{
+        return -1;
+      }}
+      const offset = source.indexOf(needle, Math.max(0, start));
+      return offset >= 0 ? offset : source.indexOf(needle);
+    }}
+
+    function replaceTextControlSelection(control, query, replacement, matchCase) {{
+      if (!control || typeof control.setRangeText !== "function") {{
+        return false;
+      }}
+      let start = Number(control.selectionStart || 0);
+      let end = Number(control.selectionEnd || 0);
+      const selected = control.value.slice(start, end);
+      if (!editorTextMatches(selected, query, matchCase)) {{
+        start = editorMatchOffset(control.value, query, matchCase, end);
+        if (start < 0) {{
+          return false;
+        }}
+        end = start + query.length;
+      }}
+      control.focus();
+      control.setRangeText(String(replacement || ""), start, end, "end");
+      control.dispatchEvent(new Event("input", {{ bubbles: true }}));
+      return true;
+    }}
+
+    function richEditorSelectionBounds() {{
+      if (!richMarkdownEditor || !richMarkdownEditor.view) {{
+        return null;
+      }}
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {{
+        return null;
+      }}
+      const range = selection.getRangeAt(0);
+      const editorRoot = richMarkdownEditor.view.dom;
+      if (
+        !editorRoot.contains(range.startContainer)
+        || !editorRoot.contains(range.endContainer)
+      ) {{
+        return null;
+      }}
+      try {{
+        return {{
+          from: richMarkdownEditor.view.posAtDOM(
+            range.startContainer,
+            range.startOffset,
+          ),
+          to: richMarkdownEditor.view.posAtDOM(
+            range.endContainer,
+            range.endOffset,
+          ),
+        }};
+      }} catch (error) {{
+        return null;
+      }}
+    }}
+
+    function richEditorBoundsMatch(bounds, query, matchCase) {{
+      if (!bounds || bounds.from === bounds.to) {{
+        return false;
+      }}
+      const selected = richMarkdownEditor.state.doc.textBetween(
+        bounds.from,
+        bounds.to,
+        "\\n",
+      );
+      return editorTextMatches(selected, query, matchCase);
+    }}
+
+    function nextRichEditorMatch(query, matchCase) {{
+      if (!richMarkdownEditor) {{
+        return null;
+      }}
+      const matches = [];
+      richMarkdownEditor.state.doc.descendants((node, position) => {{
+        if (!node.isText || !node.text) {{
+          return;
+        }}
+        const source = comparableEditorText(node.text, matchCase);
+        const needle = comparableEditorText(query, matchCase);
+        let offset = source.indexOf(needle);
+        while (offset >= 0) {{
+          matches.push({{
+            from: position + offset,
+            to: position + offset + query.length,
+          }});
+          offset = source.indexOf(needle, offset + Math.max(needle.length, 1));
+        }}
+      }});
+      if (!matches.length) {{
+        return null;
+      }}
+      const cursor = richMarkdownEditor.state.selection.to;
+      return matches.find((match) => match.from >= cursor) || matches[0];
+    }}
+
+    function replaceRichEditorSelection(query, replacement, matchCase) {{
+      if (!richMarkdownEditor) {{
+        return false;
+      }}
+      let bounds = richEditorSelectionBounds();
+      if (!richEditorBoundsMatch(bounds, query, matchCase)) {{
+        const editorSelection = richMarkdownEditor.state.selection;
+        bounds = {{ from: editorSelection.from, to: editorSelection.to }};
+      }}
+      if (!richEditorBoundsMatch(bounds, query, matchCase)) {{
+        bounds = nextRichEditorMatch(query, matchCase);
+      }}
+      if (!bounds) {{
+        return false;
+      }}
+      let chain = richMarkdownEditor
+        .chain()
+        .focus()
+        .setTextSelection(bounds);
+      if (replacement) {{
+        chain = chain.insertContent({{ type: "text", text: String(replacement) }});
+      }} else {{
+        chain = chain.deleteSelection();
+      }}
+      chain.run();
+      return true;
+    }}
+
+    function replaceEditorSelection(options = {{}}) {{
+      const query = String(options.query || "");
+      if (!query) {{
+        return false;
+      }}
+      const replacement = String(options.replacement || "");
+      const matchCase = Boolean(options.matchCase);
+      if (replaceRichEditorSelection(query, replacement, matchCase)) {{
+        return true;
+      }}
+      const activeControl = document.activeElement;
+      if (
+        activeControl
+        && activeControl.matches("textarea, input[type='text'], input[type='search']")
+        && replaceTextControlSelection(
+          activeControl,
+          query,
+          replacement,
+          matchCase,
+        )
+      ) {{
+        return true;
+      }}
+      return replaceTextControlSelection(
+        markdownTextarea,
+        query,
+        replacement,
+        matchCase,
+      );
+    }}
+
+    window.ElectroBoyDocumentEditor = Object.freeze({{
+      replaceSelection: replaceEditorSelection,
+    }});
+
     window.addEventListener("message", async (event) => {{
       if (event.origin !== window.location.origin) {{
         return;

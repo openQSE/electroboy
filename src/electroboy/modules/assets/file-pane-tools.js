@@ -101,6 +101,13 @@
     next.title = "Next match (Enter)";
     findRow.append(findInput, previous, next);
 
+    const replaceInput = document.createElement("input");
+    replaceInput.type = "text";
+    replaceInput.placeholder = "Replace with";
+    replaceInput.setAttribute("aria-label", "Replace with");
+    const replaceButton = button("Replace", replaceCurrent, "primary");
+    replaceButton.title = "Replace the selected match";
+
     const findOptions = document.createElement("div");
     findOptions.className = "pane-tool-find-options";
     const caseLabel = document.createElement("label");
@@ -110,7 +117,7 @@
     const findStatus = document.createElement("span");
     findStatus.textContent = "No search";
     findOptions.append(caseLabel, findStatus);
-    findBody.append(findRow, findOptions);
+    findBody.append(findRow, replaceInput, replaceButton, findOptions);
 
     const viewBody = controller.addSection("view", "View");
     let zoomLevel = null;
@@ -268,6 +275,40 @@
       findStatus.classList.toggle("error", !found && count === 0);
     }
 
+    function replaceCurrent() {
+      const query = findInput.value;
+      const current = target();
+      if (!query) {
+        findStatus.textContent = "Enter text to find";
+        findStatus.classList.add("error");
+        return;
+      }
+      if (!current.editing) {
+        findStatus.textContent = "Switch to Edit to replace";
+        findStatus.classList.add("error");
+        return;
+      }
+      let replaced = false;
+      try {
+        const frame = getFrame();
+        replaced = Boolean(
+          frame?.contentWindow?.ElectroBoyDocumentEditor?.replaceSelection({
+            query,
+            replacement: replaceInput.value,
+            matchCase: matchCase.checked,
+          }),
+        );
+      } catch (error) {
+        replaced = false;
+      }
+      if (!replaced) {
+        findStatus.textContent = "No editable match selected";
+        findStatus.classList.add("error");
+        return;
+      }
+      find(1);
+    }
+
     function handleFindShortcut(event) {
       if (event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
@@ -329,6 +370,7 @@
       forward.disabled =
         typeof actions.forward !== "function" || current.canGoForward !== true;
       findBody.closest("details").hidden = !canSearch;
+      replaceButton.disabled = !current.editing || !findInput.value;
       startAgent.hidden = current.kind !== "document" || !current.path;
       viewBody.closest("details").hidden = false;
       pop.hidden = typeof actions.pop !== "function" || current.canPop === false;
@@ -376,11 +418,24 @@
       setActionStatus("");
     }
 
-    findInput.addEventListener("input", () => find(1));
+    findInput.addEventListener("input", () => {
+      replaceButton.disabled = !target().editing || !findInput.value;
+      find(1);
+    });
     findInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
         find(event.shiftKey ? -1 : 1);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        controller.close();
+        getFrame()?.focus();
+      }
+    });
+    replaceInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        replaceCurrent();
       } else if (event.key === "Escape") {
         event.preventDefault();
         controller.close();
