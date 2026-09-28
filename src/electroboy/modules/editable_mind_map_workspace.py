@@ -48,8 +48,17 @@ _PAGE = r"""<!doctype html>
     body { background: #111824; color: #e7edf7; }
     button, input, textarea { font: inherit; }
     button { border: 1px solid #46566e; border-radius: 5px; background: #263246;
-      color: #e7edf7; padding: .34rem .55rem; cursor: pointer; }
-    button:hover:not(:disabled) { background: #33435d; border-color: #6d83a5; }
+      color: #e7edf7; padding: .34rem .55rem; cursor: pointer;
+      box-shadow: 0 1px 0 #ffffff10, 0 2px 8px #05080d33;
+      transition: background .12s ease, border-color .12s ease, box-shadow .12s ease,
+        color .12s ease, transform .06s ease; }
+    button:hover:not(:disabled), button:focus-visible:not(:disabled) {
+      border-color: #66d9e8; background: #2f4260; color: #f4fbff;
+      box-shadow: 0 0 0 1px #66d9e855, 0 3px 12px #05080d66;
+      outline: none; }
+    button:active:not(:disabled) { transform: translateY(1px);
+      border-color: #55b8ca; background: #172638;
+      box-shadow: inset 0 2px 5px #02050aaa, 0 0 0 1px #66d9e822; }
     button:disabled { opacity: .42; cursor: default; }
     button[aria-pressed="true"] { border-color: #66d9e8; background: #174050;
       box-shadow: inset 0 0 0 1px #66d9e8; color: #e9fbff; }

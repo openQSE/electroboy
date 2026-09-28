@@ -1124,6 +1124,14 @@ class ServiceTests(unittest.TestCase):
             '[data-mind-map-action^="layout-"][aria-pressed="true"]',
             mind_map_tools_css,
         )
+        self.assertIn(
+            ".mind-map-tool-button-group button:hover:not(:disabled)",
+            mind_map_tools_css,
+        )
+        self.assertIn(
+            ".mind-map-tool-button-group button:active:not(:disabled)",
+            mind_map_tools_css,
+        )
         self.assertIn("selection_channel: selectionChannel", mind_map_tools)
         self.assertIn('send(action, { target: String(data.path) })', mind_map_tools)
         self.assertIn("const style = normalizeStyle(descriptor.style || options.style);", mind_map)
@@ -7541,6 +7549,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("electroboy:editable-mind-map", page)
         self.assertIn('const projectRoot = "/tmp/project-root";', page)
         self.assertIn('.empty[hidden] { display: none; }', page)
+        self.assertIn("button:hover:not(:disabled), button:focus-visible:not(:disabled)", page)
+        self.assertIn("button:active:not(:disabled)", page)
         self.assertIn("function resolvedNodeColor(node)", page)
         self.assertIn("function initialNodeColor(parentId)", page)
         self.assertIn("BRANCH_COLORS = Object.freeze", page)
