@@ -197,11 +197,94 @@
   padding: 4px 8px;
 }
 
-.pane-tool-section-body > button.primary {
+.pane-tool-section-body > button.primary,
+.pane-tool-action-button.primary {
   border-color: #305e6f;
   background: #12303b;
   color: #d5f4ff;
   text-align: left;
+}
+
+.pane-tool-button-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  min-width: 0;
+}
+
+.pane-tool-action-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  box-shadow: 0 1px 0 #ffffff0f, 0 2px 7px #05080d2e;
+  transition: background 0.12s ease, border-color 0.12s ease,
+    box-shadow 0.12s ease, color 0.12s ease, transform 0.06s ease;
+}
+
+.pane-tool-button-icon-wrap {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.pane-tool-button-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.pane-tool-icon-only {
+  justify-content: center;
+  padding-inline: 4px;
+}
+
+.pane-tool-icon-only .pane-tool-button-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.pane-tool-button-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-tool-action-button:hover:not(:disabled),
+.pane-tool-action-button:focus-visible:not(:disabled) {
+  border-color: #66d9e8;
+  background: #263550;
+  box-shadow: 0 0 0 1px #66d9e855, 0 3px 12px #05080d66;
+  color: #f4fbff;
+  outline: none;
+}
+
+.pane-tool-action-button:active:not(:disabled) {
+  transform: translateY(1px);
+  border-color: #55b8ca;
+  background: #172638;
+  box-shadow: inset 0 2px 5px #02050aaa, 0 0 0 1px #66d9e822;
+}
+
+.pane-tool-action-button[aria-pressed="true"] {
+  border-color: #66d9e8;
+  background: #174050;
+  box-shadow: inset 0 0 0 1px #66d9e8;
+  color: #e9fbff;
+}
+
+.pane-tool-action-button.danger {
+  border-color: #6f3a36;
+  color: #ffb4a9;
 }
 
 .pane-tool-menu {
@@ -264,8 +347,8 @@
 
 .pane-tool-menu-list {
   display: grid;
-  gap: 2px;
-  padding: 2px 0 4px 12px;
+  gap: 5px;
+  padding: 4px 0 4px 12px;
 }
 
 .pane-tool-menu-list .pane-tool-menu-list {
@@ -274,17 +357,18 @@
 
 .pane-tool-menu-button {
   width: 100%;
-  border-color: transparent !important;
-  background: transparent !important;
   text-align: left;
 }
 
 .pane-tool-menu-button[aria-pressed="true"] {
-  color: #66d9e8;
-  font-weight: 700;
+  border-color: #66d9e8;
+  background: #174050;
+  box-shadow: inset 0 0 0 1px #66d9e8;
+  color: #e9fbff;
 }
 
 .pane-tool-menu-button.danger {
+  border-color: #6f3a36;
   color: #ffb4a9;
 }
 
@@ -302,7 +386,6 @@
 }
 
 .pane-tool-navigation-row button {
-  font-size: 18px;
   line-height: 1;
 }
 

@@ -8,6 +8,20 @@
     return node;
   }
 
+  function toolButton(label, action = null, className = "", options = {}) {
+    if (window.ElectroBoyPaneTools?.actionButton) {
+      return window.ElectroBoyPaneTools.actionButton(label, action, {
+        ...options,
+        className,
+        primary: className.split(/\s+/).includes("primary"),
+      });
+    }
+    const node = element("button", className, label);
+    node.type = "button";
+    if (typeof action === "function") node.addEventListener("click", action);
+    return node;
+  }
+
   function datePart(value) {
     const match = String(value || "").match(/^\d{4}-\d{2}-\d{2}/);
     return match ? match[0] : "";
@@ -115,10 +129,8 @@
     endLabel.append(endInput);
     customDates.append(startLabel, endLabel);
     const dateActions = element("div", "agenda-tool-date-actions");
-    const applyDates = element("button", "primary", "Apply dates");
-    applyDates.type = "button";
-    const clearDates = element("button", "", "Any date");
-    clearDates.type = "button";
+    const applyDates = toolButton("Apply dates", null, "primary");
+    const clearDates = toolButton("Any date");
     dateActions.append(applyDates, clearDates);
     dateBody.append(quickDates, customDates, dateActions);
 
@@ -126,10 +138,8 @@
       open: false,
     });
     const resultCount = element("div", "agenda-tool-result-count", "Loading agenda…");
-    const jumpToday = element("button", "", "Jump to today");
-    jumpToday.type = "button";
-    const reset = element("button", "", "Clear all filters");
-    reset.type = "button";
+    const jumpToday = toolButton("Jump to today");
+    const reset = toolButton("Clear all filters");
     resultsBody.append(resultCount, jumpToday, reset);
 
     function post(action, values = {}) {
@@ -253,9 +263,7 @@
         ["Next 7 days", today, addDays(today, 6)],
         ["This month", today.slice(0, 8) + "01", monthEnd(today)],
       ]) {
-        const button = element("button", "agenda-tool-quick-date", label);
-        button.type = "button";
-        button.addEventListener("click", () => setRange(start, end));
+        const button = toolButton(label, () => setRange(start, end), "agenda-tool-quick-date");
         quickDates.append(button);
       }
     }

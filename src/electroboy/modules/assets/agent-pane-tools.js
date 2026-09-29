@@ -1,7 +1,15 @@
 (function () {
   "use strict";
 
-  function button(label, action, className = "") {
+  function button(label, action, className = "", options = {}) {
+    if (window.ElectroBoyPaneTools?.actionButton) {
+      return window.ElectroBoyPaneTools.actionButton(label, action, {
+        ...options,
+        className,
+        primary: className.split(/\s+/).includes("primary"),
+        danger: className.split(/\s+/).includes("danger"),
+      });
+    }
     const element = document.createElement("button");
     element.type = "button";
     element.textContent = label;

@@ -1129,6 +1129,14 @@ class ServiceTests(unittest.TestCase):
             mind_map_tools_css,
         )
         self.assertIn(
+            "grid-template-columns: minmax(0, 1fr);",
+            mind_map_tools_css,
+        )
+        self.assertNotIn(
+            "grid-template-columns: repeat(2, minmax(0, 1fr));",
+            mind_map_tools_css,
+        )
+        self.assertIn(
             ".mind-map-tool-button-group button:active:not(:disabled)",
             mind_map_tools_css,
         )

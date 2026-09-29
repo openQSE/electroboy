@@ -1,7 +1,14 @@
 (function () {
   "use strict";
 
-  function button(label, action, className = "") {
+  function button(label, action, className = "", options = {}) {
+    if (window.ElectroBoyPaneTools?.actionButton) {
+      return window.ElectroBoyPaneTools.actionButton(label, action, {
+        ...options,
+        className,
+        primary: className.split(/\s+/).includes("primary"),
+      });
+    }
     const element = document.createElement("button");
     element.type = "button";
     element.textContent = label;
@@ -68,8 +75,8 @@
       return { details, list };
     }
 
-    function menuButton(label, action) {
-      return button(label, action, "pane-tool-menu-button");
+    function menuButton(label, action, icon = "") {
+      return button(label, action, "pane-tool-menu-button", { icon });
     }
 
     const navigationBody = controller.addSection("navigation", "Navigation");
@@ -77,12 +84,12 @@
     navigationRow.className = "pane-tool-navigation-row";
     const back = button("←", () => {
       runAction("back", () => {});
-    });
+    }, "", { icon: "arrow-left", iconOnly: true });
     back.title = "Go back";
     back.setAttribute("aria-label", "Go back");
     const forward = button("→", () => {
       runAction("forward", () => {});
-    });
+    }, "", { icon: "arrow-right", iconOnly: true });
     forward.title = "Go forward";
     forward.setAttribute("aria-label", "Go forward");
     navigationRow.append(back, forward);
@@ -95,9 +102,15 @@
     findInput.type = "search";
     findInput.placeholder = "Find in file";
     findInput.setAttribute("aria-label", "Find in file");
-    const previous = button("↑", () => find(-1));
+    const previous = button("↑", () => find(-1), "", {
+      icon: "arrow-up",
+      iconOnly: true,
+    });
     previous.title = "Previous match (Shift+Enter)";
-    const next = button("↓", () => find(1));
+    const next = button("↓", () => find(1), "", {
+      icon: "arrow-down",
+      iconOnly: true,
+    });
     next.title = "Next match (Enter)";
     findRow.append(findInput, previous, next);
 
@@ -127,12 +140,14 @@
     } else {
       const zoomRow = document.createElement("div");
       zoomRow.className = "pane-tool-zoom-row";
-      const zoomOut = menuButton("−", () => runAction("zoomOut", () => {}));
+      const zoomOut = menuButton("−", () => runAction("zoomOut", () => {}), "zoom-out");
       zoomOut.title = "Zoom document out";
+      zoomOut.setAttribute("aria-label", "Zoom document out");
       zoomLevel = document.createElement("span");
       zoomLevel.className = "pane-tool-zoom-level";
-      const zoomIn = menuButton("+", () => runAction("zoomIn", () => {}));
+      const zoomIn = menuButton("+", () => runAction("zoomIn", () => {}), "zoom-in");
       zoomIn.title = "Zoom document in";
+      zoomIn.setAttribute("aria-label", "Zoom document in");
       zoomRow.append(zoomOut, zoomLevel, zoomIn);
       viewBody.append(zoomRow);
     }

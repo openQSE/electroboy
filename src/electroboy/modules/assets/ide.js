@@ -271,9 +271,20 @@
     const stateTitle = element("strong", "ide-state-title", "IDE");
     const stateDetail = element("span", "ide-state-detail", "Checking project state");
     const stateActions = element("div", "ide-state-actions");
-    const retry = element("button", "ide-command", "Retry");
+    const retry = window.ElectroBoyPaneTools?.actionButton
+      ? window.ElectroBoyPaneTools.actionButton("Retry", null, {
+        className: "ide-command",
+        icon: "refresh",
+      })
+      : element("button", "ide-command", "Retry");
     retry.type = "button";
-    const stop = element("button", "ide-command danger", "Stop");
+    const stop = window.ElectroBoyPaneTools?.actionButton
+      ? window.ElectroBoyPaneTools.actionButton("Stop", null, {
+        className: "ide-command danger",
+        danger: true,
+        icon: "stop",
+      })
+      : element("button", "ide-command danger", "Stop");
     stop.type = "button";
     stop.hidden = true;
     stateActions.append(retry, stop);
@@ -292,7 +303,14 @@
       frame.style.transform = `scale(${scale})`;
       frame.style.width = `${100 / scale}%`;
       frame.style.height = `${100 / scale}%`;
-      if (zoomLevel) zoomLevel.textContent = `${zoomPercent}%`;
+      if (zoomLevel) {
+        const label = zoomLevel.querySelector(".pane-tool-button-label");
+        if (label) {
+          label.textContent = `${zoomPercent}%`;
+        } else {
+          zoomLevel.textContent = `${zoomPercent}%`;
+        }
+      }
       try {
         window.localStorage.setItem("electroboy.ide.zoom", String(zoomPercent));
       } catch (_error) {
@@ -368,7 +386,13 @@
     }
 
     function toolButton(label, action, className = "") {
-      const button = element("button", className, label);
+      const button = window.ElectroBoyPaneTools?.actionButton
+        ? window.ElectroBoyPaneTools.actionButton(label, null, {
+          className,
+          danger: className.split(/\s+/).includes("danger"),
+          icon: ideButtonIcon(label),
+        })
+        : element("button", className, label);
       button.type = "button";
       button.addEventListener("click", () => {
         Promise.resolve(action()).catch((error) => {
@@ -376,6 +400,21 @@
         });
       });
       return button;
+    }
+
+    function ideButtonIcon(label) {
+      const text = String(label || "");
+      if (text.startsWith("Reset zoom")) return "refresh";
+      if (text === `${zoomPercent}%`) return "refresh";
+      if (text === "+" || text === "Zoom in") return "zoom-in";
+      if (text === "−" || text === "Zoom out") return "zoom-out";
+      if (text.includes("configuration")) return "settings";
+      if (text.includes("Network")) return "network";
+      if (text.includes("Diagnostics")) return "sparkles";
+      if (text.includes("Neovim")) return "code";
+      if (text === "Standard") return "edit";
+      if (text.includes("standard editor")) return "edit";
+      return "";
     }
 
     function toolSection(id, label, open = false) {
@@ -389,10 +428,8 @@
     const zoomOut = toolButton("−", () => changeZoom(-10));
     zoomOut.title = "Zoom IDE out";
     zoomOut.setAttribute("aria-label", "Zoom IDE out");
-    const zoomLevel = element("button", "ide-zoom-level", `${zoomPercent}%`);
-    zoomLevel.type = "button";
+    const zoomLevel = toolButton(`${zoomPercent}%`, () => applyZoom(100), "ide-zoom-level");
     zoomLevel.title = "Reset IDE zoom";
-    zoomLevel.addEventListener("click", () => applyZoom(100));
     const zoomIn = toolButton("+", () => changeZoom(10));
     zoomIn.title = "Zoom IDE in";
     zoomIn.setAttribute("aria-label", "Zoom IDE in");
@@ -857,9 +894,19 @@
             ? `Enforced: ${payload.enforcement.implementation}`
             : `Unavailable: ${(payload.enforcement?.missing_tools || []).join(", ")}`,
         );
-        const apply = element("button", "ide-command", "Apply");
+        const apply = window.ElectroBoyPaneTools?.actionButton
+          ? window.ElectroBoyPaneTools.actionButton("Apply", null, {
+            className: "ide-command",
+            icon: "check",
+          })
+          : element("button", "ide-command", "Apply");
         apply.type = "button";
-        const clear = element("button", "ide-command", "Clear events");
+        const clear = window.ElectroBoyPaneTools?.actionButton
+          ? window.ElectroBoyPaneTools.actionButton("Clear events", null, {
+            className: "ide-command",
+            icon: "filter-x",
+          })
+          : element("button", "ide-command", "Clear events");
         clear.type = "button";
         const actions = element("div", "ide-setting-actions");
         actions.append(apply, clear);
@@ -937,7 +984,12 @@
     }
 
     function menuButton(label, action, disabled = false) {
-      const button = element("button", "ide-menu-item", label);
+      const button = window.ElectroBoyPaneTools?.actionButton
+        ? window.ElectroBoyPaneTools.actionButton(label, null, {
+          className: "ide-menu-item",
+          icon: ideButtonIcon(label),
+        })
+        : element("button", "ide-menu-item", label);
       button.type = "button";
       button.disabled = disabled;
       button.setAttribute("role", "menuitem");
@@ -986,7 +1038,13 @@
 
     diagnosticsSection.classList.add("ide-diagnostics");
 
-    const toolbarRefresh = element("button", "ide-toolbar-command", "↻");
+    const toolbarRefresh = window.ElectroBoyPaneTools?.actionButton
+      ? window.ElectroBoyPaneTools.actionButton("Restart IDE", null, {
+        className: "ide-toolbar-command",
+        icon: "refresh",
+        iconOnly: true,
+      })
+      : element("button", "ide-toolbar-command", "↻");
     toolbarRefresh.type = "button";
     toolbarRefresh.title = "Restart IDE";
     toolbarRefresh.setAttribute("aria-label", "Restart IDE");

@@ -69,9 +69,14 @@
   cursor: pointer;
   font: inherit;
   font-size: 13px;
+  transition: background 0.12s ease, border-color 0.12s ease,
+    box-shadow 0.12s ease, color 0.12s ease, transform 0.06s ease;
 }
 
 .ide-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 0 12px;
 }
 
@@ -83,7 +88,17 @@
 .ide-menu-item:focus-visible {
   border-color: #66d9e8;
   background: #183a50;
+  box-shadow: 0 0 0 1px #66d9e855, 0 3px 12px #05080d66;
   outline: none;
+}
+
+.ide-command:active:not(:disabled),
+.ide-toolbar-command:active:not(:disabled),
+.ide-menu-item:active:not(:disabled) {
+  transform: translateY(1px);
+  border-color: #55b8ca;
+  background: #172638;
+  box-shadow: inset 0 2px 5px #02050aaa, 0 0 0 1px #66d9e822;
 }
 
 .ide-command.danger {
@@ -115,9 +130,10 @@
 }
 
 .ide-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
-  border-color: transparent;
-  background: transparent;
   padding: 6px 8px;
   text-align: left;
 }
@@ -144,6 +160,7 @@
 }
 
 .ide-zoom-level {
+  justify-content: center;
   color: #66d9e8;
   font-variant-numeric: tabular-nums;
   font-weight: 700;

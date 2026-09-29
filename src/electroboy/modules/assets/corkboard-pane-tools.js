@@ -1,7 +1,14 @@
 (function () {
   "use strict";
 
-  function button(label, action, className = "") {
+  function button(label, action, className = "", options = {}) {
+    if (window.ElectroBoyPaneTools?.actionButton) {
+      return window.ElectroBoyPaneTools.actionButton(label, action, {
+        ...options,
+        className,
+        primary: className.split(/\s+/).includes("primary"),
+      });
+    }
     const element = document.createElement("button");
     element.type = "button";
     element.textContent = label;
@@ -68,8 +75,8 @@
       return { details, list };
     }
 
-    function menuButton(label, action) {
-      return button(label, action, "pane-tool-menu-button");
+    function menuButton(label, action, icon = "") {
+      return button(label, action, "pane-tool-menu-button", { icon });
     }
 
     const actionsBody = controller.addSection("actions", "Actions");
