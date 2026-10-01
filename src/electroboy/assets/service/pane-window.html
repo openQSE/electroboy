@@ -2474,9 +2474,12 @@
 
     function renderFileSwitcher() {
       const placeholderLabel = fileSwitcherPlaceholderLabel();
+      const placeholderDisabled =
+        PANE_KIND === "corkboard" || PANE_KIND === "mind-map";
       const options = [{
         value: "",
         label: placeholderLabel || "Choose file",
+        disabled: placeholderDisabled,
       }];
       if (placeholderLabel) {
         options[0].label = placeholderLabel;
@@ -2526,8 +2529,7 @@
 
     function fileSwitcherPlaceholderLabel() {
       if (artifactKind === "corkboard" || artifactKind === "creative-corkboard") {
-        return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId
-          || "Corkboard";
+        return "Choose corkboard";
       }
       if (artifactKind === "agenda") {
         return "Agenda";
@@ -2536,7 +2538,7 @@
         return "Calendar";
       }
       if (artifactKind === "mind-map") {
-        return artifactMindMapTitle || artifactMindMapPath || "Mind Map";
+        return "Choose mind map";
       }
       if (artifactKind === "requirements") {
         return "Requirements";

@@ -3748,13 +3748,30 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("function closeCurrentContentTarget()", page)
         self.assertIn("function closePaneDocument()", page)
         self.assertIn('postDocumentFileAction("close", target);', page)
-        self.assertIn('return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId', page)
         self.assertIn('PANE_KIND === "mind-map" ? "No mind map open"', page)
         file_switcher_start = page.index("function renderFileSwitcher()")
         file_switcher_end = page.index("function fileSwitcherPlaceholderLabel()", file_switcher_start)
         file_switcher_source = page[file_switcher_start:file_switcher_end]
+        placeholder_start = page.index("function fileSwitcherPlaceholderLabel()")
+        placeholder_end = page.index("function selectContentTarget(", placeholder_start)
+        placeholder_source = page[placeholder_start:placeholder_end]
+        self.assertIn('return "Choose corkboard";', placeholder_source)
+        self.assertIn('return "Choose mind map";', placeholder_source)
+        self.assertNotIn(
+            'return artifactCorkboardTitle || artifactFolderTitle || artifactCorkboardId',
+            placeholder_source,
+        )
+        self.assertNotIn(
+            'return artifactMindMapTitle || artifactMindMapPath || "Mind Map";',
+            placeholder_source,
+        )
         self.assertIn("updateSelectOptions(", file_switcher_source)
         self.assertIn('label: placeholderLabel || "Choose file"', file_switcher_source)
+        self.assertIn(
+            'PANE_KIND === "corkboard" || PANE_KIND === "mind-map"',
+            file_switcher_source,
+        )
+        self.assertIn("disabled: placeholderDisabled", file_switcher_source)
         self.assertNotIn("replaceChildren", file_switcher_source)
         self.assertIn('artifactKind === "empty" && contentCatalogPaneKind() !== "document"', page)
         self.assertIn("selectContentTarget(files[0]);", page)
