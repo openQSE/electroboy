@@ -1864,11 +1864,8 @@ function mapHasNoNodeOverlap() {
       || box.bottom <= other.top || other.bottom <= box.top));
 }
 
-const localLayoutInitiallyPressed = document.querySelector(
+const freeformLayoutInitiallyPressed = document.querySelector(
   '[data-action="layout-local"]').getAttribute('aria-pressed') === 'true';
-document.querySelector('[data-action="layout-freeform"]').click();
-const freeformLayoutPressed = document.querySelector(
-  '[data-action="layout-freeform"]').getAttribute('aria-pressed') === 'true';
 document.querySelector('[data-action="layout-repack"]').click();
 const repackLayoutPressed = document.querySelector(
   '[data-action="layout-repack"]').getAttribute('aria-pressed') === 'true';
@@ -1971,8 +1968,7 @@ document.querySelector('.node textarea').dispatchEvent(new KeyboardEvent('keydow
 
 const result = document.createElement('div');
 result.id = 'mindMapDragProbe';
-result.dataset.localLayoutInitiallyPressed = String(localLayoutInitiallyPressed);
-result.dataset.freeformLayoutPressed = String(freeformLayoutPressed);
+result.dataset.freeformLayoutInitiallyPressed = String(freeformLayoutInitiallyPressed);
 result.dataset.repackLayoutPressed = String(repackLayoutPressed);
 result.dataset.localLayoutPersisted = String(localLayoutPersisted);
 result.dataset.localLayoutPreservedFarBranch = String(localLayoutPreservedFarBranch);
@@ -2003,8 +1999,8 @@ document.body.append(result);
 
     assert completed.returncode == 0, completed.stderr
     assert (
-        '<div id="mindMapDragProbe" data-local-layout-initially-pressed="true" '
-        'data-freeform-layout-pressed="true" data-repack-layout-pressed="true" '
+        '<div id="mindMapDragProbe" data-freeform-layout-initially-pressed="true" '
+        'data-repack-layout-pressed="true" '
         'data-local-layout-persisted="true" '
         'data-local-layout-preserved-far-branch="true" '
         'data-empty-move-kept-parent="true" '

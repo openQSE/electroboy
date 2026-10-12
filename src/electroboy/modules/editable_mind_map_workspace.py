@@ -532,7 +532,7 @@ _PAGE = r"""<!doctype html>
         collapsed = new Set(Array.isArray(stored.collapsed) ? stored.collapsed : []);
         focusMode = Boolean(stored.focusMode);
         if (["local", "freeform", "repack"].includes(stored.layoutMode)) {
-          layoutMode = stored.layoutMode;
+          layoutMode = stored.layoutMode === "freeform" ? "local" : stored.layoutMode;
         }
       } catch (_error) { /* Ignore invalid per-browser view state. */ }
     }
@@ -575,10 +575,16 @@ _PAGE = r"""<!doctype html>
         return { x: 80 + (roots.length % 3) * 310, y: 80 + Math.floor(roots.length / 3) * 150 };
       }
       const siblings = childrenOf(parent.id).filter((node) => nodeSide(node) === side);
+      const lastSibling = siblings.sort((left, right) => left.order - right.order)[
+        siblings.length - 1
+      ];
+      const y = lastSibling
+        ? lastSibling.y + renderedNodeHeight(lastSibling) + NODE_VERTICAL_SPACING
+        : parent.y;
       return { x: side === "left"
           ? parent.x - DEFAULT_NODE_WIDTH - NODE_HORIZONTAL_GAP
           : parent.x + nodeWidth(parent) + NODE_HORIZONTAL_GAP,
-        y: parent.y + siblings.length * NODE_VERTICAL_GAP };
+        y };
     }
     function addNode(kind) {
       const selected = nodeById(selectedId);
@@ -594,7 +600,8 @@ _PAGE = r"""<!doctype html>
         : kind === "sibling" ? nodeSide(selected) : "right";
       const position = nextPosition(positionParent, side);
       if (kind === "sibling") {
-        position.x = selected.x; position.y = selected.y + NODE_VERTICAL_GAP;
+        position.x = selected.x;
+        position.y = selected.y + renderedNodeHeight(selected) + NODE_VERTICAL_SPACING;
       }
       if (kind === "root" && selected) { position.x = selected.x; position.y = selected.y + 130; }
       const node = { id: nextId(), text: "New idea", parent_id: parentId,
@@ -725,7 +732,7 @@ _PAGE = r"""<!doctype html>
     function applyLayoutMode(root) {
       if (!root) return;
       if (layoutMode === "repack") reflowTree(root);
-      else if (layoutMode === "local") resolveLocalOverlaps(root);
+      else resolveLocalOverlaps(root);
     }
     function layoutPositionSnapshot() {
       return JSON.stringify(documentState.nodes.map((node) => [
@@ -910,8 +917,21 @@ _PAGE = r"""<!doctype html>
       const value = textarea.value;
       if (value !== node.text) { checkpoint(); node.text = value; markDirty(); }
       if (editingId === nodeId) editingId = null;
-      if (options.render !== false) render();
+      if (options.render !== false) {
+        render();
+        scheduleLayoutAfterMeasure(node);
+      }
       if (options.focus !== false) canvas.focus();
+    }
+
+    function scheduleLayoutAfterMeasure(node) {
+      const root = treeRoot(node);
+      if (!root) return;
+      window.requestAnimationFrame(() => {
+        const before = layoutPositionSnapshot();
+        applyLayoutMode(root);
+        if (layoutPositionSnapshot() !== before) render();
+      });
     }
     function setNodeColor(color) {
       const node = nodeById(selectedId);
@@ -1216,13 +1236,11 @@ _PAGE = r"""<!doctype html>
       render();
     }
     function setLayoutMode(mode) {
-      if (!["local", "freeform", "repack"].includes(mode)) return;
+      if (!["local", "repack"].includes(mode)) return;
       const before = snapshot();
       const beforeLayout = layoutPositionSnapshot();
       layoutMode = mode;
-      if (mode !== "freeform") {
-        childrenOf(null).forEach((root) => applyLayoutMode(root));
-      }
+      childrenOf(null).forEach((root) => applyLayoutMode(root));
       if (layoutPositionSnapshot() !== beforeLayout) {
         undoStack.push(before);
         if (undoStack.length > 200) undoStack.shift();
@@ -1439,7 +1457,6 @@ _PAGE = r"""<!doctype html>
       fit, focus: toggleFocus,
       collapse: toggleCollapseAll, tidy,
       "layout-local": () => setLayoutMode("local"),
-      "layout-freeform": () => setLayoutMode("freeform"),
       "layout-repack": () => setLayoutMode("repack") };
     document.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", () => {
       const action = actions[button.dataset.action]; if (action) Promise.resolve(action()).catch((error) => setStatus(error.message, true));
@@ -1497,7 +1514,9 @@ _PAGE = r"""<!doctype html>
       if (!editingId || event.target.closest("textarea")) return;
       const editor = nodesLayer.querySelector(`[data-id="${CSS.escape(editingId)}"] textarea`);
       if (!editor) return;
+      const committedNode = nodeById(editingId);
       commitEdit(editingId, editor, { render: false, focus: false });
+      if (committedNode) scheduleLayoutAfterMeasure(committedNode);
       pendingEditRender = true;
     }, { capture: true });
     canvas.addEventListener("pointerdown", (event) => {

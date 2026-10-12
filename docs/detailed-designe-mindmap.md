@@ -119,7 +119,7 @@ path to every operation without adding controls around the selected node.
 | Node | Independent, Child, Sibling, Edit, Delete |
 | Link | File, Web, Create Document, Remove Link |
 | View | Compact or expanded nodes, Zoom, Fit, Focus, Collapse All, Tidy Branch |
-| Layout | Local overlap avoidance, Freeform, Repack |
+| Layout | Freeform overlap avoidance, Repack |
 
 The toolbar favors icons where their meaning is established. Every icon has a
 tooltip and accessible label.
@@ -199,17 +199,16 @@ requires an explicit operation; releasing it over empty canvas never detaches
 it implicitly.
 
 Layout behavior is selectable in the pane's context tools and is stored as
-browser view state rather than map content. `Local`, the default, separates
+browser view state rather than map content. `Freeform`, the default, separates
 only sibling branches whose node rectangles overlap. It moves the later branch
 by the minimum vertical distance needed to restore a small gutter, preserving
 the positions of branches that do not collide. Connector crossings and
 overlaps do not participate in this calculation.
 
-`Freeform` preserves exact node positions and permits node overlap. `Repack`
-compacts the complete affected root trees using each node's rendered height
+`Repack` compacts the complete affected root trees using each node's rendered height
 and the complete height of its descendants. Repack prevents adjacent sibling
 subtrees from overlapping and gives them a small, consistent vertical gutter.
-In all three modes, ordinary empty-canvas positioning and unrelated root trees
+In both modes, ordinary empty-canvas positioning and unrelated root trees
 remain untouched.
 
 New children and siblings are placed using a deterministic local layout. Their

@@ -245,8 +245,7 @@
     ], post);
     const zoomPercent = zoomPercentInput(viewSection, post);
     group(section(controller, "mind-map-layout", "Layout"), [
-      ["Local", "layout-local", "Move only branches whose nodes overlap"],
-      ["Freeform", "layout-freeform", "Preserve positions and allow overlap"],
+      ["Freeform", "layout-local", "Move only branches whose nodes overlap"],
       ["Repack", "layout-repack", "Compact the complete affected tree"],
     ], post);
     document.querySelectorAll("[data-mind-map-action]").forEach((control) => {
