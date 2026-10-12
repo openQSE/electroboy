@@ -1,0 +1,35 @@
+#!/bin/sh
+
+set -eu
+
+message_file=$1
+filtered_file=$(mktemp)
+trap 'rm -f "$filtered_file"' EXIT
+
+sed '/^[[:space:]]*#/d' "$message_file" > "$filtered_file"
+
+if awk 'length($0) > 80 { exit 1 }' "$filtered_file"; then
+  :
+else
+  echo "commit message lines must be 80 characters or fewer" >&2
+  exit 1
+fi
+
+subject=$(sed -n '1p' "$filtered_file")
+if ! printf '%s\n' "$subject" | grep -Eq '^[^:]+: .+'; then
+  echo "commit subject must use: <sub module>: <description>" >&2
+  exit 1
+fi
+case "$subject" in
+  *.)
+    echo "commit subject must not end with a period" >&2
+    exit 1
+    ;;
+esac
+
+signoff='Signed-off-by: Amir Shehata <shehataa@ornl.gov>'
+last_nonempty=$(awk 'NF { line = $0 } END { print line }' "$filtered_file")
+if [ "$last_nonempty" != "$signoff" ]; then
+  echo "commit message must end with the required sign-off" >&2
+  exit 1
+fi
