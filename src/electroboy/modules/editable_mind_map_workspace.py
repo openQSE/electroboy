@@ -901,12 +901,17 @@ _PAGE = r"""<!doctype html>
         true,
       )) return;
       checkpoint();
+      const root = treeRoot(node);
       const removed = descendants(node.id); removed.add(node.id);
       documentState.nodes = documentState.nodes.filter((candidate) => !removed.has(candidate.id));
       documentState.relationships = documentState.relationships.filter(
         (edge) => !removed.has(edge.source) && !removed.has(edge.target));
       selectedId = node.parent_id && nodeById(node.parent_id) ? node.parent_id : null;
-      editingId = null; markDirty(); render();
+      editingId = null;
+      if (layoutMode === "repack" && root && nodeById(root.id)) {
+        applyLayoutMode(root);
+      }
+      markDirty(); render();
     }
     function beginEdit() {
       if (!selectedId) return;
