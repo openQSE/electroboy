@@ -1502,7 +1502,7 @@ _PAGE = r"""<!doctype html>
       else if (event.key === "Enter" && event.shiftKey) { event.preventDefault(); addNode("root"); }
       else if (event.key === "Enter" && selectedId) { event.preventDefault(); addNode("sibling"); }
       else if (event.key === "F2" && selectedId) { event.preventDefault(); beginEdit(); }
-      else if (event.key === "Delete" && selectedId) {
+      else if (["Delete", "Backspace"].includes(event.key) && selectedId) {
         event.preventDefault();
         deleteSelected().catch((error) => setStatus(error.message, true));
       }
