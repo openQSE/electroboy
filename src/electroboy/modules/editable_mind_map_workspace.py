@@ -258,6 +258,7 @@ _PAGE = r"""<!doctype html>
     let savePromise = null;
     let pendingEditRender = false;
     let drag = null;
+    let spacePan = false;
     let overlayLink = null;
     let pendingFilePicker = null;
     let layoutMode = "local";
@@ -1147,7 +1148,7 @@ _PAGE = r"""<!doctype html>
       resizeHandle.setAttribute("aria-hidden", "true");
       resizeHandle.addEventListener("dblclick", (event) => event.stopPropagation());
       resizeHandle.addEventListener("pointerdown", (event) => {
-        if (event.button !== 0 || editingId) return;
+        if (event.button !== 0 || editingId || spacePan) return;
         event.preventDefault(); event.stopPropagation(); selectedId = node.id;
         updateSelectionPresentation();
         const rightDescendantIds = new Set();
@@ -1180,7 +1181,8 @@ _PAGE = r"""<!doctype html>
       });
       element.addEventListener("dblclick", (event) => { event.stopPropagation(); selectedId = node.id; beginEdit(); });
       element.addEventListener("pointerdown", (event) => {
-        if (event.button !== 0 || editingId || event.target.closest("button,textarea")) return;
+        if (event.button !== 0 || editingId || spacePan
+            || event.target.closest("button,textarea")) return;
         event.stopPropagation(); selectedId = node.id;
         updateSelectionPresentation();
         drag = { type: "node", id: node.id, x: event.clientX, y: event.clientY,
@@ -1490,6 +1492,7 @@ _PAGE = r"""<!doctype html>
     });
     canvas.addEventListener("keydown", (event) => {
       if (editingId) return;
+      if (event.key === " ") { event.preventDefault(); spacePan = true; return; }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault(); event.shiftKey ? redo() : undo(); return;
       }
@@ -1520,7 +1523,8 @@ _PAGE = r"""<!doctype html>
       pendingEditRender = true;
     }, { capture: true });
     canvas.addEventListener("pointerdown", (event) => {
-      if (event.button === 1) { event.preventDefault(); drag = { type: "pan", x: event.clientX,
+      if (event.button === 1 || (event.button === 0 && spacePan)) {
+        event.preventDefault(); drag = { type: "pan", x: event.clientX,
         y: event.clientY, startX: pan.x, startY: pan.y }; canvas.setPointerCapture(event.pointerId); }
       else if (event.button === 0 && event.target === canvas) {
         selectedId = null; focusMode = false; render(); canvas.focus();
@@ -1624,6 +1628,10 @@ _PAGE = r"""<!doctype html>
       }
       drag = null;
     });
+    canvas.addEventListener("keyup", (event) => {
+      if (event.key === " ") { event.preventDefault(); spacePan = false; }
+    });
+    window.addEventListener("blur", () => { spacePan = false; });
     canvas.addEventListener("wheel", (event) => { event.preventDefault(); const rect = canvas.getBoundingClientRect();
       adjustZoom(zoom * Math.exp(-event.deltaY * .0015), event.clientX - rect.left, event.clientY - rect.top);
     }, { passive: false });
