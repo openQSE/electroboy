@@ -4,6 +4,10 @@
   gap: 5px;
 }
 
+.mind-map-pane .mind-map-tool-style-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .mind-map-pane .mind-map-tool-button-group button {
   display: flex;
   align-items: center;
@@ -129,6 +133,9 @@
 
 .mind-map-pane [data-mind-map-action="focus"][aria-pressed="true"],
 .mind-map-pane [data-mind-map-action="font-size-auto"][aria-pressed="true"],
+.mind-map-pane [data-mind-map-action="text-bold"][aria-pressed="true"],
+.mind-map-pane [data-mind-map-action="text-italic"][aria-pressed="true"],
+.mind-map-pane [data-mind-map-action="text-underline"][aria-pressed="true"],
 .mind-map-pane [data-mind-map-action^="layout-"][aria-pressed="true"] {
   border-color: #66d9e8;
   background: #174050;

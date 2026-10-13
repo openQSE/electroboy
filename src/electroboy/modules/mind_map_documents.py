@@ -135,6 +135,21 @@ def normalize_mind_map(value: object) -> dict[str, object]:
             raise StateError(f"node {node_id} font_size must be greater than zero")
         if font_size_mode == "custom" and font_size is None:
             raise StateError(f"node {node_id} custom font_size is required")
+        text_color = str(raw_node.get("text_color") or "").strip().lower()
+        if text_color:
+            valid_text_color = len(text_color) == 7 and text_color.startswith("#")
+            try:
+                int(text_color[1:], 16)
+            except ValueError:
+                valid_text_color = False
+            if not valid_text_color:
+                raise StateError(f"node {node_id} has an invalid text_color")
+        text_styles: dict[str, bool] = {}
+        for field in ("text_bold", "text_italic", "text_underline"):
+            style = raw_node.get(field, False)
+            if not isinstance(style, bool):
+                raise StateError(f"node {node_id} {field} must be a boolean")
+            text_styles[field] = style
         width = _finite_number(
             raw_node.get("width", DEFAULT_NODE_WIDTH),
             field=f"node {node_id} width",
@@ -163,6 +178,8 @@ def normalize_mind_map(value: object) -> dict[str, object]:
                 "side": side or None,
                 "font_size": font_size,
                 "font_size_mode": font_size_mode,
+                "text_color": text_color,
+                **text_styles,
                 "width": width,
                 "min_height": min_height,
                 "links": [

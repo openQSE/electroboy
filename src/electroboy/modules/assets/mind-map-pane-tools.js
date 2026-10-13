@@ -26,6 +26,9 @@
     tidy: '<path d="M4 6h16"></path><path d="M7 12h10"></path><path d="M10 18h4"></path>',
     minus: '<path d="M5 12h14"></path>',
     plus: '<path d="M12 5v14"></path><path d="M5 12h14"></path>',
+    bold: '<path d="M7 4h6a4 4 0 0 1 0 8H7z"></path><path d="M7 12h7a4 4 0 0 1 0 8H7z"></path><path d="M7 4v16"></path>',
+    italic: '<path d="M10 4h8"></path><path d="M6 20h8"></path><path d="M14 4 10 20"></path>',
+    underline: '<path d="M6 4v6a6 6 0 0 0 12 0V4"></path><path d="M4 21h16"></path>',
   });
 
   function iconSvg(name) {
@@ -47,10 +50,12 @@
       icon.innerHTML = iconSvg(options.icon);
       control.append(icon);
     }
-    const text = document.createElement("span");
-    text.className = "mind-map-tool-label";
-    text.textContent = label;
-    control.append(text);
+    if (!options.iconOnly) {
+      const text = document.createElement("span");
+      text.className = "mind-map-tool-label";
+      text.textContent = label;
+      control.append(text);
+    }
     control.addEventListener("click", () => post(action));
     return control;
   }
@@ -222,10 +227,30 @@
       ["Amber", "color-amber", "Use amber"],
       ["Rose", "color-rose", "Use rose"],
     ], post);
-    const fontControls = fontSizeGroup(
-      section(controller, "mind-map-font", "Font size"),
-      post,
-    );
+    const textSection = section(controller, "mind-map-text", "Text");
+    const fontControls = fontSizeGroup(textSection, post);
+    const textColorRow = document.createElement("div");
+    textColorRow.className = "pane-tool-color-row";
+    const textColor = document.createElement("input");
+    textColor.type = "color";
+    textColor.value = "#ffffff";
+    textColor.setAttribute("aria-label", "Selected node text color");
+    textColor.title = "Selected node text color";
+    textColor.addEventListener("input", () => post("text-color-set", {
+      color: textColor.value,
+    }));
+    textColorRow.append(textColor);
+    textSection.append(textColorRow);
+    const textStyleRow = document.createElement("div");
+    textStyleRow.className = "mind-map-tool-button-group mind-map-tool-style-row";
+    [
+      ["Bold", "text-bold", "Toggle bold text", "bold"],
+      ["Italic", "text-italic", "Toggle italic text", "italic"],
+      ["Underline", "text-underline", "Toggle underlined text", "underline"],
+    ].forEach(([label, action, title, icon]) => {
+      textStyleRow.append(button(label, action, post, { title, icon, iconOnly: true }));
+    });
+    textSection.append(textStyleRow);
     group(section(controller, "mind-map-link", "Link"), [
       ["File", "link-file", "Link a file", "file-link"],
       ["Web", "link-web", "Link a website", "web"],
@@ -256,6 +281,7 @@
       "create-document", "remove-link", "color-default", "color-violet",
       "color-blue", "color-teal", "color-green", "color-amber", "color-rose",
       "font-size-decrease", "font-size-increase", "font-size-auto", "focus",
+      "text-bold", "text-italic", "text-underline",
     ]);
     controls.forEach((control) => {
       control.disabled = needsSelection.has(control.dataset.mindMapAction)
@@ -282,6 +308,10 @@
       mapPath = String(data.mapPath || mapPath);
       onState(data);
       fontControls.input.disabled = !data.selected;
+      textColor.disabled = !data.selected;
+      if (data.selected && data.selectedTextColor) {
+        textColor.value = data.selectedTextColor;
+      }
       if (document.activeElement !== zoomPercent) {
         const percent = Math.round(Number(data.zoom || 1) * 100);
         zoomPercent.value = Number.isFinite(percent) ? String(percent) : "100";
@@ -314,6 +344,15 @@
             "aria-pressed",
             String(data.selected && action === `color-${data.selectedColor || "default"}`),
           );
+        }
+        if (action === "text-bold") {
+          control.setAttribute("aria-pressed", String(Boolean(data.selected && data.selectedTextBold)));
+        }
+        if (action === "text-italic") {
+          control.setAttribute("aria-pressed", String(Boolean(data.selected && data.selectedTextItalic)));
+        }
+        if (action === "text-underline") {
+          control.setAttribute("aria-pressed", String(Boolean(data.selected && data.selectedTextUnderline)));
         }
       });
     }

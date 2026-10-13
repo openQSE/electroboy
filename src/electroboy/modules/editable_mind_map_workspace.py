@@ -108,6 +108,10 @@ _PAGE = r"""<!doctype html>
     .node.dragging { opacity: .86; cursor: grabbing; pointer-events: none; }
     .node-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.35;
       font-size: var(--node-font-size, 16px); user-select: text; }
+    .node-text[data-bold="true"] { font-weight: 700; }
+    .node-text[data-italic="true"] { font-style: italic; }
+    .node-text[data-underline="true"] { text-decoration: underline; }
+    .node-text[data-text-color="custom"] { color: var(--node-text-color); }
     .node.compact .node-text { display: -webkit-box; -webkit-line-clamp: 3;
       -webkit-box-orient: vertical; overflow: hidden; max-height: 4.05em; }
     .node textarea { width: 100%; min-height: 6rem; resize: both; border: 1px solid #7187a7;
@@ -965,6 +969,18 @@ _PAGE = r"""<!doctype html>
       checkpoint(); node.font_size_mode = "auto"; delete node.font_size;
       markDirty(); render();
     }
+    function setTextColor(color) {
+      const node = nodeById(selectedId);
+      if (!node || !/^#[0-9a-f]{6}$/i.test(String(color))) return;
+      if (node.text_color === color) return;
+      checkpoint(); node.text_color = color;
+      markDirty(); render();
+    }
+    function toggleTextStyle(field) {
+      const node = nodeById(selectedId);
+      if (!node) return;
+      checkpoint(); node[field] = !Boolean(node[field]); markDirty(); render();
+    }
     function transform() {
       viewport.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
       saveView();
@@ -1062,6 +1078,10 @@ _PAGE = r"""<!doctype html>
       if (window.parent !== window) window.parent.postMessage({
         type: "electroboy-mind-map-state", selected: Boolean(selectedId),
         selectedColor: nodeById(selectedId)?.color || "default",
+        selectedTextColor: nodeById(selectedId)?.text_color || "#ffffff",
+        selectedTextBold: Boolean(nodeById(selectedId)?.text_bold),
+        selectedTextItalic: Boolean(nodeById(selectedId)?.text_italic),
+        selectedTextUnderline: Boolean(nodeById(selectedId)?.text_underline),
         selectedResolvedColor: selectedId ? resolvedNodeColor(nodeById(selectedId)) : "default",
         selectedFontSize: selectedId ? nodeFontSize(nodeById(selectedId)) : ROOT_NODE_FONT_SIZE,
         selectedFontSizeMode: nodeById(selectedId)?.font_size_mode || "auto",
@@ -1122,7 +1142,15 @@ _PAGE = r"""<!doctype html>
           commitEdit(node.id, editor, { focus: false }));
         element.append(editor); queueMicrotask(() => { editor.focus(); editor.select(); });
       } else {
-        const text = document.createElement("div"); text.className = "node-text"; text.textContent = node.text || "(empty)";
+        const text = document.createElement("div"); text.className = "node-text";
+        text.dataset.bold = String(Boolean(node.text_bold));
+        text.dataset.italic = String(Boolean(node.text_italic));
+        text.dataset.underline = String(Boolean(node.text_underline));
+        if (node.text_color) {
+          text.dataset.textColor = "custom";
+          text.style.setProperty("--node-text-color", node.text_color);
+        }
+        text.textContent = node.text || "(empty)";
         const isLong = node.text.length > 80 || node.text.split("\n").length > 3;
         const isExpanded = expanded.has(node.id);
         if (compact && isLong && !isExpanded) element.classList.add("compact");
@@ -1458,6 +1486,10 @@ _PAGE = r"""<!doctype html>
       "font-size-increase": () => adjustNodeFontSize(FONT_CONTROL_STEP),
       "font-size-set": (data) => setNodeFontSize(data?.fontSize),
       "font-size-auto": useAutomaticNodeFontSize,
+      "text-color-set": (data) => setTextColor(data?.color),
+      "text-bold": () => toggleTextStyle("text_bold"),
+      "text-italic": () => toggleTextStyle("text_italic"),
+      "text-underline": () => toggleTextStyle("text_underline"),
       compact: () => { compact = true; render(); }, expand: () => { compact = false; render(); },
       "zoom-out": () => adjustZoom(zoom / 1.2), "zoom-in": () => adjustZoom(zoom * 1.2),
       "zoom-set": (data) => adjustZoom(data?.zoom),

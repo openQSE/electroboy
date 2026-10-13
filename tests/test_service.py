@@ -1134,8 +1134,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('section(controller, "mind-map-color", "Color")', mind_map_tools)
         self.assertIn('section(controller, "mind-map-layout", "Layout")', mind_map_tools)
         self.assertIn(
-            'section(controller, "mind-map-font", "Font size")', mind_map_tools
+            'section(controller, "mind-map-text", "Text")', mind_map_tools
         )
+        self.assertIn("mind-map-tool-style-row", mind_map_tools)
+        self.assertIn('textColor.type = "color";', mind_map_tools)
         self.assertIn("function zoomPercentInput(body, post)", mind_map_tools)
         self.assertIn('post("zoom-set", { zoom: percent / 100 })', mind_map_tools)
         self.assertIn("mind-map-tool-zoom-percent", mind_map_tools_css)
@@ -7403,6 +7405,10 @@ class ServiceTests(unittest.TestCase):
                     "color": "teal",
                     "font_size": 22.5,
                     "font_size_mode": "custom",
+                    "text_color": "#12aBcD",
+                    "text_bold": True,
+                    "text_italic": True,
+                    "text_underline": True,
                     "links": [{"type": "file", "target": "launch.md"}],
                 }
             ]
@@ -7417,6 +7423,12 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(
                 loaded["document"]["nodes"][0]["font_size_mode"], "custom"
             )
+            self.assertEqual(
+                loaded["document"]["nodes"][0]["text_color"], "#12abcd"
+            )
+            self.assertTrue(loaded["document"]["nodes"][0]["text_bold"])
+            self.assertTrue(loaded["document"]["nodes"][0]["text_italic"])
+            self.assertTrue(loaded["document"]["nodes"][0]["text_underline"])
             self.assertEqual(loaded["document"]["nodes"][0]["width"], 260.0)
             self.assertEqual(loaded["document"]["nodes"][0]["min_height"], 58.0)
             self.assertEqual(list_mind_maps(root)[0]["title"], "Launch plan")
