@@ -1732,6 +1732,82 @@ window.setTimeout(() => {
     )
 
 
+@pytest.mark.parametrize("layout_action", ["layout-local", "layout-repack"])
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_editable_mind_map_reflows_after_text_size_change(
+    tmp_path: Path, layout_action: str
+) -> None:
+    document = empty_mind_map("Text layout")
+    document["nodes"] = [
+        {
+            "id": "root",
+            "text": "Root",
+            "parent_id": None,
+            "order": 0,
+            "x": 80,
+            "y": 100,
+            "links": [],
+        },
+        {
+            "id": "first",
+            "text": "First child with enough text to wrap across multiple lines",
+            "parent_id": "root",
+            "order": 0,
+            "x": 420,
+            "y": 70,
+            "links": [],
+        },
+        {
+            "id": "second",
+            "text": "Second child",
+            "parent_id": "root",
+            "order": 1,
+            "x": 420,
+            "y": 150,
+            "links": [],
+        },
+    ]
+    page, _status = render_editable_mind_map_html(
+        {"path": "/tmp/text-layout.mindmap.json", "revision": "one", "document": document},
+        context_id="workspace-one",
+        connection_id="connection-one",
+    )
+    probe = f"""
+<script>
+const command = (action, details = {{}}) => window.dispatchEvent(new MessageEvent(
+  'message', {{ origin: window.location.origin, data: {{
+    type: 'electroboy-mind-map-command', action, ...details,
+  }} }},
+));
+document.querySelector('[data-id="first"]').click();
+command('{layout_action}');
+const beforeTop = Number.parseFloat(
+  document.querySelector('[data-id="second"]').style.top,
+);
+command('font-size-set', {{ fontSize: 60 }});
+window.setTimeout(() => {{
+  const first = document.querySelector('[data-id="first"]');
+  const second = document.querySelector('[data-id="second"]');
+  const secondTop = Number.parseFloat(second.style.top);
+  const result = document.createElement('div');
+  result.id = 'textReflowProbe';
+  result.dataset.moved = String(secondTop !== beforeTop);
+  result.dataset.separated = String(
+    Number.parseFloat(first.style.top) + first.offsetHeight + 20 <= secondTop,
+  );
+  document.body.append(result);
+}}, 100);
+</script>
+"""
+    completed = browser_file_dom(page.replace("</body>", f"{probe}</body>"), tmp_path)
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        '<div id="textReflowProbe" data-moved="true" '
+        'data-separated="true"></div>' in completed.stdout
+    )
+
+
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_editable_mind_map_confirms_branch_delete(tmp_path: Path) -> None:
     document = empty_mind_map("Planning")

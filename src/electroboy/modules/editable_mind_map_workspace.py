@@ -934,10 +934,12 @@ _PAGE = r"""<!doctype html>
       if (options.focus !== false) canvas.focus();
     }
 
-    function scheduleLayoutAfterMeasure(node) {
+    function scheduleLayoutAfterMeasure(node, previousHeight = null) {
       const root = treeRoot(node);
       if (!root) return;
-      window.requestAnimationFrame(() => {
+      queueMicrotask(() => {
+        if (previousHeight !== null
+            && Math.abs(renderedNodeHeight(node) - previousHeight) <= 1) return;
         const before = layoutPositionSnapshot();
         applyLayoutMode(root);
         if (layoutPositionSnapshot() !== before) render();
@@ -954,8 +956,9 @@ _PAGE = r"""<!doctype html>
       if (!node || !Number.isFinite(fontSize) || fontSize <= 0) return;
       const normalized = Math.round(fontSize * 100) / 100;
       if (node.font_size_mode === "custom" && nodeFontSize(node) === normalized) return;
+      const previousHeight = renderedNodeHeight(node);
       checkpoint(); node.font_size = normalized; node.font_size_mode = "custom";
-      markDirty(); render();
+      markDirty(); render(); scheduleLayoutAfterMeasure(node, previousHeight);
     }
     function adjustNodeFontSize(delta) {
       const node = nodeById(selectedId);
@@ -966,20 +969,24 @@ _PAGE = r"""<!doctype html>
     function useAutomaticNodeFontSize() {
       const node = nodeById(selectedId);
       if (!node || node.font_size_mode !== "custom") return;
+      const previousHeight = renderedNodeHeight(node);
       checkpoint(); node.font_size_mode = "auto"; delete node.font_size;
-      markDirty(); render();
+      markDirty(); render(); scheduleLayoutAfterMeasure(node, previousHeight);
     }
     function setTextColor(color) {
       const node = nodeById(selectedId);
       if (!node || !/^#[0-9a-f]{6}$/i.test(String(color))) return;
       if (node.text_color === color) return;
+      const previousHeight = renderedNodeHeight(node);
       checkpoint(); node.text_color = color;
-      markDirty(); render();
+      markDirty(); render(); scheduleLayoutAfterMeasure(node, previousHeight);
     }
     function toggleTextStyle(field) {
       const node = nodeById(selectedId);
       if (!node) return;
+      const previousHeight = renderedNodeHeight(node);
       checkpoint(); node[field] = !Boolean(node[field]); markDirty(); render();
+      scheduleLayoutAfterMeasure(node, previousHeight);
     }
     function transform() {
       viewport.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
