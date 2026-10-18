@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from electroboy.adapters.interactive_cli import codex_interactive_command
+from electroboy.runtime import interactive_command, interactive_environment
 from electroboy.models import utc_now
 from electroboy.service.recent_projects import remember_recent_project
 from electroboy.service.services import ServiceServices
@@ -23,6 +23,7 @@ from .course_generation import (
     CourseGenerationCancelled,
     CourseGenerationService,
     CourseWorkerService,
+    RuntimeFactory,
 )
 from .domain import CodeLearnerError, SourceAdapter
 from .initialization import InitializationLease
@@ -47,6 +48,7 @@ class _InitializationJob:
     cancel_event: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = None
     lease: InitializationLease | None = None
+    runtime_factory: RuntimeFactory | None = None
 
     def running(self) -> bool:
         return self.thread is not None and self.thread.is_alive()
@@ -64,9 +66,11 @@ def _existing_project_root(path: str) -> Path:
 def code_learner_agent_command(
     root: Path,
     _context: dict[str, object] | None = None,
+    backend: str = "codex",
 ) -> list[str]:
-    command = codex_interactive_command(root, sandbox="read-only")
-    command.append(tutor_bootstrap_prompt(root))
+    command = interactive_command(
+        root, tutor_bootstrap_prompt(root), backend=backend, sandbox="read-only"
+    )
     require_repository_read_capability(command, root)
     return command
 
@@ -149,7 +153,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             scheduler = self._module_schedulers.pop(str(root), None)
             if scheduler is not None:
                 scheduler.stop()
-            job = _InitializationJob(root)
+            job = _InitializationJob(
+                root, runtime_factory=self.services.sessions.runtime_factory()
+            )
             job.lease = InitializationLease.acquire(root, job.job_id)
             try:
                 if requested_mode == "replace":
@@ -324,7 +330,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         scope_id = _function_course_id(symbol)
         store = LearnerStore(root)
         if not store.course_ready("function", scope_id):
-            CourseWorkerService(root).generate_function(symbol, scope_id)
+            CourseWorkerService(
+                root, runtime_factory=self.services.sessions.runtime_factory()
+            ).generate_function(symbol, scope_id)
         return {
             "status": "ready",
             "course": {
@@ -506,7 +514,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     browser.selected_session_id = session.session_id
                     return session, False
             session = AgentSession(
-                command=code_learner_agent_command(root),
+                command=code_learner_agent_command(
+                    root, backend=self.services.sessions.backend
+                ),
                 cwd=root,
                 label="code learner tutor",
                 kind=self.workflow_id,
@@ -518,6 +528,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     "tutor_context_path": TUTOR_CONTEXT_RELATIVE_PATH,
                 },
             )
+            session.environment.update(interactive_environment(self.services.sessions.backend, sandbox="read-only"))
             session = self.services.sessions.prepare(browser, session)
             browser.code_learner_sessions[session.session_id] = session
             browser.selected_session_id = session.session_id
@@ -571,7 +582,12 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
     def _run_initialization(self, root: Path, job: _InitializationJob) -> None:
         store = LearnerStore(root)
         try:
-            CourseGenerationService(root, cancel_event=job.cancel_event).run()
+            CourseGenerationService(
+                root, cancel_event=job.cancel_event, runtime_factory=job.runtime_factory
+            ).run()
+            epoch = getattr(job.runtime_factory, "cancel_event", None)
+            if epoch is not None and epoch.is_set():
+                raise CourseGenerationCancelled("Agent backend changed.")
             self._start_module_scheduler(root)
         except CourseGenerationCancelled:
             store.save_status(
@@ -752,8 +768,13 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         key = str(root)
         with self._lock:
             scheduler = self._module_schedulers.get(key)
+            if scheduler is not None and scheduler.backend_cancelled():
+                self._module_schedulers.pop(key)
+                scheduler = None
             if scheduler is None:
-                scheduler = ModuleCourseScheduler(root)
+                scheduler = ModuleCourseScheduler(
+                    root, runtime_factory=self.services.sessions.runtime_factory()
+                )
                 self._module_schedulers[key] = scheduler
         return scheduler.start()
 

@@ -8954,6 +8954,17 @@ def _invoke_agent_role(
         if session_stage and (provider_session_id or not auto_resume_disabled)
         else None
     )
+    selected_backend = os.environ.get("ELECTROBOY_AGENT_BACKEND")
+    if selected_backend:
+        if (
+            session_record
+            and session_record.get("provider", "codex") != selected_backend
+        ):
+            session_record = None
+        if provider_session_id:
+            is_opencode = provider_session_id.startswith("ses_")
+            if is_opencode != (selected_backend == "opencode"):
+                raise StateError("Session belongs to a different agent backend.")
     if session_stage and provider_session_id:
         _write_attached_agent_session_record(
             store,

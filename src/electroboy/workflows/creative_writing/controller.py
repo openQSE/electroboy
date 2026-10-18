@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
 from electroboy.adapters.codex_sessions import CodexSessionSummary, codex_session_paths
 from electroboy.artifact_types import (
@@ -424,11 +425,17 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             active_document=active_document,
             active_target=active_target,
         )
-        history = creative_session_history(
-            self.services.files.state_root,
-            project_root,
-            scope=scope_name,
-            scope_key=scope_key,
+        history = (
+            creative_session_history(
+                self.services.files.state_root,
+                project_root,
+                scope=scope_name,
+                scope_key=scope_key,
+            )
+            if self.services.sessions.backend == "codex"
+            else self.services.sessions.provider_history(
+                project_root, "creative-writing", scope_key
+            )
         )
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
@@ -439,7 +446,9 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                     selected_session_id=selected_session_id,
                 )
                 for session in context.creative_sessions.values()
-                if self._creative_session_matches_scope(session, scope_key=scope_key)
+                if session.metadata.get("provider", "codex")
+                == self.services.sessions.backend
+                and self._creative_session_matches_scope(session, scope_key=scope_key)
             ]
         seen: set[tuple[str, str]] = set()
         sessions: list[dict[str, object]] = []
@@ -544,6 +553,51 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                         context.selected_session_id = session.session_id
                         self.services.sessions.record(context, session)
                         return session, False
+
+        backend = self.services.sessions.backend
+        if backend == "opencode":
+            with self.services.contexts.lock:
+                history = self.services.sessions.provider_history(
+                    project_root, "creative-writing", scope_key
+                )
+                if requested_provider_session_id and not any(
+                    entry["provider_session_id"] == requested_provider_session_id
+                    for entry in history
+                ):
+                    raise AgentSessionError(
+                        "OpenCode session was not found for this project and scope."
+                    )
+                provider_id = requested_provider_session_id or "ses_" + uuid4().hex
+                context = self.services.contexts.require(context_id)
+                if context.active_project_root != project_root:
+                    raise AgentSessionError(
+                        "Active project changed while starting agent."
+                    )
+                session = AgentSession(
+                    command=_creative_writing_command(
+                        project_root, target, provider_id, backend=backend
+                    ),
+                    cwd=project_root,
+                    label="creative writing agent",
+                    name=requested_name,
+                    kind="creative-writing",
+                    metadata={
+                        "provider": backend,
+                        "provider_session_id": provider_id,
+                        "resumed_session": bool(requested_provider_session_id),
+                        "creative_scope": scope_name,
+                        "creative_scope_key": scope_key,
+                        "document_path": document_path,
+                        "target_type": str((target or {}).get("type") or ""),
+                        "target_path": str((target or {}).get("path") or ""),
+                    },
+                )
+                session = self.services.sessions.prepare(context, session)
+                context.creative_sessions[session.session_id] = session
+                context.selected_session_id = session.session_id
+                self.services.sessions.record(context, session)
+                session.start()
+                return session, True
 
         provider_session = None
         provider_catalog_entry: dict[str, object] | None = None

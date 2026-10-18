@@ -213,6 +213,14 @@
               A+
             </button>
           </div>
+          <div class="backend-control toolbar-control-group" hidden>
+            <label class="toolbar-control-label" for="agentBackend">Backend</label>
+            <select id="agentBackend" class="session-switcher" aria-label="Agent backend" disabled>
+              <option value="codex">Codex</option>
+              <option value="opencode">OpenCode</option>
+            </select>
+            <span id="agentBackendStatus" role="status" aria-live="polite"></span>
+          </div>
           <div class="session-control toolbar-control-group">
             <label class="toolbar-control-label" for="sessionSwitcher">Agent</label>
             <span

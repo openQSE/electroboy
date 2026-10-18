@@ -16,7 +16,7 @@ from electroboy.adapters.codex_sessions import (
     codex_session_paths,
     codex_sessions_directory,
 )
-from electroboy.adapters.interactive_cli import codex_interactive_command
+from electroboy.runtime import interactive_command
 from electroboy.workflows.software.agent_rules import (
     materialize_software_agent_rules,
     prompt_with_software_agent_rules,
@@ -33,26 +33,22 @@ _CATALOG_LOCK = threading.Lock()
 def ad_hoc_agent_command(
     root: Path,
     provider_session_id: str | None = None,
+    backend: str = "codex",
 ) -> list[str]:
     """Build a new or resumed Codex TUI command for ad-hoc work."""
 
-    command = codex_interactive_command(root)
     rules_path = materialize_software_agent_rules(root)
-    if provider_session_id:
-        command.extend(
-            [
-                "resume",
-                provider_session_id,
-                prompt_with_software_agent_rules(
-                    "Resume this ad-hoc session and wait for the operator's next "
-                    "instruction.",
-                    rules_path,
-                ),
-            ]
+    prompt = (
+        prompt_with_software_agent_rules(
+            "Resume this ad-hoc session and wait for the operator's next instruction.",
+            rules_path,
         )
-    else:
-        command.append(ad_hoc_agent_prompt(rules_path))
-    return command
+        if provider_session_id
+        else ad_hoc_agent_prompt(rules_path)
+    )
+    return interactive_command(
+        root, prompt, backend=backend, session_id=provider_session_id
+    )
 
 
 def ad_hoc_agent_prompt(rules_path: str) -> str:

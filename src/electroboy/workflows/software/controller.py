@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from uuid import uuid4
 
 from electroboy.adapters.codex_sessions import (
     CodexSessionSummary,
@@ -216,9 +217,10 @@ class SoftwareWorkflowController(BoundWorkflowController):
             "project_root": str(command_root),
             "sessions": [
                 session
-                for session in ad_hoc_session_history(
-                    self.services.files.state_root,
-                    command_root,
+                for session in (
+                    ad_hoc_session_history(self.services.files.state_root, command_root)
+                    if self.services.sessions.backend == "codex"
+                    else self.services.sessions.provider_history(command_root, "ad-hoc")
                 )
                 if str(session.get("provider_session_id") or "").strip().lower()
                 not in running_provider_session_ids
@@ -252,6 +254,46 @@ class SoftwareWorkflowController(BoundWorkflowController):
                             self.services.sessions.record(context, session)
                         context.selected_session_id = session.session_id
                         return session, False
+
+        backend = self.services.sessions.backend
+        if backend == "opencode":
+            with self.services.contexts.lock:
+                history = self.services.sessions.provider_history(
+                    command_root, "ad-hoc"
+                )
+                if requested_session_id and not any(
+                    entry["provider_session_id"] == requested_session_id
+                    for entry in history
+                ):
+                    raise AgentSessionError(
+                        "OpenCode session was not found for this project."
+                    )
+                provider_id = requested_session_id or "ses_" + uuid4().hex
+                context = self.services.contexts.require(context_id)
+                if self.services.contexts.command_root(context) != command_root:
+                    raise AgentSessionError(
+                        "Active project changed while starting agent."
+                    )
+                session = AgentSession(
+                    command=ad_hoc_agent_command(
+                        command_root, provider_id, backend=backend
+                    ),
+                    cwd=command_root,
+                    label="ad-hoc agent",
+                    name=requested_name,
+                    kind="ad-hoc",
+                    metadata={
+                        "provider": backend,
+                        "provider_session_id": provider_id,
+                        "resumed_session": bool(requested_session_id),
+                    },
+                )
+                session = self.services.sessions.prepare(context, session)
+                context.ad_hoc_sessions[session.session_id] = session
+                context.selected_session_id = session.session_id
+                self.services.sessions.record(context, session)
+                session.start()
+                return session, True
 
         provider_session = None
         known_provider_paths: frozenset[Path] = frozenset()

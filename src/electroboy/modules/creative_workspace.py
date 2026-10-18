@@ -13,7 +13,7 @@ from http import HTTPStatus
 from pathlib import Path
 from uuid import uuid4
 
-from electroboy.adapters.interactive_cli import codex_interactive_command
+from electroboy.runtime import interactive_command
 from electroboy.artifact_types import (
     DOCUMENT_TYPE_CORKBOARD,
     DOCUMENT_TYPE_MARKDOWN,
@@ -5906,13 +5906,16 @@ def _creative_writing_command(
     root: Path,
     active_target: dict[str, str] | None = None,
     provider_session_id: str | None = None,
+    backend: str = "codex",
 ) -> list[str]:
-    command = codex_interactive_command(root)
-    if provider_session_id:
-        command.extend(["resume", provider_session_id])
-    else:
-        command.append(_creative_writing_prompt(active_target))
-    return command
+    return interactive_command(
+        root,
+        ""
+        if provider_session_id and backend == "codex"
+        else _creative_writing_prompt(active_target),
+        backend=backend,
+        session_id=provider_session_id,
+    )
 
 
 def _creative_writing_prompt(active_target: dict[str, str] | None = None) -> str:

@@ -105,8 +105,12 @@ class ModuleCourseScheduler:
             self._set_status(module_id, "pending")
             self._queue.put((priority, self._sequence, module_id))
 
+    def backend_cancelled(self) -> bool:
+        event = getattr(self.runtime_factory, "cancel_event", None)
+        return event is not None and event.is_set()
+
     def _worker(self) -> None:
-        while not self._stop.is_set():
+        while not self._stop.is_set() and not self.backend_cancelled():
             try:
                 _priority, _sequence, module_id = self._queue.get(timeout=0.2)
             except queue.Empty:

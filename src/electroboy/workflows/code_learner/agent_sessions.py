@@ -39,10 +39,12 @@ class AgentSessionRegistry:
                 }
             )
 
-    def session_id(self, slot: str) -> str:
+    def session_id(self, slot: str, provider: str = "") -> str:
         with self._lock:
             sessions = self._load().get("sessions", {})
             value = sessions.get(slot, {}) if isinstance(sessions, dict) else {}
+            if provider and value.get("provider", "codex") != provider:
+                return ""
             return str(value.get("provider_session_id") or "")
 
     def record(self, slot: str, result: AgentResult, *, forked_from: str = "") -> None:
@@ -98,10 +100,20 @@ class ReusableAgentRuntime(AgentRuntime):
 
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
         with self.registry.slot_lock(self.slot):
-            provider_session_id = self.registry.session_id(self.slot)
+            adapter = getattr(getattr(self.runtime, "config", None), "adapter", "")
+            provider = (
+                "opencode"
+                if adapter.startswith("opencode")
+                else "codex"
+                if adapter.startswith("codex")
+                else ""
+            )
+            provider_session_id = self.registry.session_id(self.slot, provider)
             fork_session_id = ""
             if not provider_session_id and self.fork_from_slot:
-                fork_session_id = self.registry.session_id(self.fork_from_slot)
+                fork_session_id = self.registry.session_id(
+                    self.fork_from_slot, provider
+                )
             effective_session_id = invocation.provider_session_id or provider_session_id
             prepared = replace(
                 invocation,

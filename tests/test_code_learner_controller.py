@@ -194,7 +194,7 @@ def test_function_text_is_not_resolved_before_independent_generation(
     generated: list[tuple[str, str]] = []
 
     class Worker:
-        def __init__(self, worker_root: Path) -> None:
+        def __init__(self, worker_root: Path, *, runtime_factory) -> None:
             assert Path(worker_root) == root
 
         def generate_function(self, symbol: str, scope_id: str) -> Path:
@@ -225,7 +225,7 @@ def test_initialization_job_activates_architecture_without_content_validation(
     controller, context_id, root = _controller(tmp_path)
 
     class Initialization:
-        def __init__(self, init_root: Path, *, cancel_event) -> None:
+        def __init__(self, init_root: Path, *, cancel_event, runtime_factory) -> None:
             self.root = Path(init_root)
             self.cancel_event = cancel_event
 
@@ -258,7 +258,7 @@ def test_abort_stops_active_initialization_and_preserves_continue_choice(
     controller, context_id, _root = _controller(tmp_path)
 
     class BlockingInitialization:
-        def __init__(self, _root: Path, *, cancel_event) -> None:
+        def __init__(self, _root: Path, *, cancel_event, runtime_factory) -> None:
             self.cancel_event = cancel_event
 
         def run(self) -> None:

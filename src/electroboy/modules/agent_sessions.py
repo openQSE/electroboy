@@ -19,6 +19,28 @@ from .common import conflict, route
 from .progress_service import _session_events_markdown, _session_export_filename
 
 
+def _backend_config(request: RouteRequest) -> ServiceResponse:
+    return JsonResponse(request.services.sessions.backend_payload())
+
+
+def _switch_backend(request: RouteRequest) -> ServiceResponse:
+    try:
+        body = request.body()
+        if type(body.get("revision")) is not int:
+            return JsonResponse(
+                {"error": "A backend revision is required."}, status=400
+            )
+        return JsonResponse(
+            request.services.sessions.switch_backend(
+                str(body.get("backend") or ""),
+                confirmed=body.get("confirmed") is True,
+                revision=body["revision"],
+            )
+        )
+    except Exception as error:
+        return conflict(error)
+
+
 def _selected_session(request: RouteRequest):
     session_id = str((request.params.get("session_id") or [""])[0])
     if session_id:
@@ -227,6 +249,8 @@ _HANDLERS = {
     "key": _key,
     "raw": _raw,
     "interrupt": _interrupt,
+    "backend_config": _backend_config,
+    "switch_backend": _switch_backend,
     "terminate": _terminate,
     "resize": _resize,
     "events": _events,
@@ -239,6 +263,8 @@ def module() -> ServiceModule:
         id="agent_sessions",
         label="Agent Sessions",
         routes=(
+            route("GET", "/api/runtime/config", "agent_sessions", "backend_config"),
+            route("POST", "/api/runtime/config", "agent_sessions", "switch_backend"),
             route("GET", "/api/sessions", "agent_sessions", "list_sessions"),
             route("GET", "/api/session-registry", "agent_sessions", "session_registry"),
             route("POST", "/api/sessions/attach", "agent_sessions", "attach"),
@@ -256,7 +282,9 @@ def module() -> ServiceModule:
         handlers=_HANDLERS,
         assets=(
             "css/input-history.css",
+            "css/agent-backend.css",
             "js/modules/agent-pane-tools.js",
+            "js/modules/agent-backend.js",
             "js/modules/input-history.js",
             "js/modules/agent-sessions.js",
         ),

@@ -131,6 +131,20 @@ from electroboy.state_store import StateError, StateStore  # noqa: E402
 
 
 class ServiceTests(unittest.TestCase):
+    def test_backend_selector_is_in_toolbar_and_uses_styled_confirmation(self) -> None:
+        index = read_service_text_asset("index.html")
+        self.assertIn('id="agentBackend"', index)
+        self.assertIn('value="codex">Codex', index)
+        self.assertIn('value="opencode">OpenCode', index)
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "src/electroboy/modules/assets/agent-backend.js"
+        ).read_text()
+        self.assertIn("agent-focus-session-dialog agent-terminate-dialog", source)
+        self.assertIn("Stop agents and switch", source)
+        self.assertIn("confirmed: true", source)
+        self.assertNotIn("window.confirm", source)
+
     def test_installed_entry_points_register_provider_metadata(self) -> None:
         class Distribution:
             metadata = {"Name": "sample-capabilities"}

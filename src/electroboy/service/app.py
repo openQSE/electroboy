@@ -68,6 +68,7 @@ from .registry import (
     build_workflow_registry,
     installed_workflow_factories,
 )
+from .agent_backend import AgentBackend
 from .routes import RouteOperations, RouteRequest, build_route_dispatcher
 from .services import build_service_services
 from .sessions import (
@@ -256,6 +257,7 @@ class ServiceState:
         default_factory=dict,
     )
     ide_service: IDEService = field(init=False)
+    agent_backend: AgentBackend = field(init=False)
 
     @property
     def lock(self) -> threading.RLock:
@@ -266,6 +268,9 @@ class ServiceState:
         return self.context_store.contexts
 
     def __post_init__(self) -> None:
+        self.agent_backend = AgentBackend(
+            self.lock, self._backend_sessions, self._backend_roots
+        )
         self.root = self.root.resolve()
         self.state_root = Path(self.state_root or self.root).resolve()
         self.workspace_registry = WorkspaceRegistry(
@@ -326,6 +331,55 @@ class ServiceState:
             self.workflow_controllers = {}
         _close_workflow_controllers(controllers)
 
+    def provider_history(self, root: Path, kind: str, scope_key: str = ""):
+        entries = []
+        for record in _load_service_session_records(self.state_root).get(
+            "sessions", []
+        ):
+            metadata = record.get("metadata") or {}
+            if (
+                metadata.get("provider") != self.agent_backend.selected
+                or record.get("kind") != kind
+            ):
+                continue
+            if Path(str(record.get("cwd") or ".")).resolve() != root.resolve():
+                continue
+            if scope_key and metadata.get("creative_scope_key") != scope_key:
+                continue
+            provider_id = str(metadata.get("provider_session_id") or "")
+            if provider_id:
+                entries.append(
+                    {
+                        **record,
+                        **metadata,
+                        "provider_session_id": provider_id,
+                        "electroboy_session_id": record["session_id"],
+                        "title": record.get("name") or record.get("label"),
+                        "resumable": True,
+                        "status": "completed",
+                    }
+                )
+        return entries
+
+    def _backend_sessions(self):
+        return list(
+            {
+                s.session_id: s
+                for context in self.contexts.values()
+                for s in self._context_sessions_locked(context)
+            }.values()
+        )
+
+    def _backend_roots(self):
+        return {
+            self.root,
+            *(
+                context.active_project_root
+                for context in self.contexts.values()
+                if context.active_project_root
+            ),
+        }
+
     def _prepare_session_locked(
         self,
         context: BrowserContext,
@@ -336,6 +390,8 @@ class ServiceState:
             TmuxAgentSession,
         ):
             session = TmuxAgentSession.from_agent_session(session)
+        if session.kind != "project-shell":
+            self.agent_backend.prepare(session)
         session.persist_to(
             context_id=context.context_id,
             transcript_path=_service_session_transcript_path(

@@ -1,0 +1,44 @@
+/* Keep the selected provider readable when the toolbar shares limited space. */
+.workflow-toolbar .backend-control {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.backend-control .session-switcher {
+  width: 112px;
+  min-width: 112px;
+  padding-left: 8px;
+}
+
+#agentBackendStatus {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Scroll a narrow toolbar instead of squeezing labels and agent controls away. */
+.workflow-toolbar:has(.backend-control:not([hidden])) {
+  gap: 12px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.workflow-toolbar:has(.backend-control:not([hidden])) .toolbar-control-group {
+  flex-shrink: 0;
+  width: auto;
+}
+
+.workflow-toolbar:has(.backend-control:not([hidden])) .toolbar-control-group::before {
+  display: none;
+}
+
+.workflow-toolbar:has(.backend-control:not([hidden])) .terminal-font-controls {
+  width: 220px;
+}
+
+.workflow-toolbar:has(.backend-control:not([hidden])) .session-control {
+  width: 220px;
+}

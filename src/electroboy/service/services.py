@@ -7,6 +7,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Protocol, TypeVar
 
+from .agent_backend import AgentBackend
 from .context import BrowserContext, ContextStore
 from .registry import WorkflowRegistry
 from .sessions import AgentSession
@@ -158,6 +159,21 @@ class WorkspaceServices(Protocol):
 
 class SessionServices(Protocol):
     """Agent-session lifecycle operations available to plugins."""
+
+    @property
+    def backend(self) -> str: ...
+
+    def backend_payload(self) -> dict[str, object]: ...
+
+    def switch_backend(
+        self, backend: str, *, confirmed: bool, revision: int
+    ) -> dict[str, object]: ...
+
+    def provider_history(
+        self, root: Path, kind: str, scope_key: str = ""
+    ) -> list[dict[str, object]]: ...
+
+    def runtime_factory(self): ...
 
     def prepare(
         self,
@@ -415,7 +431,12 @@ class ServiceRuntimeBackend(Protocol):
     root: Path
     state_root: Path
     context_store: ContextStore
+    agent_backend: AgentBackend
     workspace_registry: WorkspaceRegistry
+
+    def provider_history(
+        self, root: Path, kind: str, scope_key: str = ""
+    ) -> list[dict[str, object]]: ...
 
     def _context_locked(self, context_id: str) -> BrowserContext: ...
 
@@ -973,6 +994,28 @@ class RuntimeWorkspaceServices:
 @dataclass(frozen=True)
 class RuntimeSessionServices:
     runtime: ServiceRuntimeBackend
+
+    @property
+    def backend(self) -> str:
+        return self.runtime.agent_backend.selected
+
+    def backend_payload(self) -> dict[str, object]:
+        return self.runtime.agent_backend.payload()
+
+    def switch_backend(
+        self, backend: str, *, confirmed: bool, revision: int
+    ) -> dict[str, object]:
+        return self.runtime.agent_backend.switch(
+            backend, confirmed=confirmed, revision=revision
+        )
+
+    def provider_history(
+        self, root: Path, kind: str, scope_key: str = ""
+    ) -> list[dict[str, object]]:
+        return self.runtime.provider_history(root, kind, scope_key)
+
+    def runtime_factory(self):
+        return self.runtime.agent_backend.runtime_factory()
 
     def prepare(
         self,

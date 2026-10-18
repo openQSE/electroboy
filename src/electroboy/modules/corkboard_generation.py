@@ -882,6 +882,11 @@ class CorkboardGenerationManager:
         *,
         connection_id: str = "",
     ) -> dict[str, object]:
+        runtime_factory = (
+            services.sessions.runtime_factory()
+            if self.runtime_factory is _default_runtime_factory
+            else self.runtime_factory
+        )
         context = services.contexts.require(context_id)
         workflow_id = str(context.workflow_id or "")
         if not callable(getattr(provider, "create_generated_board", None)):
@@ -951,6 +956,7 @@ class CorkboardGenerationManager:
                 passes[pass_id],
                 manifest,
                 connection_id,
+                runtime_factory,
             ),
             name=f"corkboard-generation-{job.id[:8]}",
             daemon=True,
@@ -1048,6 +1054,7 @@ class CorkboardGenerationManager:
         pass_definition: dict[str, str],
         manifest: list[str],
         connection_id: str,
+        runtime_factory: RuntimeFactory,
     ) -> None:
         try:
             self._update(
@@ -1057,7 +1064,7 @@ class CorkboardGenerationManager:
                 progress=25,
                 activity="AI is analyzing the source.",
             )
-            runtime = self.runtime_factory("corkboard_generation", root)
+            runtime = runtime_factory("corkboard_generation", root)
             result = runtime.invoke(
                 AgentInvocation(
                     role="corkboard_generation",

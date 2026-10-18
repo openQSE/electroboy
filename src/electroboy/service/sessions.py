@@ -17,6 +17,7 @@ import sys
 import termios
 import threading
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
@@ -81,6 +82,8 @@ class AgentSession:
         name: str = "",
     ) -> None:
         self.session_id = session_id or uuid4().hex
+        self.environment: dict[str, str] = {}
+        self.start_guard = nullcontext
         self.command = command
         self.cwd = Path(cwd).resolve()
         self.columns = _clamp_terminal_columns(columns)
@@ -146,10 +149,15 @@ class AgentSession:
             self.on_status_changed = on_status_changed
 
     def start(self) -> None:
+        with self.start_guard():
+            self._start()
+
+    def _start(self) -> None:
         if self.process is not None:
             return
         master_fd, slave_fd = pty.openpty()
         env = _agent_process_env()
+        env.update(self.environment)
         env["ELECTROBOY_PROJECT_ROOT"] = str(self.cwd)
         env["AI_PIPELINE_PROJECT_ROOT"] = str(self.cwd)
         if not self.echo_input:
@@ -483,7 +491,7 @@ class TmuxAgentSession(AgentSession):
 
     @classmethod
     def from_agent_session(cls, session: AgentSession) -> "TmuxAgentSession":
-        return cls(
+        converted = cls(
             session.command,
             session.cwd,
             columns=session.columns,
@@ -502,13 +510,16 @@ class TmuxAgentSession(AgentSession):
             on_status_changed=session.on_status_changed,
             session_id=session.session_id,
         )
+        converted.environment = dict(session.environment)
+        converted.start_guard = session.start_guard
+        return converted
 
     def payload(self, selected: bool = False) -> dict[str, object]:
         payload = super().payload(selected=selected)
         payload["tmux_session"] = self.tmux_name
         return payload
 
-    def start(self) -> None:
+    def _start(self) -> None:
         if shutil.which("tmux") is None:
             raise AgentSessionError("tmux session backend requires tmux in PATH")
         if _tmux_has_session(self.tmux_name):
@@ -521,7 +532,14 @@ class TmuxAgentSession(AgentSession):
             self.tmux_name,
             "-c",
             str(self.cwd),
-            _tmux_shell_command(self.command, self.cwd),
+            _tmux_shell_command(
+                [
+                    "env",
+                    *[f"{key}={value}" for key, value in self.environment.items()],
+                    *self.command,
+                ],
+                self.cwd,
+            ),
         ]
         try:
             subprocess.run(

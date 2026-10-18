@@ -38,7 +38,7 @@ class InteractiveCliRuntime(GenericCliRuntime):
     """Runtime for configured agent CLIs that take over the terminal."""
 
     def invoke(self, invocation: AgentInvocation) -> AgentResult:
-        command = [*self._command(invocation), self._build_prompt(invocation)]
+        command = self._interactive_command(invocation)
         started_at = time.time()
         try:
             completed = subprocess.run(
@@ -67,6 +67,9 @@ class InteractiveCliRuntime(GenericCliRuntime):
             error=None if ok else f"exit code {completed.returncode}",
         )
         return self._attach_session_metadata(result, invocation, started_at)
+
+    def _interactive_command(self, invocation: AgentInvocation) -> list[str]:
+        return [*self._command(invocation), self._build_prompt(invocation)]
 
     def _attach_session_metadata(
         self,
