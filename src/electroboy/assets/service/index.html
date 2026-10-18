@@ -151,6 +151,42 @@
           <option value="">Loading workflows...</option>
         </select>
       </header>
+      <section class="sidebar-agent-controls" aria-label="Workspace controls">
+        <div class="backend-control sidebar-control" hidden>
+          <label for="agentBackend">Backend</label>
+          <select id="agentBackend" aria-label="Agent backend" disabled>
+            <option value="codex">Codex</option>
+            <option value="opencode">OpenCode</option>
+          </select>
+          <span id="agentBackendStatus" role="status" aria-live="polite"></span>
+        </div>
+        <details class="sidebar-session-menu" id="agentSessionMenu">
+          <summary class="stage-action-stage">
+            <span>Agent <span id="agentSessionIndicator" class="agent-session-indicator" aria-hidden="true"></span></span>
+            <span class="stage-action-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="sidebar-control sidebar-menu-content">
+            <select id="sessionSwitcher" disabled aria-label="Select Agent">
+              <option value="">Loading agents...</option>
+            </select>
+            <button id="renameAgentSession" class="stage-action-button" type="button" disabled
+              title="Rename selected agent session" aria-label="Rename selected agent session">Rename</button>
+          </div>
+        </details>
+        <details class="sidebar-session-menu" id="shellSessionMenu">
+          <summary id="toggleProjectShellPane" class="stage-action-stage">
+            <span>Shell</span>
+            <span class="stage-action-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="sidebar-control sidebar-menu-content">
+            <select id="shellSessionSwitcher" disabled aria-label="Select active shell">
+              <option value="">No active shells</option>
+            </select>
+            <button id="startShellSession" class="stage-action-button" type="button" disabled>Start</button>
+            <span id="shellSessionStatus" role="status" aria-live="polite"></span>
+          </div>
+        </details>
+      </section>
       <nav
         id="stageActionPanel"
         class="stage-action-panel"
@@ -168,7 +204,7 @@
     ></div>
     <section class="workflow-pane" aria-label="Project workflow">
       <div class="workflow-topbar">
-        <div class="workflow-toolbar" aria-label="Agent controls">
+        <div class="workflow-toolbar" aria-label="Display controls">
           <div class="splash-control toolbar-control-group">
             <span class="toolbar-control-label">Splash</span>
             <button
@@ -211,51 +247,6 @@
               aria-label="Increase font size"
             >
               A+
-            </button>
-          </div>
-          <div class="backend-control toolbar-control-group" hidden>
-            <label class="toolbar-control-label" for="agentBackend">Backend</label>
-            <select id="agentBackend" class="session-switcher" aria-label="Agent backend" disabled>
-              <option value="codex">Codex</option>
-              <option value="opencode">OpenCode</option>
-            </select>
-            <span id="agentBackendStatus" role="status" aria-live="polite"></span>
-          </div>
-          <div class="session-control toolbar-control-group">
-            <label class="toolbar-control-label" for="sessionSwitcher">Agent</label>
-            <span
-              id="agentSessionIndicator"
-              class="agent-session-indicator"
-              aria-hidden="true"
-            ></span>
-            <select
-              id="sessionSwitcher"
-              class="session-switcher"
-              disabled
-              aria-label="Select Agent"
-            >
-              <option value="">Loading agents...</option>
-            </select>
-            <button
-              id="renameAgentSession"
-              class="session-rename-button"
-              type="button"
-              disabled
-              title="Rename selected agent session"
-              aria-label="Rename selected agent session"
-            >Rename</button>
-          </div>
-          <div class="shell-control toolbar-control-group">
-            <span class="toolbar-control-label">Shell</span>
-            <button
-              id="toggleProjectShellPane"
-              class="toolbar-command-button"
-              type="button"
-              disabled
-              title="Open or hide the project shell"
-              aria-label="Open or hide the project shell"
-            >
-              Shell
             </button>
           </div>
         </div>

@@ -5,6 +5,93 @@
   let terminalFit = null;
   let eventSource = null;
   let resizeTimer = null;
+  const shellWindows = new Map();
+  let shellListRequest = 0;
+  let shellListScope = "";
+
+  function shellWindowName(contextId, sessionId) {
+    return `electroboy-shell-${contextId}-${sessionId}`;
+  }
+
+  function shellWindowUrl(runtime, sessionId, fontSize, contextParameters = runtime.http.contextParameters()) {
+    const parameters = new URLSearchParams(contextParameters);
+    parameters.set("shell_session_id", sessionId);
+    parameters.set("disposable", "1");
+    parameters.set("font_size", String(fontSize || 15));
+    return `/pane/shell?${parameters.toString()}`;
+  }
+
+  async function refreshShellSessions(runtime) {
+    const request = ++shellListRequest;
+    const state = shellState(runtime);
+    const select = document.getElementById("shellSessionSwitcher");
+    const status = document.getElementById("shellSessionStatus");
+    const contextId = state.contextId;
+    const projectRoot = state.activeProjectRoot;
+    if (!contextId || !projectRoot) {
+      select.replaceChildren(new Option("Activate a project first", ""));
+      select.disabled = true;
+      delete select.dataset.sessions;
+      status.textContent = "";
+      return;
+    }
+    try {
+      const response = await runtime.http.fetch(runtime.http.contextUrl("/api/shell/sessions"));
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to list shells");
+      const latest = shellState(runtime);
+      if (request !== shellListRequest || latest.contextId !== contextId
+          || latest.activeProjectRoot !== projectRoot) return;
+      if (select.getAttribute("aria-expanded") === "true") return;
+      const sessions = payload.sessions.filter((session) => session.status === "running");
+      const selected = select.value;
+      const options = [new Option(sessions.length ? "Select a shell…" : "No active shells", "")];
+      for (const session of sessions) {
+        options.push(new Option(
+          `${session.name || session.label || "Shell"} · ${session.session_id.slice(0, 8)}`,
+          session.session_id,
+        ));
+      }
+      // Avoid rebuilding the custom picker while its user is choosing a shell.
+      const signature = JSON.stringify(options.map((option) => [option.value, option.text]));
+      if (select.dataset.sessions !== signature) {
+        select.replaceChildren(...options);
+        select.dataset.sessions = signature;
+        select.value = sessions.some((session) => session.session_id === selected) ? selected : "";
+      }
+      select.disabled = !sessions.length;
+      status.textContent = "";
+      for (const [name, popup] of shellWindows) {
+        if (popup.closed) shellWindows.delete(name);
+      }
+    } catch (error) {
+      if (request !== shellListRequest || shellState(runtime).contextId !== contextId) return;
+      select.disabled = true;
+      status.textContent = `Unable to list shells: ${error.message}`;
+    }
+  }
+
+  function focusShellSession(runtime, sessionId) {
+    if (!sessionId) return;
+    const state = shellState(runtime);
+    const name = shellWindowName(state.contextId, sessionId);
+    let popup = shellWindows.get(name);
+    if (!popup || popup.closed) {
+      // A stable name also finds windows opened before a main-page reload.
+      popup = window.open("", name, SHELL_POPUP_FEATURES);
+      if (!popup) {
+        document.getElementById("shellSessionStatus").textContent = "Allow popups to open the shell window.";
+        return;
+      }
+      if (popup.location.href === "about:blank") {
+        popup.location.replace(shellWindowUrl(runtime, sessionId, state.terminalFontSize));
+      }
+      shellWindows.set(name, popup);
+    }
+    // Let the shared picker finish restoring focus before raising the window.
+    window.setTimeout(() => popup.focus(), 0);
+  }
+
   const SHELL_POPUP_FEATURES =
     "popup=yes,width=1100,height=760,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
 
@@ -147,19 +234,18 @@
   }
 
   function updateProjectShellToggle(runtime) {
-    const toggle = runtime.elements.toggleProjectShellPane;
-    if (!toggle) {
-      return;
-    }
+    const start = document.getElementById("startShellSession");
     const state = shellState(runtime);
-    const hasActiveProject = Boolean(state.activeProjectRoot);
-    toggle.disabled = !hasActiveProject;
-    toggle.classList.remove("active");
-    toggle.textContent = "Shell";
-    if (!hasActiveProject) {
-      toggle.title = "Activate a project to open a shell";
-    } else {
-      toggle.title = "Open a new shell window in the active project";
+    start.disabled = !state.activeProjectRoot || !state.contextId;
+    start.title = start.disabled ? "Activate a project to open a shell" : "Start a new shell window";
+    const scope = JSON.stringify([state.contextId, state.activeProjectRoot]);
+    if (scope !== shellListScope) {
+      shellListScope = scope;
+      const select = document.getElementById("shellSessionSwitcher");
+      select.replaceChildren(new Option("Loading shells…", ""));
+      select.disabled = true;
+      delete select.dataset.sessions;
+      refreshShellSessions(runtime);
     }
   }
 
@@ -169,6 +255,8 @@
       runtime.notifications.appendOutput("activate a project first\n", "error");
       return;
     }
+    const contextParameters = runtime.http.contextParameters();
+    const stopEndpoint = runtime.http.contextUrl("/api/shell/stop");
     const popupName = `electroboy-shell-${state.contextId}-${Date.now()}-${Math.random()}`;
     const popup = window.open("", popupName, SHELL_POPUP_FEATURES);
     if (!popup) {
@@ -180,10 +268,16 @@
     }
     popup.document.title = "Starting ElectroBoy shell";
     popup.document.body.textContent = "Starting project shell...";
-    const response = await runtime.http.fetch(
-      runtime.http.contextUrl("/api/shell/start"),
-      { method: "POST" },
-    );
+    let response;
+    try {
+      response = await runtime.http.fetch(
+        runtime.http.contextUrl("/api/shell/start"),
+        { method: "POST" },
+      );
+    } catch (error) {
+      popup.close();
+      throw error;
+    }
     const payload = await response.json().catch(() => ({ error: "shell start failed" }));
     if (!response.ok) {
       popup.close();
@@ -200,28 +294,31 @@
       return;
     }
     if (popup.closed) {
-      const stopUrl = runtime.http.contextUrl(
-        `/api/shell/stop?session_id=${encodeURIComponent(sessionId)}`,
-      );
+      const stopUrl = new URL(stopEndpoint, window.location.href);
+      stopUrl.searchParams.set("session_id", sessionId);
       const stopResponse = await runtime.http.fetch(stopUrl, { method: "POST" });
       const stopPayload = await stopResponse.json().catch(() => null);
-      if (stopResponse.ok && stopPayload) {
+      if (stopResponse.ok && stopPayload && shellState(runtime).contextId === state.contextId
+          && shellState(runtime).activeProjectRoot === state.activeProjectRoot) {
         runtime.project.update(stopPayload);
       }
       return;
     }
-    updateShellState(runtime, {
-      projectShellRunning: Boolean(payload.project_shell_running),
-      projectShellPaneDismissed: true,
-      projectShellPaneRequested: false,
-    });
-    runtime.project.update(payload);
-    const parameters = runtime.http.contextParameters();
-    parameters.set("shell_session_id", sessionId);
-    parameters.set("disposable", "1");
-    parameters.set("font_size", String(state.terminalFontSize || 15));
-    popup.location.replace(`/pane/shell?${parameters.toString()}`);
+    const latest = shellState(runtime);
+    if (latest.contextId === state.contextId && latest.activeProjectRoot === state.activeProjectRoot) {
+      updateShellState(runtime, {
+        projectShellRunning: Boolean(payload.project_shell_running),
+        projectShellPaneDismissed: true,
+        projectShellPaneRequested: false,
+      });
+      runtime.project.update(payload);
+    }
+    const name = shellWindowName(state.contextId, sessionId);
+    popup.name = name;
+    shellWindows.set(name, popup);
+    popup.location.replace(shellWindowUrl(runtime, sessionId, state.terminalFontSize, contextParameters));
     popup.focus();
+    await refreshShellSessions(runtime);
   }
 
   function connectProjectShellEvents(runtime) {
@@ -336,14 +433,29 @@
       "click",
       () => startProjectShell(runtime),
     );
-    runtime.elements.toggleProjectShellPane.addEventListener("click", () => {
-      toggleProjectShellFromToolbar(runtime).catch((error) => {
-        runtime.notifications.appendOutput(
-          `project shell failed: ${error}\n`,
-          "error",
-        );
-      });
+    const menu = document.getElementById("shellSessionMenu");
+    menu.addEventListener("toggle", () => {
+      if (menu.open) refreshShellSessions(runtime);
     });
+    document.getElementById("shellSessionSwitcher").addEventListener("change", (event) => {
+      focusShellSession(runtime, event.target.value);
+      // Reset so the same shell can be brought forward again.
+      event.target.value = "";
+    });
+    document.getElementById("startShellSession").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        await startProjectShell(runtime);
+      } catch (error) {
+        document.getElementById("shellSessionStatus").textContent = `Unable to start shell: ${error.message}`;
+      } finally {
+        updateProjectShellToggle(runtime);
+      }
+    });
+    window.setInterval(() => {
+      if (menu.open && !document.hidden) refreshShellSessions(runtime);
+    }, 2000);
     runtime.elements.closeProjectShellPane.addEventListener(
       "click",
       () => hideProjectShellPane(runtime),

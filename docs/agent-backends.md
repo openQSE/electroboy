@@ -1,6 +1,6 @@
 # Selecting an agent backend
 
-The **Backend** dropdown in the top toolbar selects **Codex** or **OpenCode**
+The **Backend** dropdown in the shared left sidebar selects **Codex** or **OpenCode**
 for all workspaces served by one ElectroBoy service. The initial selection is
 Codex. Page reloads and other browser tabs use the server's selection. Restarting
 the service resets it to Codex.
@@ -15,6 +15,17 @@ The server checks the target executable before stopping agents. If termination
 fails, it retains the previous backend and reports the failure; agents already
 stopped cannot be restored automatically. Concurrent switches use a revision
 check. Starts prepared before a switch must be retried.
+
+## Sidebar sessions
+
+Agent and Shell are separate expandable sidebar menus shared across workflows.
+Agent contains the agent selector and Rename button. Shell lists running shells
+for the current context and provides Start to open a new shell window. Selecting
+an existing shell brings its window forward; browser popup and focus settings
+still apply. The list refreshes every two seconds while the Shell menu is open.
+Closing a disposable shell window keeps the existing shell cleanup behavior.
+The top pane retains Splash, Text, connection status, and Help. Text controls
+size to their contents so larger interface fonts do not clip their labels.
 
 ## Configuration and scope
 

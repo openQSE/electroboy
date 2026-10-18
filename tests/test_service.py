@@ -131,8 +131,17 @@ from electroboy.state_store import StateError, StateStore  # noqa: E402
 
 
 class ServiceTests(unittest.TestCase):
-    def test_backend_selector_is_in_toolbar_and_uses_styled_confirmation(self) -> None:
+    def test_shared_sidebar_controls_and_styled_backend_confirmation(self) -> None:
         index = read_service_text_asset("index.html")
+        sidebar = index.split('<aside', 1)[1].split('</aside>', 1)[0]
+        toolbar = index.split('<div class="workflow-topbar">', 1)[1].split('<div id="connection"', 1)[0]
+        for control in ("agentBackend", "sessionSwitcher", "renameAgentSession", "toggleProjectShellPane"):
+            self.assertIn(f'id="{control}"', sidebar)
+            self.assertNotIn(f'id="{control}"', toolbar)
+            self.assertEqual(index.count(f'id="{control}"'), 1)
+        for control in ("showSplash", "terminalFontValue"):
+            self.assertIn(f'id="{control}"', toolbar)
+        self.assertLess(sidebar.index('class="sidebar-agent-controls"'), sidebar.index('id="stageActionPanel"'))
         self.assertIn('id="agentBackend"', index)
         self.assertIn('value="codex">Codex', index)
         self.assertIn('value="opencode">OpenCode', index)
