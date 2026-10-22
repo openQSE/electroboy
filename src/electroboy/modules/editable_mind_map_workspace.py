@@ -679,7 +679,7 @@ _PAGE = r"""<!doctype html>
       }
       function branchHeight(node) {
         if (heights.has(node.id)) return heights.get(node.id);
-        const children = childrenOf(node.id);
+        const children = collapsed.has(node.id) ? [] : childrenOf(node.id);
         const height = Math.max(renderedNodeHeight(node),
           groupHeight(children.filter((child) => nodeSide(child) === "left")),
           groupHeight(children.filter((child) => nodeSide(child) === "right")));
@@ -687,6 +687,7 @@ _PAGE = r"""<!doctype html>
         return height;
       }
       function arrangeChildren(parent, centerY) {
+        if (collapsed.has(parent.id)) return;
         for (const side of ["left", "right"]) {
           const children = childrenOf(parent.id)
             .filter((child) => nodeSide(child) === side);
@@ -903,8 +904,19 @@ _PAGE = r"""<!doctype html>
       if (!childrenOf(nodeId).length) return;
       if (collapsed.has(nodeId)) collapsed.delete(nodeId);
       else collapsed.add(nodeId);
-      render();
+      renderAfterBranchVisibilityChange();
       canvas.focus();
+    }
+    function renderAfterBranchVisibilityChange() {
+      render();
+      if (layoutMode !== "repack") return;
+      queueMicrotask(() => {
+        const before = layoutPositionSnapshot();
+        childrenOf(null).forEach((root) => reflowTree(root));
+        if (layoutPositionSnapshot() === before) return;
+        markDirty();
+        render();
+      });
     }
     function focusNodeIds() {
       if (!focusMode || !selectedId) return null;
@@ -1354,7 +1366,8 @@ _PAGE = r"""<!doctype html>
     }
     function toggleCollapseAll() {
       const branchIds = documentState.nodes.filter((node) => childrenOf(node.id).length).map((node) => node.id);
-      collapsed = collapsed.size ? new Set() : new Set(branchIds); render();
+      collapsed = collapsed.size ? new Set() : new Set(branchIds);
+      renderAfterBranchVisibilityChange();
     }
     function selectDirectional(key) {
       const current = nodeById(selectedId);
