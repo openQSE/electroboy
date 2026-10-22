@@ -435,7 +435,10 @@
 
     findInput.addEventListener("input", () => {
       replaceButton.disabled = !target().editing || !findInput.value;
+      const { selectionStart, selectionEnd, selectionDirection } = findInput;
       find(1);
+      findInput.focus({ preventScroll: true });
+      findInput.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
     });
     findInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
