@@ -120,6 +120,15 @@ _PAGE = r"""<!doctype html>
     .node-more { display: inline; margin-top: .35rem; padding: 0; border: 0;
       color: #74d8ff; background: none; font-size: .8rem; }
     .node-collapse-count { float: right; color: #ffd886; font-size: .76rem; }
+    .node-branch-toggle { position: absolute; top: calc(50% - 11px); z-index: 4;
+      display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
+      border: 2px solid var(--node-border, #536984); border-radius: 50%;
+      background: #111824; color: #eef4ff; font-size: 17px; font-weight: 700;
+      line-height: 1; }
+    .node-branch-toggle[data-side="left"] { left: -11px; }
+    .node-branch-toggle[data-side="right"] { right: -11px; }
+    .node-branch-toggle:hover:not(:disabled),
+    .node-branch-toggle:focus-visible:not(:disabled) { background: #174050; }
     .node-resize-handle { position: absolute; right: -5px; bottom: -5px;
       width: 14px; height: 14px; border: 2px solid #111824; border-radius: 3px;
       background: #7ddfff; cursor: nwse-resize; opacity: 0; pointer-events: none;
@@ -614,6 +623,7 @@ _PAGE = r"""<!doctype html>
         side, color: initialNodeColor(parentId), font_size: initialNodeFontSize(kind, selected),
         font_size_mode: "auto",
         width: DEFAULT_NODE_WIDTH, min_height: DEFAULT_NODE_MIN_HEIGHT, links: [] };
+      if (kind === "child") collapsed.delete(parentId);
       documentState.nodes.push(node); selectedId = node.id; editingId = node.id; markDirty();
       render();
     }
@@ -888,6 +898,13 @@ _PAGE = r"""<!doctype html>
       const hidden = new Set();
       collapsed.forEach((id) => descendants(id, hidden));
       return hidden;
+    }
+    function toggleBranch(nodeId) {
+      if (!childrenOf(nodeId).length) return;
+      if (collapsed.has(nodeId)) collapsed.delete(nodeId);
+      else collapsed.add(nodeId);
+      render();
+      canvas.focus();
     }
     function focusNodeIds() {
       if (!focusMode || !selectedId) return null;
@@ -1182,6 +1199,25 @@ _PAGE = r"""<!doctype html>
           count.textContent = `${descendants(node.id).size} hidden`; element.append(count);
         }
       }
+      const childSides = new Set(childrenOf(node.id).map((child) => nodeSide(child)));
+      childSides.forEach((side) => {
+        const branchToggle = document.createElement("button");
+        const isCollapsed = collapsed.has(node.id);
+        branchToggle.type = "button";
+        branchToggle.className = "node-branch-toggle";
+        branchToggle.dataset.side = side;
+        branchToggle.textContent = isCollapsed ? "+" : "−";
+        branchToggle.title = isCollapsed ? "Expand branch" : "Collapse branch";
+        branchToggle.setAttribute("aria-label",
+          `${isCollapsed ? "Expand" : "Collapse"} branch from ${node.text || "empty node"}`);
+        branchToggle.setAttribute("aria-expanded", String(!isCollapsed));
+        branchToggle.addEventListener("click", (event) => {
+          event.preventDefault(); event.stopPropagation(); toggleBranch(node.id);
+        });
+        branchToggle.addEventListener("dblclick", (event) => event.stopPropagation());
+        branchToggle.addEventListener("pointerdown", (event) => event.stopPropagation());
+        element.append(branchToggle);
+      });
       const resizeHandle = document.createElement("span");
       resizeHandle.className = "node-resize-handle";
       resizeHandle.title = "Resize node";
