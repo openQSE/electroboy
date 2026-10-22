@@ -1397,6 +1397,7 @@
     paneKinds: [
       "agent",
       "artifact",
+      "ide",
       "corkboard",
       {
         kind: "agenda",
