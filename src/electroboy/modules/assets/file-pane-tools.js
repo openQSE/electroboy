@@ -264,7 +264,7 @@
       return count;
     }
 
-    function find(direction) {
+    function find(direction, options = {}) {
       const query = findInput.value;
       if (!query || !searchable()) {
         findStatus.textContent = query ? "Search unavailable" : "No search";
@@ -273,15 +273,27 @@
       let found = false;
       try {
         const frame = getFrame();
-        found = frame.contentWindow.find(
-          query,
-          matchCase.checked,
-          direction < 0,
-          true,
-          false,
-          true,
-          false,
-        );
+        const editorMatch = target().editing
+          ? frame.contentWindow.ElectroBoyDocumentEditor?.findSelection?.({
+            query,
+            matchCase: matchCase.checked,
+            direction,
+            advance: options.advance,
+          })
+          : null;
+        if (typeof editorMatch === "boolean") {
+          found = editorMatch;
+        } else {
+          found = frame.contentWindow.find(
+            query,
+            matchCase.checked,
+            direction < 0,
+            true,
+            false,
+            true,
+            false,
+          );
+        }
       } catch (error) {
         found = false;
       }
@@ -436,7 +448,7 @@
     findInput.addEventListener("input", () => {
       replaceButton.disabled = !target().editing || !findInput.value;
       const { selectionStart, selectionEnd, selectionDirection } = findInput;
-      find(1);
+      find(1, { advance: false });
       findInput.focus({ preventScroll: true });
       findInput.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
     });

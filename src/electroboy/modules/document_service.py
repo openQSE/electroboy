@@ -2009,6 +2009,49 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       return true;
     }}
 
+    function findEditorSelection(options = {{}}) {{
+      if (!markdownTextarea || richMarkdownEditor) {{
+        return null;
+      }}
+      const query = String(options.query || "");
+      if (!query) {{
+        return false;
+      }}
+      const control = markdownTextarea;
+      const source = comparableEditorText(control.value, options.matchCase);
+      const needle = comparableEditorText(query, options.matchCase);
+      const start = control.selectionStart;
+      const end = control.selectionEnd;
+      let offset;
+      if (options.direction < 0) {{
+        const before = start - needle.length;
+        offset = before < 0 ? -1 : source.lastIndexOf(needle, before);
+        if (offset < 0) offset = source.lastIndexOf(needle);
+      }} else {{
+        offset = source.indexOf(needle, options.advance === false ? start : end);
+        if (offset < 0) offset = source.indexOf(needle);
+      }}
+      if (offset < 0) {{
+        return false;
+      }}
+      control.setSelectionRange(offset, offset + query.length);
+      control.focus();
+      const measure = control.cloneNode(false);
+      measure.removeAttribute("id");
+      Object.assign(measure.style, {{
+        position: "absolute",
+        visibility: "hidden",
+        width: `${{control.offsetWidth}}px`,
+        height: "0",
+        minHeight: "0",
+      }});
+      measure.value = control.value.slice(0, offset + query.length);
+      control.after(measure);
+      control.scrollTop = Math.max(0, measure.scrollHeight - control.clientHeight / 2);
+      measure.remove();
+      return true;
+    }}
+
     function richEditorSelectionBounds() {{
       if (!richMarkdownEditor || !richMarkdownEditor.view) {{
         return null;
@@ -2140,6 +2183,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     }}
 
     window.ElectroBoyDocumentEditor = Object.freeze({{
+      findSelection: findEditorSelection,
       replaceSelection: replaceEditorSelection,
     }});
 
