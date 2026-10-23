@@ -115,7 +115,7 @@ path to every operation without adding controls around the selected node.
 | Section | Actions |
 | --- | --- |
 | File | New, Open, Save As |
-| Edit | Undo, Redo |
+| Edit | Undo, Redo, Copy Branch, Paste Branch |
 | Node | Independent, Child, Sibling, Edit, Delete |
 | Link | File, Web, Create Document, Remove Link |
 | View | Compact or expanded nodes, Zoom, Fit, Focus, Collapse All, Tidy Branch |
@@ -143,9 +143,16 @@ pointer-accessible operations without crowding the map.
 | `Escape` | Finish editing or clear the selection |
 | `Ctrl+Z` / `Cmd+Z` | Undo |
 | `Ctrl+Shift+Z` / `Cmd+Shift+Z` | Redo |
+| `Ctrl+C` / `Cmd+C` | Copy the selected node and its descendants |
+| `Ctrl+V` / `Cmd+V` | Paste beneath the selection or as an independent tree |
 
 The browser's operating-system convention determines whether `Ctrl` or `Cmd`
 is shown in help text.
+
+Paste uses the pointer's world position while it is inside the mind map canvas.
+The selected node remains the new subtree's parent. With no node selected, the
+pasted subtree becomes an independent tree. Paste falls back to automatic
+placement when the pointer is outside the canvas.
 
 ### Selection and Editing
 

@@ -8,6 +8,8 @@
     "save-as": '<path d="M12 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v4"></path><path d="M7 3v5h8"></path><path d="M7 21v-8h8v2"></path><path d="m16 19 4-4 2 2-4 4-3 1z"></path>',
     undo: '<path d="M9 7 4 12l5 5"></path><path d="M20 17a8 8 0 0 0-8-8H4"></path>',
     redo: '<path d="m15 7 5 5-5 5"></path><path d="M4 17a8 8 0 0 1 8-8h8"></path>',
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>',
+    paste: '<path d="M9 5h6"></path><path d="M9 3h6a2 2 0 0 1 2 2v2H7V5a2 2 0 0 1 2-2z"></path><path d="M7 5H5a2 2 0 0 0-2 2v13h18V7a2 2 0 0 0-2-2h-2"></path>',
     "node-root": '<circle cx="12" cy="12" r="7"></circle><path d="M12 9v6"></path><path d="M9 12h6"></path>',
     "node-child": '<circle cx="6" cy="6" r="2"></circle><circle cx="18" cy="18" r="2"></circle><path d="M6 8v4a6 6 0 0 0 6 6h4"></path><path d="M16 12h4"></path><path d="M18 10v4"></path>',
     "node-sibling": '<circle cx="6" cy="7" r="2"></circle><circle cx="18" cy="7" r="2"></circle><path d="M8 7h8"></path><path d="M12 7v10"></path><path d="M9 14v6"></path><path d="M6 17h6"></path>',
@@ -210,6 +212,8 @@
     group(section(controller, "mind-map-edit", "Edit"), [
       ["Undo", "undo", "Undo", "undo"],
       ["Redo", "redo", "Redo", "redo"],
+      ["Copy", "copy", "Copy selected branch", "copy"],
+      ["Paste", "paste", "Paste copied branch", "paste"],
     ], post);
     group(section(controller, "mind-map-node", "Node"), [
       ["Independent", "root", "Add independent node", "node-root"],
@@ -277,7 +281,7 @@
       controls.push(control);
     });
     const needsSelection = new Set([
-      "child", "sibling", "edit", "delete", "link-file", "link-web",
+      "copy", "child", "sibling", "edit", "delete", "link-file", "link-web",
       "create-document", "remove-link", "color-default", "color-violet",
       "color-blue", "color-teal", "color-green", "color-amber", "color-rose",
       "font-size-decrease", "font-size-increase", "font-size-auto", "focus",
@@ -285,7 +289,7 @@
     ]);
     controls.forEach((control) => {
       control.disabled = needsSelection.has(control.dataset.mindMapAction)
-        || ["undo", "redo"].includes(control.dataset.mindMapAction);
+        || ["undo", "redo", "paste"].includes(control.dataset.mindMapAction);
     });
     fontControls.input.disabled = true;
 
@@ -330,6 +334,7 @@
         control.disabled = needsSelection.has(action) && !data.selected;
         if (action === "undo") control.disabled = !data.canUndo;
         if (action === "redo") control.disabled = !data.canRedo;
+        if (action === "paste") control.disabled = !data.canPaste;
         if (action === "focus") {
           control.setAttribute("aria-pressed", String(Boolean(data.focusMode)));
         }

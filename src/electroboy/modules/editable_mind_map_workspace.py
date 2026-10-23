@@ -265,12 +265,14 @@ _PAGE = r"""<!doctype html>
     let focusMode = false;
     let undoStack = [];
     let redoStack = [];
+    let copiedBranch = null;
     let dirty = false;
     let changeVersion = 0;
     let autosaveTimer = null;
     let savePromise = null;
     let pendingEditRender = false;
     let drag = null;
+    let pastePointer = null;
     let spacePan = false;
     let overlayLink = null;
     let pendingFilePicker = null;
@@ -570,7 +572,9 @@ _PAGE = r"""<!doctype html>
       scheduleAutosave();
     }
     function restoreSnapshot(serialized) {
-      documentState = JSON.parse(serialized); editingId = null; markDirty(); render();
+      documentState = JSON.parse(serialized); editingId = null;
+      if (!nodeById(selectedId)) selectedId = null;
+      markDirty(); render();
     }
     function undo() {
       if (!undoStack.length) return;
@@ -630,6 +634,85 @@ _PAGE = r"""<!doctype html>
     function descendants(id, result = new Set()) {
       childrenOf(id).forEach((child) => { result.add(child.id); descendants(child.id, result); });
       return result;
+    }
+    function copySelectedBranch() {
+      const root = nodeById(selectedId);
+      if (!root) return;
+      const ids = descendants(root.id); ids.add(root.id);
+      copiedBranch = {
+        rootId: root.id,
+        nodes: structuredClone(documentState.nodes.filter((node) => ids.has(node.id))),
+        relationships: structuredClone(documentState.relationships.filter(
+          (edge) => ids.has(edge.source) && ids.has(edge.target))),
+      };
+      updateControlsAndState();
+      setStatus(`Copied ${copiedBranch.nodes.length} node(s)`);
+    }
+    function pointerPastePosition(node) {
+      if (!pastePointer) return null;
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (pastePointer.x - rect.left - pan.x) / zoom - nodeWidth(node) / 2,
+        y: (pastePointer.y - rect.top - pan.y) / zoom - nodeMinHeight(node) / 2,
+      };
+    }
+    function pasteCopiedBranch() {
+      if (!copiedBranch?.nodes?.length) return;
+      const parent = nodeById(selectedId);
+      const sourceRoot = copiedBranch.nodes.find(
+        (node) => node.id === copiedBranch.rootId);
+      if (!sourceRoot) return;
+      const parentId = parent?.id || null;
+      const pointerPosition = pointerPastePosition(sourceRoot);
+      const pointerIsLeft = parent && pointerPosition
+        && pointerPosition.x + nodeWidth(sourceRoot) / 2
+          < parent.x + nodeWidth(parent) / 2;
+      let side = nodeSide(sourceRoot);
+      if (parent) {
+        side = pointerPosition
+          ? (pointerIsLeft ? "left" : "right")
+          : initialChildSide(parent);
+      }
+      const position = pointerPosition || nextPosition(parent || null, side);
+      const idMap = new Map(copiedBranch.nodes.map((node) => [node.id, nextId()]));
+      const pastedNodes = copiedBranch.nodes.map((source) => {
+        const node = structuredClone(source);
+        node.id = idMap.get(source.id);
+        node.parent_id = source.id === copiedBranch.rootId
+          ? parentId : idMap.get(source.parent_id);
+        if (source.id === copiedBranch.rootId) {
+          node.order = childrenOf(parentId).length;
+          node.side = side;
+        }
+        return node;
+      });
+      const pastedRelationships = copiedBranch.relationships.map((source) => ({
+        ...structuredClone(source),
+        source: idMap.get(source.source),
+        target: idMap.get(source.target),
+      }));
+      checkpoint();
+      documentState.nodes.push(...pastedNodes);
+      documentState.relationships.push(...pastedRelationships);
+      const pastedRoot = nodeById(idMap.get(copiedBranch.rootId));
+      shiftBranch(pastedRoot.id, position.x, position.y);
+      if (parent) {
+        collapsed.delete(parent.id);
+        reflowDescendants(pastedRoot, side);
+      }
+      selectedId = pastedRoot.id;
+      editingId = null;
+      markDirty();
+      render();
+      if (layoutMode === "repack") {
+        queueMicrotask(() => {
+          applyLayoutMode(treeRoot(pastedRoot));
+          render();
+          setStatus(`Pasted ${pastedNodes.length} node(s)`);
+        });
+      } else {
+        setStatus(`Pasted ${pastedNodes.length} node(s)`);
+      }
     }
     function branchPositions(id) {
       const ids = descendants(id); ids.add(id);
@@ -1126,7 +1209,8 @@ _PAGE = r"""<!doctype html>
         zoom,
         mapPath: path,
         mapTitle: documentState.title,
-        canUndo: Boolean(undoStack.length), canRedo: Boolean(redoStack.length), dirty,
+        canUndo: Boolean(undoStack.length), canRedo: Boolean(redoStack.length),
+        canPaste: Boolean(copiedBranch), dirty,
       }, window.location.origin);
     }
     function updateSelectionPresentation() {
@@ -1528,7 +1612,9 @@ _PAGE = r"""<!doctype html>
       if (!Number.isInteger(selected) || !node.links[selected]) return;
       checkpoint(); node.links.splice(selected, 1); markDirty(); render();
     }
-    const actions = { new: newMap, open: openMap, save, "save-as": saveAs, undo, redo, root: () => addNode("root"),
+    const actions = { new: newMap, open: openMap, save, "save-as": saveAs,
+      undo, redo, copy: copySelectedBranch, paste: pasteCopiedBranch,
+      root: () => addNode("root"),
       child: () => addNode("child"), sibling: () => addNode("sibling"), edit: beginEdit,
       delete: deleteSelected, "link-file": (data) => addLink("file", data?.target),
       "link-web": () => addLink("url"),
@@ -1586,6 +1672,14 @@ _PAGE = r"""<!doctype html>
     canvas.addEventListener("keydown", (event) => {
       if (editingId) return;
       if (event.key === " ") { event.preventDefault(); spacePan = true; return; }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c"
+          && selectedId) {
+        event.preventDefault(); copySelectedBranch(); return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v"
+          && copiedBranch) {
+        event.preventDefault(); pasteCopiedBranch(); return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault(); event.shiftKey ? redo() : undo(); return;
       }
@@ -1640,6 +1734,10 @@ _PAGE = r"""<!doctype html>
       documentState.nodes.push(node); selectedId = node.id; editingId = node.id; markDirty(); render();
     });
     canvas.addEventListener("auxclick", (event) => { if (event.button === 1) event.preventDefault(); });
+    canvas.addEventListener("pointermove", (event) => {
+      pastePointer = { x: event.clientX, y: event.clientY };
+    });
+    canvas.addEventListener("pointerleave", () => { pastePointer = null; });
     canvas.addEventListener("pointermove", (event) => {
       if (!drag) return;
       if (drag.type === "pan") { pan.x = drag.startX + event.clientX - drag.x;
