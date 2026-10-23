@@ -145,6 +145,8 @@ pointer-accessible operations without crowding the map.
 | `Ctrl+Shift+Z` / `Cmd+Shift+Z` | Redo |
 | `Ctrl+C` / `Cmd+C` | Copy the selected node and its descendants |
 | `Ctrl+V` / `Cmd+V` | Paste beneath the selection or as an independent tree |
+| `Ctrl+Left` / `Cmd+Left` | Move a root's selected child branch to the left |
+| `Ctrl+Right` / `Cmd+Right` | Move a root's selected child branch to the right |
 
 The browser's operating-system convention determines whether `Ctrl` or `Cmd`
 is shown in help text.
@@ -205,6 +207,11 @@ Dragging a direct child across its root changes the branch direction and
 reflows every descendant so the complete branch grows outward on the selected
 side. Sibling insertion adopts the target branch's direction. Connectors attach
 to the facing node edges for both left- and right-growing branches.
+
+Ctrl/Cmd with the left or right arrow moves a selected direct child of a root
+to that side. The operation reflects the complete subtree across the root's
+vertical centerline and remains undoable. The active layout mode resolves any
+overlap with branches already on the destination side.
 
 Reparenting cannot create a cycle. A rejected or redundant drop restores the
 original position and gives a brief explanation. Making a branch independent

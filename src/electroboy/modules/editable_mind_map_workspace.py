@@ -1000,6 +1000,32 @@ _PAGE = r"""<!doctype html>
       reflowDescendants(node, side);
       if (side !== previousSide) applyLayoutMode(root);
     }
+    function moveRootBranch(side) {
+      const node = nodeById(selectedId);
+      const root = node?.parent_id ? nodeById(node.parent_id) : null;
+      if (!node || !root || root.parent_id !== null) {
+        setStatus("Select a direct child of a root node first", true);
+        return;
+      }
+      if (nodeSide(node) === side) {
+        setStatus(`The selected branch is already on the ${side}`);
+        return;
+      }
+      checkpoint();
+      const rootCenter = root.x + nodeWidth(root) / 2;
+      const branchIds = descendants(node.id); branchIds.add(node.id);
+      branchIds.forEach((id) => {
+        const branchNode = nodeById(id);
+        const previousSide = nodeSide(branchNode);
+        branchNode.x = 2 * rootCenter - branchNode.x - nodeWidth(branchNode);
+        branchNode.side = previousSide === "left" ? "right" : "left";
+      });
+      node.side = side;
+      applyLayoutMode(root);
+      markDirty();
+      render();
+      setStatus(`Moved branch to the ${side}`);
+    }
     function normalizeSiblingOrder(parentId) {
       childrenOf(parentId).forEach((node, index) => { node.order = index; });
     }
@@ -1346,6 +1372,11 @@ _PAGE = r"""<!doctype html>
       });
       document.title = `${dirty ? "*" : ""}${documentState.title} — Mind Map`;
       if (dirty && !status.classList.contains("error")) setStatus("Unsaved changes");
+      const selectedNode = nodeById(selectedId);
+      const selectedParent = selectedNode?.parent_id
+        ? nodeById(selectedNode.parent_id) : null;
+      const selectedRootChild = Boolean(selectedParent
+        && selectedParent.parent_id === null);
       if (window.parent !== window) window.parent.postMessage({
         type: "electroboy-mind-map-state", selected: Boolean(selectedId),
         selectedColor: nodeById(selectedId)?.color || "default",
@@ -1363,6 +1394,8 @@ _PAGE = r"""<!doctype html>
         mapTitle: documentState.title,
         canUndo: Boolean(undoStack.length), canRedo: Boolean(redoStack.length),
         canPaste: Boolean(copiedBranch || navigator.clipboard?.readText), dirty,
+        canMoveBranchLeft: selectedRootChild && nodeSide(selectedNode) !== "left",
+        canMoveBranchRight: selectedRootChild && nodeSide(selectedNode) !== "right",
       }, window.location.origin);
     }
     function updateSelectionPresentation() {
@@ -1769,6 +1802,8 @@ _PAGE = r"""<!doctype html>
       paste: pasteFromSystemClipboard,
       root: () => addNode("root"),
       child: () => addNode("child"), sibling: () => addNode("sibling"), edit: beginEdit,
+      "branch-left": () => moveRootBranch("left"),
+      "branch-right": () => moveRootBranch("right"),
       delete: deleteSelected, "link-file": (data) => addLink("file", data?.target),
       "link-web": () => addLink("url"),
       "create-document": createDocument, "remove-link": removeLink,
@@ -1830,6 +1865,12 @@ _PAGE = r"""<!doctype html>
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") { event.preventDefault(); redo(); return; }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); save(); return; }
+      if ((event.ctrlKey || event.metaKey)
+          && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+        event.preventDefault();
+        moveRootBranch(event.key === "ArrowLeft" ? "left" : "right");
+        return;
+      }
       if (event.key === "Tab" && selectedId) { event.preventDefault(); addNode("child"); }
       else if (event.key === "Enter" && event.shiftKey) { event.preventDefault(); addNode("root"); }
       else if (event.key === "Enter" && selectedId) { event.preventDefault(); addNode("sibling"); }

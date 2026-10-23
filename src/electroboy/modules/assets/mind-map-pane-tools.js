@@ -10,6 +10,8 @@
     redo: '<path d="m15 7 5 5-5 5"></path><path d="M4 17a8 8 0 0 1 8-8h8"></path>',
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>',
     paste: '<path d="M9 5h6"></path><path d="M9 3h6a2 2 0 0 1 2 2v2H7V5a2 2 0 0 1 2-2z"></path><path d="M7 5H5a2 2 0 0 0-2 2v13h18V7a2 2 0 0 0-2-2h-2"></path>',
+    "arrow-left": '<path d="m15 18-6-6 6-6"></path>',
+    "arrow-right": '<path d="m9 18 6-6-6-6"></path>',
     "node-root": '<circle cx="12" cy="12" r="7"></circle><path d="M12 9v6"></path><path d="M9 12h6"></path>',
     "node-child": '<circle cx="6" cy="6" r="2"></circle><circle cx="18" cy="18" r="2"></circle><path d="M6 8v4a6 6 0 0 0 6 6h4"></path><path d="M16 12h4"></path><path d="M18 10v4"></path>',
     "node-sibling": '<circle cx="6" cy="7" r="2"></circle><circle cx="18" cy="7" r="2"></circle><path d="M8 7h8"></path><path d="M12 7v10"></path><path d="M9 14v6"></path><path d="M6 17h6"></path>',
@@ -219,6 +221,8 @@
       ["Independent", "root", "Add independent node", "node-root"],
       ["Child", "child", "Add child node", "node-child"],
       ["Sibling", "sibling", "Add sibling node", "node-sibling"],
+      ["Move left", "branch-left", "Move root branch left", "arrow-left"],
+      ["Move right", "branch-right", "Move root branch right", "arrow-right"],
       ["Edit", "edit", "Edit selected node", "edit"],
       ["Delete", "delete", "Delete selected node", "delete"],
     ], post);
@@ -281,7 +285,8 @@
       controls.push(control);
     });
     const needsSelection = new Set([
-      "copy", "child", "sibling", "edit", "delete", "link-file", "link-web",
+      "copy", "child", "sibling", "branch-left", "branch-right", "edit",
+      "delete", "link-file", "link-web",
       "create-document", "remove-link", "color-default", "color-violet",
       "color-blue", "color-teal", "color-green", "color-amber", "color-rose",
       "font-size-decrease", "font-size-increase", "font-size-auto", "focus",
@@ -335,6 +340,8 @@
         if (action === "undo") control.disabled = !data.canUndo;
         if (action === "redo") control.disabled = !data.canRedo;
         if (action === "paste") control.disabled = !data.canPaste;
+        if (action === "branch-left") control.disabled = !data.canMoveBranchLeft;
+        if (action === "branch-right") control.disabled = !data.canMoveBranchRight;
         if (action === "focus") {
           control.setAttribute("aria-pressed", String(Boolean(data.focusMode)));
         }
