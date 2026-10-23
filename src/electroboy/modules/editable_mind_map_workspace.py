@@ -273,6 +273,8 @@ _PAGE = r"""<!doctype html>
     let pendingEditRender = false;
     let drag = null;
     let pastePointer = null;
+    let middleButtonDown = false;
+    let suppressMiddlePasteUntil = 0;
     let spacePan = false;
     let overlayLink = null;
     let pendingFilePicker = null;
@@ -1897,6 +1899,7 @@ _PAGE = r"""<!doctype html>
     }, { capture: true });
     canvas.addEventListener("pointerdown", (event) => {
       if (event.button === 1 || (event.button === 0 && spacePan)) {
+        if (event.button === 1) middleButtonDown = true;
         event.preventDefault(); drag = { type: "pan", x: event.clientX,
         y: event.clientY, startX: pan.x, startY: pan.y }; canvas.setPointerCapture(event.pointerId); }
       else if (event.button === 0 && event.target === canvas) {
@@ -1919,13 +1922,34 @@ _PAGE = r"""<!doctype html>
         min_height: DEFAULT_NODE_MIN_HEIGHT, links: [] };
       documentState.nodes.push(node); selectedId = node.id; editingId = node.id; markDirty(); render();
     });
-    canvas.addEventListener("auxclick", (event) => { if (event.button === 1) event.preventDefault(); });
+    function suppressMiddleMouseDefault(event) {
+      if (event.button !== 1) return;
+      if (event.type === "mousedown") middleButtonDown = true;
+      else {
+        middleButtonDown = false;
+        suppressMiddlePasteUntil = Date.now() + 300;
+      }
+      event.preventDefault();
+    }
+    document.addEventListener("mousedown", suppressMiddleMouseDefault, {
+      capture: true, passive: false,
+    });
+    document.addEventListener("mouseup", suppressMiddleMouseDefault, {
+      capture: true, passive: false,
+    });
+    document.addEventListener("auxclick", suppressMiddleMouseDefault, {
+      capture: true, passive: false,
+    });
     canvas.addEventListener("copy", (event) => {
       if (editingId || !selectedId || event.target.closest("textarea")) return;
       copySelectedBranch(event.clipboardData);
       event.preventDefault();
     });
     canvas.addEventListener("paste", (event) => {
+      if (middleButtonDown || Date.now() < suppressMiddlePasteUntil) {
+        event.preventDefault();
+        return;
+      }
       if (editingId || event.target.closest("textarea")) return;
       if (pasteClipboardText(event.clipboardData?.getData("text/plain"))) {
         event.preventDefault();
@@ -2000,6 +2024,10 @@ _PAGE = r"""<!doctype html>
       }
     });
     canvas.addEventListener("pointerup", (event) => {
+      if (event.button === 1) {
+        middleButtonDown = false;
+        suppressMiddlePasteUntil = Date.now() + 300;
+      }
       clearDropTarget();
       if (drag && drag.type === "resize" && drag.moved) {
         undoStack.push(drag.before); redoStack = []; markDirty(); render();
@@ -2019,7 +2047,10 @@ _PAGE = r"""<!doctype html>
     canvas.addEventListener("keyup", (event) => {
       if (event.key === " ") { event.preventDefault(); spacePan = false; }
     });
-    window.addEventListener("blur", () => { spacePan = false; });
+    window.addEventListener("blur", () => {
+      spacePan = false;
+      middleButtonDown = false;
+    });
     canvas.addEventListener("wheel", (event) => { event.preventDefault(); const rect = canvas.getBoundingClientRect();
       adjustZoom(zoom * Math.exp(-event.deltaY * .0015), event.clientX - rect.left, event.clientY - rect.top);
     }, { passive: false });
