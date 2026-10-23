@@ -1234,7 +1234,10 @@ _PAGE = r"""<!doctype html>
             && Math.abs(renderedNodeHeight(node) - previousHeight) <= 1) return;
         const before = layoutPositionSnapshot();
         applyLayoutMode(root);
-        if (layoutPositionSnapshot() !== before) render();
+        if (layoutPositionSnapshot() !== before) {
+          markDirty();
+          render();
+        }
       });
     }
     function setNodeColor(color) {
@@ -1465,8 +1468,13 @@ _PAGE = r"""<!doctype html>
         if (compact && isLong) {
           const more = document.createElement("button"); more.className = "node-more";
           more.textContent = isExpanded ? "… less" : "… more";
-          more.addEventListener("click", (event) => { event.stopPropagation();
-            isExpanded ? expanded.delete(node.id) : expanded.add(node.id); render(); });
+          more.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const previousHeight = renderedNodeHeight(node);
+            isExpanded ? expanded.delete(node.id) : expanded.add(node.id);
+            render();
+            scheduleLayoutAfterMeasure(node, previousHeight);
+          });
           element.append(more);
         }
         if (node.links.length) {

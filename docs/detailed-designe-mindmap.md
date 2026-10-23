@@ -178,6 +178,9 @@ Node text is stored without a length limit. Compact mode displays approximately
 line-clamped and ends with an `… more` control. Activating it expands the node
 in place and increases its height until the complete wrapped text is visible.
 An `… less` control returns the node to compact presentation.
+Changing between compact and expanded presentation measures the rendered node
+height and reflows its tree with the active layout mode so nearby nodes do not
+overlap.
 
 Deletion of a leaf happens immediately and remains undoable. Deleting a node
 with descendants presents a confirmation that includes the number of affected
