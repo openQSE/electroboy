@@ -154,6 +154,12 @@ The selected node remains the new subtree's parent. With no node selected, the
 pasted subtree becomes an independent tree. Paste falls back to automatic
 placement when the pointer is outside the canvas.
 
+Copy also writes the selected subtree to the operating-system clipboard as a
+nested Markdown task list. Every node uses an unchecked task item, such as
+`- [ ] Parent`. Pasting a nested Markdown task list from another application
+creates the corresponding node hierarchy. Both checked and unchecked task
+items are accepted during import.
+
 ### Selection and Editing
 
 A primary-button click gives a node focus. The focused node uses a distinctive

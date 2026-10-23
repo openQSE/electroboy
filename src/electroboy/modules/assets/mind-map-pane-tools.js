@@ -212,8 +212,8 @@
     group(section(controller, "mind-map-edit", "Edit"), [
       ["Undo", "undo", "Undo", "undo"],
       ["Redo", "redo", "Redo", "redo"],
-      ["Copy", "copy", "Copy selected branch", "copy"],
-      ["Paste", "paste", "Paste copied branch", "paste"],
+      ["Copy", "copy", "Copy selected branch as Markdown", "copy"],
+      ["Paste", "paste", "Paste a copied branch or Markdown task list", "paste"],
     ], post);
     group(section(controller, "mind-map-node", "Node"), [
       ["Independent", "root", "Add independent node", "node-root"],

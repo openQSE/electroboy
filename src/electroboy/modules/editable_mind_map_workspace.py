@@ -635,7 +635,23 @@ _PAGE = r"""<!doctype html>
       childrenOf(id).forEach((child) => { result.add(child.id); descendants(child.id, result); });
       return result;
     }
-    function copySelectedBranch() {
+    function markdownNodeText(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/\r?\n/g, "<br>");
+    }
+    function branchMarkdown(rootId) {
+      const lines = [];
+      function append(node, depth) {
+        lines.push(`${"  ".repeat(depth)}- [ ] ${markdownNodeText(node.text)}`);
+        childrenOf(node.id).forEach((child) => append(child, depth + 1));
+      }
+      const root = nodeById(rootId);
+      if (root) append(root, 0);
+      return lines.join("\n");
+    }
+    function copySelectedBranch(clipboardData = null) {
       const root = nodeById(selectedId);
       if (!root) return;
       const ids = descendants(root.id); ids.add(root.id);
@@ -644,9 +660,48 @@ _PAGE = r"""<!doctype html>
         nodes: structuredClone(documentState.nodes.filter((node) => ids.has(node.id))),
         relationships: structuredClone(documentState.relationships.filter(
           (edge) => ids.has(edge.source) && ids.has(edge.target))),
+        markdown: branchMarkdown(root.id),
       };
+      if (clipboardData) {
+        clipboardData.setData("text/plain", copiedBranch.markdown);
+        clipboardData.setData("text/markdown", copiedBranch.markdown);
+      } else if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(copiedBranch.markdown).catch(() => {
+          setStatus("Copied in Mind Map; browser clipboard access was denied", true);
+        });
+      }
       updateControlsAndState();
       setStatus(`Copied ${copiedBranch.nodes.length} node(s)`);
+    }
+    function decodeMarkdownNodeText(value) {
+      return String(value || "")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/&lt;/g, "<")
+        .replace(/&amp;/g, "&");
+    }
+    function indentationWidth(value) {
+      return Array.from(value).reduce(
+        (width, character) => width + (character === "\t" ? 4 : 1), 0);
+    }
+    function parseMarkdownTaskTrees(value) {
+      const roots = [];
+      const stack = [];
+      String(value || "").split(/\r?\n/).forEach((line) => {
+        const match = line.match(/^(\s*)[-+*]\s+\[([ xX])\]\s*(.*)$/);
+        if (!match) return;
+        const item = {
+          indent: indentationWidth(match[1]),
+          text: decodeMarkdownNodeText(match[3]),
+          children: [],
+        };
+        while (stack.length && item.indent <= stack[stack.length - 1].indent) {
+          stack.pop();
+        }
+        if (stack.length) stack[stack.length - 1].children.push(item);
+        else roots.push(item);
+        stack.push(item);
+      });
+      return roots;
     }
     function pointerPastePosition(node) {
       if (!pastePointer) return null;
@@ -713,6 +768,103 @@ _PAGE = r"""<!doctype html>
       } else {
         setStatus(`Pasted ${pastedNodes.length} node(s)`);
       }
+    }
+    function newMarkdownNode(item, parentId, side, position) {
+      const parent = nodeById(parentId);
+      return {
+        id: nextId(), text: item.text, parent_id: parentId,
+        order: childrenOf(parentId).length,
+        x: position.x, y: position.y, side,
+        color: initialNodeColor(parentId),
+        font_size: parent
+          ? Math.max(MINIMUM_NODE_FONT_SIZE,
+            nodeFontSize(parent) - NODE_GENERATION_FONT_STEP)
+          : ROOT_NODE_FONT_SIZE,
+        font_size_mode: "auto",
+        width: DEFAULT_NODE_WIDTH, min_height: DEFAULT_NODE_MIN_HEIGHT,
+        links: [],
+      };
+    }
+    function appendMarkdownTree(item, parentId, side, position) {
+      const node = newMarkdownNode(item, parentId, side, position);
+      documentState.nodes.push(node);
+      item.children.forEach((child) => {
+        appendMarkdownTree(child, node.id, side, {
+          x: node.x, y: node.y,
+        });
+      });
+      return node;
+    }
+    function pasteMarkdownTrees(trees) {
+      if (!trees.length) return false;
+      const parent = nodeById(selectedId);
+      const pointerPosition = pointerPastePosition({
+        width: DEFAULT_NODE_WIDTH,
+        min_height: DEFAULT_NODE_MIN_HEIGHT,
+        side: "right",
+      });
+      const pointerIsLeft = parent && pointerPosition
+        && pointerPosition.x + DEFAULT_NODE_WIDTH / 2
+          < parent.x + nodeWidth(parent) / 2;
+      const side = parent
+        ? pointerPosition
+          ? (pointerIsLeft ? "left" : "right")
+          : initialChildSide(parent)
+        : "right";
+      checkpoint();
+      if (parent) collapsed.delete(parent.id);
+      const roots = trees.map((tree, index) => {
+        const position = pointerPosition
+          ? {
+            x: pointerPosition.x,
+            y: pointerPosition.y
+              + index * (DEFAULT_NODE_MIN_HEIGHT + NODE_VERTICAL_GAP),
+          }
+          : nextPosition(parent || null, side);
+        const root = appendMarkdownTree(tree, parent?.id || null, side, position);
+        reflowDescendants(root, side);
+        return root;
+      });
+      selectedId = roots[0].id;
+      editingId = null;
+      markDirty();
+      render();
+      if (layoutMode === "repack") {
+        queueMicrotask(() => {
+          const affectedRoots = new Set(roots.map((root) => treeRoot(root)?.id));
+          affectedRoots.forEach((id) => applyLayoutMode(nodeById(id)));
+          render();
+          setStatus(`Pasted ${trees.length} Markdown tree(s)`);
+        });
+      } else {
+        setStatus(`Pasted ${trees.length} Markdown tree(s)`);
+      }
+      return true;
+    }
+    function pasteClipboardText(value) {
+      const text = String(value || "");
+      if (copiedBranch && (!text.trim()
+          || text.trim() === copiedBranch.markdown.trim())) {
+        pasteCopiedBranch();
+        return true;
+      }
+      const trees = parseMarkdownTaskTrees(text);
+      if (trees.length) return pasteMarkdownTrees(trees);
+      setStatus("Clipboard does not contain a Markdown task list", true);
+      return false;
+    }
+    async function pasteFromSystemClipboard() {
+      if (navigator.clipboard?.readText) {
+        try {
+          return pasteClipboardText(await navigator.clipboard.readText());
+        } catch (_error) {
+          if (!copiedBranch) {
+            setStatus("Browser clipboard access was denied", true);
+            return false;
+          }
+        }
+      }
+      return pasteClipboardText("");
     }
     function branchPositions(id) {
       const ids = descendants(id); ids.add(id);
@@ -1210,7 +1362,7 @@ _PAGE = r"""<!doctype html>
         mapPath: path,
         mapTitle: documentState.title,
         canUndo: Boolean(undoStack.length), canRedo: Boolean(redoStack.length),
-        canPaste: Boolean(copiedBranch), dirty,
+        canPaste: Boolean(copiedBranch || navigator.clipboard?.readText), dirty,
       }, window.location.origin);
     }
     function updateSelectionPresentation() {
@@ -1613,7 +1765,8 @@ _PAGE = r"""<!doctype html>
       checkpoint(); node.links.splice(selected, 1); markDirty(); render();
     }
     const actions = { new: newMap, open: openMap, save, "save-as": saveAs,
-      undo, redo, copy: copySelectedBranch, paste: pasteCopiedBranch,
+      undo, redo, copy: () => copySelectedBranch(),
+      paste: pasteFromSystemClipboard,
       root: () => addNode("root"),
       child: () => addNode("child"), sibling: () => addNode("sibling"), edit: beginEdit,
       delete: deleteSelected, "link-file": (data) => addLink("file", data?.target),
@@ -1672,14 +1825,6 @@ _PAGE = r"""<!doctype html>
     canvas.addEventListener("keydown", (event) => {
       if (editingId) return;
       if (event.key === " ") { event.preventDefault(); spacePan = true; return; }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c"
-          && selectedId) {
-        event.preventDefault(); copySelectedBranch(); return;
-      }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v"
-          && copiedBranch) {
-        event.preventDefault(); pasteCopiedBranch(); return;
-      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault(); event.shiftKey ? redo() : undo(); return;
       }
@@ -1734,6 +1879,17 @@ _PAGE = r"""<!doctype html>
       documentState.nodes.push(node); selectedId = node.id; editingId = node.id; markDirty(); render();
     });
     canvas.addEventListener("auxclick", (event) => { if (event.button === 1) event.preventDefault(); });
+    canvas.addEventListener("copy", (event) => {
+      if (editingId || !selectedId || event.target.closest("textarea")) return;
+      copySelectedBranch(event.clipboardData);
+      event.preventDefault();
+    });
+    canvas.addEventListener("paste", (event) => {
+      if (editingId || event.target.closest("textarea")) return;
+      if (pasteClipboardText(event.clipboardData?.getData("text/plain"))) {
+        event.preventDefault();
+      }
+    });
     canvas.addEventListener("pointermove", (event) => {
       pastePointer = { x: event.clientX, y: event.clientY };
     });
