@@ -15,6 +15,7 @@
   let selectedSessionId = "";
   let adHocSessionDialog = null;
   let stageSessionDialog = null;
+  let stageCompletionDialog = null;
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
@@ -40,6 +41,10 @@
     if (stageSessionDialog) {
       stageSessionDialog.remove();
       stageSessionDialog = null;
+    }
+    if (stageCompletionDialog) {
+      stageCompletionDialog.remove();
+      stageCompletionDialog = null;
     }
     scratchPad = null;
     agentInput = null;
@@ -778,6 +783,112 @@
       }
     }
 
+    function ensureStageCompletionDialog() {
+      if (stageCompletionDialog) {
+        return stageCompletionDialog;
+      }
+      const dialog = document.createElement("dialog");
+      dialog.className = "ad-hoc-session-dialog stage-completion-dialog";
+      dialog.innerHTML = `
+        <form method="dialog" class="ad-hoc-session-form stage-completion-form">
+          <header class="ad-hoc-session-header">
+            <div>
+              <h2 class="stage-completion-title"></h2>
+              <p class="stage-completion-summary"></p>
+            </div>
+            <button class="ad-hoc-session-close" type="button"
+                    aria-label="Close">&times;</button>
+          </header>
+          <p class="stage-completion-details"></p>
+          <footer class="ad-hoc-session-footer">
+            <button class="stage-completion-cancel" type="button">Cancel</button>
+            <button class="stage-completion-submit" type="submit">OK</button>
+          </footer>
+        </form>
+      `;
+      document.body.append(dialog);
+      stageCompletionDialog = dialog;
+      return dialog;
+    }
+
+    function showStageCompletionDialog(options) {
+      const dialog = ensureStageCompletionDialog();
+      const cancel = dialog.querySelector(".stage-completion-cancel");
+      const submit = dialog.querySelector(".stage-completion-submit");
+      dialog.classList.toggle("stage-completion-error", Boolean(options.error));
+      dialog.querySelector(".stage-completion-title").textContent = options.title;
+      dialog.querySelector(".stage-completion-summary").textContent = options.summary;
+      dialog.querySelector(".stage-completion-details").textContent =
+        options.details || "";
+      cancel.hidden = options.cancel === false;
+      submit.textContent = options.submitLabel || "OK";
+      return new Promise((resolve) => {
+        const finish = (value) => {
+          dialog.close();
+          resolve(value);
+        };
+        dialog.querySelector(".ad-hoc-session-close").onclick = () => {
+          finish(options.cancel === false);
+        };
+        cancel.onclick = () => finish(false);
+        dialog.oncancel = (event) => {
+          event.preventDefault();
+          finish(options.cancel === false);
+        };
+        dialog.querySelector("form").onsubmit = (event) => {
+          event.preventDefault();
+          finish(true);
+        };
+        dialog.showModal();
+      });
+    }
+
+    function confirmStageCompletion(label, nextStage, skipApproval) {
+      const approvalWarning = skipApproval
+        ? "Explicit approval will be skipped and recorded as a forced approval. "
+        : "";
+      return showStageCompletionDialog({
+        title: `Complete ${label}?`,
+        summary: `${approvalWarning}This action advances the workflow to ${nextStage}.`,
+        details: `After the stage completes successfully, all active ${label} agents will be terminated.`,
+        submitLabel: "OK",
+      });
+    }
+
+    function showStageFailure(label, message) {
+      return showStageCompletionDialog({
+        title: `${label} did not complete`,
+        summary: "The workflow did not advance and active agents were preserved.",
+        details: message,
+        cancel: false,
+        error: true,
+        submitLabel: "OK",
+      });
+    }
+
+    async function requestStageCompletion(endpoint, label, fallbackError) {
+      let response;
+      try {
+        response = await fetch(contextUrl(endpoint), { method: "POST" });
+      } catch (error) {
+        const message = error.message || fallbackError;
+        appendOutput(`${message}\n`, "error");
+        await showStageFailure(label, message);
+        return null;
+      }
+      const payload = await response.json().catch(() => ({ error: fallbackError }));
+      if (response.ok) {
+        return payload;
+      }
+      const message = payload.error || fallbackError;
+      appendOutput(`${message}\n`, "error");
+      if (payload.output) {
+        appendOutput(`${payload.output}\n`, "error");
+      }
+      await showStageFailure(label, message);
+      return null;
+    }
+
     async function approveRequirementsStage(skipApproval = false) {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\n", "error");
@@ -786,22 +897,26 @@
       if (currentWorkflowStage !== "requirements") {
         return;
       }
+      if (!await confirmStageCompletion(
+        "Requirements",
+        "Design",
+        skipApproval,
+      )) {
+        return;
+      }
       hideStageMenus();
-      closeAgentEventStream();
       const endpoint = skipApproval
         ? "/api/agents/requirements/skip-approval"
         : "/api/agents/requirements/approve";
-      const response = await fetch(contextUrl(endpoint), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "approval failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "approval failed"}\n`, "error");
-        if (payload.output) {
-          appendOutput(`${payload.output}\n`, "error");
-        }
+      const payload = await requestStageCompletion(
+        endpoint,
+        "Requirements",
+        "approval failed",
+      );
+      if (!payload) {
         return;
       }
+      closeAgentEventStream();
       setRequirementsRunning(false);
       agentInput.value = "";
       clearAgentOutput();
@@ -821,14 +936,6 @@
     }
 
     async function skipRequirementsApprovalStage() {
-      if (
-        !requirementsApproved &&
-        !window.confirm(
-          "Requirements have not been explicitly approved.\n\nSkip approval and advance to design anyway?",
-        )
-      ) {
-        return;
-      }
       await approveRequirementsStage(true);
     }
 
@@ -1317,16 +1424,19 @@
       if (currentWorkflowStage !== "design") {
         return;
       }
-      hideStageMenus();
-      closeAgentEventStream();
-      const response = await fetch(contextUrl("/api/agents/design/complete"), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "complete failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "complete failed"}\n`, "error");
+      if (!await confirmStageCompletion("Design", "Design review", false)) {
         return;
       }
+      hideStageMenus();
+      const payload = await requestStageCompletion(
+        "/api/agents/design/complete",
+        "Design",
+        "complete failed",
+      );
+      if (!payload) {
+        return;
+      }
+      closeAgentEventStream();
       setAgentRunning("design", false);
       agentInput.value = "";
       clearAgentOutput();
@@ -1404,25 +1514,27 @@
       if (currentWorkflowStage !== "design-review") {
         return;
       }
+      if (!await confirmStageCompletion(
+        "Design review",
+        "Implementation plan",
+        skipApproval,
+      )) {
+        return;
+      }
       hideStageMenus();
-      closeAgentEventStream();
-      closeProgressEventStream();
       const endpoint = skipApproval
         ? "/api/agents/design-review/skip-approval"
         : "/api/agents/design-review/approve";
-      const response = await fetch(contextUrl(endpoint), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "approval failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "approval failed"}\n`, "error");
-        if (payload.output) {
-          appendOutput(`${payload.output}\n`, "error");
-        }
-        setAgentRunning("design-review", false);
-        refreshProject();
+      const payload = await requestStageCompletion(
+        endpoint,
+        "Design review",
+        "approval failed",
+      );
+      if (!payload) {
         return;
       }
+      closeAgentEventStream();
+      closeProgressEventStream();
       setAgentRunning("design-review", false);
       if (payload.output) {
         appendOutput(`${payload.output}\n`, "system");
@@ -1440,14 +1552,6 @@
     }
 
     async function skipDesignReviewApprovalStage() {
-      if (
-        !designApproved &&
-        !window.confirm(
-          "Design has not been explicitly approved.\n\nSkip approval and advance to implementation planning anyway?",
-        )
-      ) {
-        return;
-      }
       await approveDesignReviewStage(true);
     }
 
@@ -1507,25 +1611,27 @@
       if (currentWorkflowStage !== stage) {
         return;
       }
+      if (!await confirmStageCompletion(
+        label,
+        "the next stage",
+        skipApproval,
+      )) {
+        return;
+      }
       hideStageMenus();
-      closeAgentEventStream();
-      closeProgressEventStream();
       const endpoint = skipApproval
         ? `/api/agents/${stage}/skip-approval`
         : `/api/agents/${stage}/approve`;
-      const response = await fetch(contextUrl(endpoint), {
-        method: "POST",
-      });
-      const payload = await response.json().catch(() => ({ error: "approval failed" }));
-      if (!response.ok) {
-        appendOutput(`${payload.error || "approval failed"}\n`, "error");
-        if (payload.output) {
-          appendOutput(`${payload.output}\n`, "error");
-        }
-        setAgentRunning(stage, false);
-        refreshProject();
+      const payload = await requestStageCompletion(
+        endpoint,
+        label,
+        "approval failed",
+      );
+      if (!payload) {
         return;
       }
+      closeAgentEventStream();
+      closeProgressEventStream();
       setAgentRunning(stage, false);
       if (payload.output) {
         appendOutput(`${payload.output}\n`, "system");
@@ -1543,13 +1649,6 @@
     }
 
     async function skipGenericStageApproval(stage, label) {
-      if (
-        !window.confirm(
-          `${label} has not been explicitly approved.\n\nSkip approval and advance anyway?`,
-        )
-      ) {
-        return;
-      }
       await approveGenericStage(stage, label, true);
     }
 

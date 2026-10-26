@@ -1,1 +1,25 @@
 /* Shared session picker styles live in css/shell.css. */
+
+.stage-completion-form {
+  grid-template-rows: auto minmax(92px, auto) auto;
+}
+
+.stage-completion-details {
+  margin: 0;
+  padding: 18px;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.stage-completion-dialog.stage-completion-error {
+  border-color: rgba(255, 95, 109, 0.72);
+}
+
+.stage-completion-error .ad-hoc-session-header {
+  background: rgba(143, 24, 40, 0.18);
+}
+
+.stage-completion-error .stage-completion-title {
+  color: #ffb4bd;
+}

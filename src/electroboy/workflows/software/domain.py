@@ -1092,7 +1092,6 @@ def _reopen_design_for_restart(project_root: Path) -> None:
 
 def _record_requirements_complete(project_root: Path, *, skipped: bool = False) -> None:
     store = StateStore(project_root)
-    manifest = store.load_current_manifest()
     action = (
         "gui-requirements-approval-skipped"
         if skipped
@@ -1110,7 +1109,7 @@ def _record_requirements_complete(project_root: Path, *, skipped: bool = False) 
             stage=STAGE_REQUIREMENTS,
             action=action,
             summary=summary,
-            inputs=[manifest.active_stage],
+            inputs=[STAGE_REQUIREMENTS],
         )
     )
 

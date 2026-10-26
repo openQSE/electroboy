@@ -1000,11 +1000,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
             if context.workflow_stage not in {"requirements", "requirements-approve"}:
                 raise AgentSessionError("requirements stage is not active")
             requirements_started = context.requirements_started
-        self.services.sessions.terminate_kind(context_id, "requirements")
-        _record_requirements_complete(project_root, skipped=skip_approval)
         from electroboy.gates import GateEngine
 
-        from .cli import _cmd_stage, _stage_args
+        from .cli import _cmd_stage, _has_successful_agent_event, _stage_args
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -1026,7 +1024,14 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 "explicitly approved."
             )
         else:
-            force_approval = _should_force_completed_requirements_approval(store)
+            force_approval = (
+                _should_force_completed_requirements_approval(store)
+                or not _has_successful_agent_event(
+                    store,
+                    "design_author",
+                    STAGE_REQUIREMENTS,
+                )
+            )
             reason = (
                 "Requirements authoring was completed from the GUI without "
                 "agent confirmation; approval "
@@ -1053,12 +1058,13 @@ class SoftwareWorkflowController(BoundWorkflowController):
         )
         if code != 0:
             raise AgentSessionError(output or "requirements approval failed")
+        _record_requirements_complete(project_root, skipped=skip_approval)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             context.workflow_stage = "design"
-            context.requirements_session = None
             context.requirements_started = requirements_started
             project_root = context.active_project_root
+        self.services.sessions.terminate_kind(context_id, "requirements")
         return {
             **self.services.contexts.project_payload(context_id),
             "status": "skipped" if skip_approval else "approved",
@@ -1269,17 +1275,16 @@ class SoftwareWorkflowController(BoundWorkflowController):
             if context.workflow_stage != "design":
                 raise AgentSessionError("design stage is not active")
             design_started = context.design_started
-        self.services.sessions.terminate_kind(context_id, "design")
         _record_design_complete(project_root)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             context.workflow_stage = "design-review"
-            context.design_session = None
             context.design_started = design_started
             context.design_review_session = None
             context.design_review_started = False
             context.design_review_interactive = False
             project_root = context.active_project_root
+        self.services.sessions.terminate_kind(context_id, "design")
         return {
             **self.services.contexts.project_payload(context_id),
             "status": "completed",
@@ -1507,8 +1512,6 @@ class SoftwareWorkflowController(BoundWorkflowController):
             session = context.design_review_session
             design_review_started = context.design_review_started
             needs_design_review_completion = context.workflow_stage == "design-review"
-        if session is not None and session.is_active():
-            session.terminate()
         from electroboy.gates import GateEngine
 
         from .cli import _cmd_stage, _stage_args
@@ -1538,17 +1541,6 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     for part in [stderr.getvalue(), stdout.getvalue()]
                     if part.strip()
                 )
-                with self.services.contexts.lock:
-                    context = self.services.contexts.require(context_id)
-                    if context.design_review_session is session:
-                        context.design_review_session = None
-                        if (
-                            session is not None
-                            and context.selected_session_id
-                            == getattr(session, "session_id", None)
-                        ):
-                            context.selected_session_id = None
-                        context.design_review_interactive = False
                 raise AgentSessionError(output or "design review completion failed")
             store = StateStore(project_root)
             engine = GateEngine(project_root)
@@ -1589,10 +1581,21 @@ class SoftwareWorkflowController(BoundWorkflowController):
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             context.workflow_stage = "implementation-plan"
-            context.design_review_session = None
-            context.design_review_interactive = False
             context.design_review_started = design_review_started
             project_root = context.active_project_root
+        if session is not None and session.is_active():
+            session.terminate()
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            if context.design_review_session is session:
+                context.design_review_session = None
+                context.design_review_interactive = False
+            if (
+                session is not None
+                and context.selected_session_id
+                == getattr(session, "session_id", None)
+            ):
+                context.selected_session_id = None
         return {
             **self.services.contexts.project_payload(context_id),
             "status": "skipped" if skip_approval else "approved",
@@ -1778,8 +1781,6 @@ class SoftwareWorkflowController(BoundWorkflowController):
             if context.workflow_stage != stage:
                 raise AgentSessionError(f"{stage} stage is not active")
             session = context.stage_sessions.get(stage)
-        if session is not None and session.is_active():
-            session.terminate()
         command = [str(config["approval_command"])]
         warning = None
         if skip_approval:
@@ -1802,10 +1803,15 @@ class SoftwareWorkflowController(BoundWorkflowController):
         output = _run_electroboy_cli_command(project_root, command)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
-            if context.stage_sessions.get(stage) is session:
-                context.stage_sessions.pop(stage, None)
             context.stage_started.add(stage)
             context.workflow_stage = _active_workflow_stage(project_root)
+            next_stage = context.workflow_stage
+        if session is not None and session.is_active():
+            session.terminate()
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            if context.stage_sessions.get(stage) is session:
+                context.stage_sessions.pop(stage, None)
             if (
                 session is not None
                 and context.selected_session_id == session.session_id
@@ -1815,7 +1821,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
         return {
             **self.services.contexts.project_payload(context_id),
             "status": "skipped" if skip_approval else "approved",
-            "next_stage": context.workflow_stage,
+            "next_stage": next_stage,
             "output": output,
             "warning": warning,
         }

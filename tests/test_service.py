@@ -1947,6 +1947,11 @@ class ServiceTests(unittest.TestCase):
         self.assertNotIn("Focus ad-hoc", software)
         self.assertNotIn("runtimeApi.getState().adHocRunning", ad_hoc_start)
         self.assertIn("async function startGenericStageAgent(", software)
+        self.assertIn("function confirmStageCompletion(", software)
+        self.assertIn("function showStageFailure(", software)
+        self.assertIn("async function requestStageCompletion(", software)
+        self.assertIn("active agents were preserved", software)
+        self.assertNotIn("window.confirm", software)
         self.assertIn("function bindRuntime(runtime)", software)
         self.assertIn("function bindRuntime(runtime)", creative)
         self.assertIn('contextUrl("/api/corkboards")', creative)
@@ -10687,6 +10692,51 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "design")
         self.assertEqual(payload["next_stage"], "design")
 
+    def test_requirements_approval_failure_preserves_active_agent(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                context = state.contexts[context_id]
+                context.requirements_session = session  # type: ignore[assignment]
+                context.requirements_started = True
+
+            with (
+                mock.patch(
+                    "electroboy.workflows.software.cli._cmd_stage",
+                    return_value=1,
+                ),
+                self.assertRaisesRegex(
+                    AgentSessionError,
+                    "requirements approval failed",
+                ),
+            ):
+                state.approve_requirements(context_id)
+
+            payload = state.project_payload(context_id)
+
+        self.assertFalse(session.terminated)
+        self.assertEqual(payload["workflow_stage"], "requirements")
+        self.assertTrue(payload["requirements_running"])
+
     def test_design_complete_terminates_agent_and_moves_to_review(self) -> None:
         class FakeSession:
             def __init__(self) -> None:
@@ -10894,6 +10944,52 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue(payload["design_review_started"])
         self.assertFalse(payload["design_review_running"])
 
+    def test_design_review_approval_failure_preserves_active_agent(self) -> None:
+        class FakeSession:
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                context = state.contexts[context_id]
+                context.workflow_stage = "design-review"
+                context.design_review_started = True
+                context.design_review_session = session  # type: ignore[assignment]
+
+            with (
+                mock.patch(
+                    "electroboy.workflows.software.cli._cmd_stage",
+                    return_value=1,
+                ),
+                self.assertRaisesRegex(
+                    AgentSessionError,
+                    "design review completion failed",
+                ),
+            ):
+                state.approve_design(context_id)
+
+            payload = state.project_payload(context_id)
+
+        self.assertFalse(session.terminated)
+        self.assertEqual(payload["workflow_stage"], "design-review")
+        self.assertTrue(payload["design_review_running"])
+
     def test_design_approval_advances_to_implementation_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -10949,6 +11045,58 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(payload["workflow_stage"], "implementation-plan")
         self.assertEqual(payload["next_stage"], "implementation-plan")
         self.assertIn("WARNING: design approval was skipped", str(payload["warning"]))
+
+    def test_generic_stage_approval_failure_preserves_active_agent(self) -> None:
+        class FakeSession:
+            session_id = "stage-session"
+            interactive = True
+
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def is_active(self) -> bool:
+                return not self.terminated
+
+            def terminate(self) -> None:
+                self.terminated = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            session = FakeSession()
+            with state.lock:
+                context = state.contexts[context_id]
+                stage = "implementation-plan"
+                context.workflow_stage = stage
+                stage_sessions = context.stage_sessions
+                stage_sessions[stage] = session  # type: ignore[assignment]
+
+            controller = state.workflow_controller("software")
+            with (
+                mock.patch(
+                    "electroboy.workflows.software.controller."
+                    "_run_electroboy_cli_command",
+                    side_effect=AgentSessionError("approval command failed"),
+                ),
+                self.assertRaisesRegex(AgentSessionError, "approval command failed"),
+            ):
+                controller.approve_workflow_stage(
+                    context_id,
+                    stage,
+                )
+
+            payload = state.project_payload(context_id)
+
+        self.assertFalse(session.terminated)
+        self.assertEqual(payload["workflow_stage"], "implementation-plan")
+        self.assertTrue(payload["stage_runs"]["implementation-plan"]["running"])
 
     def test_completed_requirements_approval_force_records_confirmation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
