@@ -866,6 +866,17 @@
       });
     }
 
+    function showStageLaunchFailure(stage, message) {
+      return showStageCompletionDialog({
+        title: `${stage.replaceAll("-", " ")} did not start`,
+        summary: "The selected session could not be started or resumed.",
+        details: message,
+        cancel: false,
+        error: true,
+        submitLabel: "OK",
+      });
+    }
+
     async function requestStageCompletion(endpoint, label, fallbackError) {
       let response;
       try {
@@ -974,14 +985,24 @@
         agentInput.focus();
       }
       appendOutput(`${label}\n`, "system");
-      const response = await fetch(contextUrl(endpoint), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(choice || {}),
-      });
+      let response;
+      try {
+        response = await fetch(contextUrl(endpoint), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(choice || {}),
+        });
+      } catch (error) {
+        const message = error.message || "start failed";
+        appendOutput(`${message}\n`, "error");
+        setAgentRunning(kind, false);
+        await showStageLaunchFailure(kind, message);
+        return;
+      }
       const payload = await response.json().catch(() => ({ error: "start failed" }));
       if (!response.ok) {
-        appendOutput(`${payload.error || "start failed"}\n`, "error");
+        const message = payload.error || "start failed";
+        appendOutput(`${message}\n`, "error");
         if (!acceptsInput) {
           closeProgressEventStream();
           showProgressPane(false);
@@ -991,6 +1012,7 @@
           hideArtifactPreview();
         }
         setAgentRunning(kind, false);
+        await showStageLaunchFailure(kind, message);
         return;
       }
       updateProjectState(payload);

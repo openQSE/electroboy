@@ -1949,6 +1949,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("async function startGenericStageAgent(", software)
         self.assertIn("function confirmStageCompletion(", software)
         self.assertIn("function showStageFailure(", software)
+        self.assertIn("function showStageLaunchFailure(", software)
         self.assertIn("async function requestStageCompletion(", software)
         self.assertIn("active agents were preserved", software)
         self.assertNotIn("window.confirm", software)
@@ -10467,6 +10468,61 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(len(sessions), 1)
         self.assertEqual(sessions[0]["name"], "Requirements history")
         self.assertEqual(sessions[0]["provider_session_id"], provider_session_id)
+
+    def test_requirements_start_resumes_historical_service_session(self) -> None:
+        provider_session_id = "019f3cc1-8f78-70d3-83ff-29ef45e331b8"
+        historical_session_id = "historical-requirements-session"
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+            records_path = service_root / ".electroboy" / "service" / "sessions.json"
+            records_path.parent.mkdir(parents=True)
+            records_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "sessions": [
+                            {
+                                "session_id": historical_session_id,
+                                "kind": "requirements",
+                                "cwd": str(project_root.resolve()),
+                                "metadata": {
+                                    "provider": "codex",
+                                    "provider_session_id": provider_session_id,
+                                },
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            provider_session = mock.Mock(cwd=project_root.resolve())
+
+            with (
+                mock.patch(
+                    "electroboy.workflows.software.controller.codex_session_by_id",
+                    return_value=provider_session,
+                ),
+                mock.patch("electroboy.service.AgentSession.start"),
+            ):
+                session, started = state.start_requirements_agent(
+                    context_id,
+                    session_id=historical_session_id,
+                    provider_session_id=provider_session_id,
+                    name="Historical requirements",
+                )
+
+        self.assertTrue(started)
+        self.assertNotEqual(session.session_id, historical_session_id)
+        self.assertEqual(session.name, "Historical requirements")
+        self.assertEqual(session.command[-2:], ["--session-id", provider_session_id])
 
     def test_requirements_approval_can_run_before_start_with_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

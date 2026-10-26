@@ -209,16 +209,21 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     ),
                     None,
                 )
-                if existing is None or existing.kind != stage or not existing.interactive:
+                if existing is not None and (
+                    existing.kind != stage or not existing.interactive
+                ):
                     raise AgentSessionError("stage session was not found")
-                metadata = existing.metadata or {}
-                requested_provider_id = requested_provider_id or str(
-                    metadata.get("provider_session_id") or ""
-                )
-                if existing.is_active():
-                    context.selected_session_id = existing.session_id
-                    self.services.sessions.record(context, existing)
-                    return existing, None
+                if existing is not None:
+                    metadata = existing.metadata or {}
+                    requested_provider_id = requested_provider_id or str(
+                        metadata.get("provider_session_id") or ""
+                    )
+                    if existing.is_active():
+                        context.selected_session_id = existing.session_id
+                        self.services.sessions.record(context, existing)
+                        return existing, None
+                elif not requested_provider_id:
+                    raise AgentSessionError("stage session was not found")
         if requested_provider_id:
             history_ids = {
                 str(entry.get("provider_session_id") or "")
