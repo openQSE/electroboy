@@ -11413,13 +11413,15 @@ def _init_git_repository(project_root: Path) -> None:
 
 def _is_git_worktree(project_root: Path) -> bool:
     result = subprocess.run(
-        ["git", "-C", str(project_root), "rev-parse", "--is-inside-work-tree"],
+        ["git", "-C", str(project_root), "rev-parse", "--show-toplevel"],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
     )
-    return result.returncode == 0 and result.stdout.strip() == "true"
+    if result.returncode != 0 or not result.stdout.strip():
+        return False
+    return Path(result.stdout.strip()).resolve() == project_root.resolve()
 
 
 def _write_project_config(project_root: Path) -> None:

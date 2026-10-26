@@ -64,6 +64,30 @@ class CliTests(unittest.TestCase):
         self.assertIn("next stage: requirements-approve", stdout)
         self.assertIn("completed gates:", stdout)
 
+    def test_new_initializes_repository_beneath_parent_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            initialize_git_repo(parent)
+            project_root = parent / "nested-project"
+
+            code, _stdout, stderr = self.run_cli(
+                ["new", str(project_root), "--run-id", "run-1"]
+            )
+            completed = subprocess.run(
+                ["git", "-C", str(project_root), "rev-parse", "--show-toplevel"],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            Path(completed.stdout.strip()).resolve(),
+            project_root.resolve(),
+        )
+
     def test_status_uses_command_aligned_stage_names(self) -> None:
         with temp_project() as root:
             store = StateStore(root)
