@@ -157,7 +157,9 @@ same setup helpers used by `electroboy new`. `POST
 /api/project/deactivate?workspace_id=<id>` closes that project workspace and
 creates a new blank workspace for the connection. `GET
 /api/files/browse?path=<path>` returns child directories for the service-backed
-browser. `GET /api/workflow?workspace_id=<id>` returns the stage list, exposes
+browser. `POST /api/files/directories` creates one named subfolder beneath a
+selected directory. `GET /api/workflow?workspace_id=<id>` returns the stage
+list, exposes
 `Open` and
 `Create` for `project`, adds `Deactivate` once a project is active, and exposes
 `Start` for `requirements` once a project is active. Other stages remain

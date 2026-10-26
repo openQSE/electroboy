@@ -12,6 +12,27 @@ MAX_BROWSER_DIRECTORY_NAVIGATION_ENTRIES = 240
 MAX_BROWSER_FILES = 300
 
 
+def create_directory(parent: Path | str, name: str) -> dict[str, str]:
+    """Create one child directory beneath an existing browser directory."""
+
+    if isinstance(parent, str) and not parent.strip():
+        raise StateError("parent directory is required")
+    directory = _readable_directory(parent)
+    folder_name = name.strip()
+    if not folder_name:
+        raise StateError("folder name is required")
+    if folder_name in {".", ".."} or "/" in folder_name or "\\" in folder_name:
+        raise StateError("folder name must be a single path component")
+    child = directory / folder_name
+    try:
+        child.mkdir()
+    except FileExistsError as error:
+        raise StateError(f"path already exists: {child}") from error
+    except OSError as error:
+        raise StateError(f"could not create directory: {error}") from error
+    return {"name": child.name, "path": str(child), "type": "directory"}
+
+
 def browse_directories(
     path: Path | str,
     *,

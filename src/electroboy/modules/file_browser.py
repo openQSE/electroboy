@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from http import HTTPStatus
 
-from electroboy.service.http import HtmlResponse, JsonResponse
 from electroboy.service.file_browser import (
     browse_directories,
     browse_files,
     browse_markdown_files,
+    create_directory,
 )
+from electroboy.service.http import HtmlResponse, JsonResponse
 from electroboy.service.registry import ServiceModule
 from electroboy.service.routes import RouteRequest
 
@@ -51,7 +52,23 @@ def _browse(request: RouteRequest) -> JsonResponse:
     return JsonResponse(payload)
 
 
-_HANDLERS = {"window": _window, "browse": _browse}
+def _create_directory(request: RouteRequest) -> JsonResponse:
+    try:
+        payload = request.body()
+        result = create_directory(
+            str(payload.get("parent") or ""),
+            str(payload.get("name") or ""),
+        )
+    except Exception as error:
+        return JsonResponse({"error": str(error)}, status=HTTPStatus.CONFLICT)
+    return JsonResponse(result, status=HTTPStatus.CREATED)
+
+
+_HANDLERS = {
+    "window": _window,
+    "browse": _browse,
+    "create_directory": _create_directory,
+}
 
 
 def module() -> ServiceModule:
@@ -61,6 +78,12 @@ def module() -> ServiceModule:
         routes=(
             route("GET", "/file-browser", "file_browser", "window"),
             route("GET", "/api/files/browse", "file_browser", "browse"),
+            route(
+                "POST",
+                "/api/files/directories",
+                "file_browser",
+                "create_directory",
+            ),
         ),
         handlers=_HANDLERS,
         assets=("js/modules/file-browser.js",),

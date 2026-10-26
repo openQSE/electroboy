@@ -606,6 +606,7 @@ serve one reusable browser window and one set of APIs. It should support:
 - Markdown-only filtering
 - hidden-file toggle
 - direct path entry
+- subfolder creation beneath the selected directory
 - project creation from a selected or entered path
 
 ### Recent Projects

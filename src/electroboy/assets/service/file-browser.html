@@ -48,7 +48,7 @@
 
     .path-form {
       display: grid;
-      grid-template-columns: minmax(260px, 1fr) auto auto;
+      grid-template-columns: minmax(260px, 1fr) auto auto auto;
       gap: 8px;
       align-items: center;
     }
@@ -85,6 +85,20 @@
     .browser-button:disabled {
       cursor: not-allowed;
       opacity: 0.55;
+    }
+
+    .browser-button.icon-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      padding: 0;
+    }
+
+    .browser-button.icon-button svg {
+      width: 19px;
+      height: 19px;
+      stroke: currentColor;
     }
 
     .filter-row {
@@ -246,6 +260,26 @@
     >
     <button id="goPath" class="browser-button" type="submit">Go</button>
     <button id="refreshPath" class="browser-button" type="button">Refresh</button>
+    <button
+      id="createFolder"
+      class="browser-button icon-button"
+      type="button"
+      title="Create folder in selected directory"
+      aria-label="Create folder in selected directory"
+      disabled
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+        <path d="M12 12v6M9 15h6"></path>
+      </svg>
+    </button>
   </form>
   <div class="filter-row">
     <input
@@ -292,6 +326,7 @@
     const pathForm = document.getElementById("pathForm");
     const pathInput = document.getElementById("pathInput");
     const refreshPath = document.getElementById("refreshPath");
+    const createFolder = document.getElementById("createFolder");
     const searchInput = document.getElementById("searchInput");
     const showHidden = document.getElementById("showHidden");
     const breadcrumbs = document.getElementById("breadcrumbs");
@@ -410,6 +445,7 @@
     async function navigateTo(path) {
       selectedPathLabel.textContent = "Loading...";
       selectPath.disabled = true;
+      createFolder.disabled = true;
       try {
         const payload = await fetchDirectory(path);
         rootPayload = payload;
@@ -598,10 +634,56 @@
       if (!selectedPath) {
         selectedPathLabel.textContent = "Selected: none";
         selectPath.disabled = true;
+        createFolder.disabled = true;
         return;
       }
       selectedPathLabel.textContent = `Selected: ${selectedPath}`;
       selectPath.disabled = !canSelectCurrentPath();
+      createFolder.disabled = selectedType !== "directory";
+    }
+
+    async function createSelectedFolder() {
+      if (!selectedPath || selectedType !== "directory") {
+        selectedPathLabel.textContent = "Select a directory first.";
+        return;
+      }
+      const parent = selectedPath;
+      const requestedName = window.prompt(`Create a folder in ${parent}`, "");
+      if (requestedName === null) {
+        return;
+      }
+      const name = requestedName.trim();
+      if (!name) {
+        selectedPathLabel.textContent = "Enter a folder name.";
+        return;
+      }
+      createFolder.disabled = true;
+      selectedPathLabel.textContent = `Creating ${name}...`;
+      try {
+        const response = await fetch("/api/files/directories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parent, name }),
+        });
+        const payload = await response.json().catch(() => ({
+          error: "folder creation failed",
+        }));
+        if (!response.ok) {
+          throw new Error(payload.error || "folder creation failed");
+        }
+        const refreshed = await fetchDirectory(parent);
+        childCache.set(parent, refreshed.entries || []);
+        expandedPaths.add(parent);
+        searchInput.value = "";
+        selectedPath = payload.path;
+        selectedType = "directory";
+        pathInput.value = payload.path;
+        render();
+        focusSelectedRow();
+      } catch (error) {
+        selectedPathLabel.textContent = error.message || String(error);
+        createFolder.disabled = false;
+      }
     }
 
     function canSelectCurrentPath() {
@@ -800,6 +882,7 @@
       childCache.clear();
       navigateTo(currentPath || pathInput.value || ".");
     });
+    createFolder.addEventListener("click", createSelectedFolder);
     searchInput.addEventListener("input", render);
     newDocumentName.addEventListener("input", updateSelectedPath);
     showHidden.addEventListener("change", () => {
