@@ -14,6 +14,7 @@
   let artifactPreviewStage = "";
   let selectedSessionId = "";
   let adHocSessionDialog = null;
+  let stageSessionDialog = null;
 
   function bindRuntime(runtime) {
     runtimeApi = runtime;
@@ -35,6 +36,10 @@
     if (adHocSessionDialog) {
       adHocSessionDialog.remove();
       adHocSessionDialog = null;
+    }
+    if (stageSessionDialog) {
+      stageSessionDialog.remove();
+      stageSessionDialog = null;
     }
     scratchPad = null;
     agentInput = null;
@@ -272,7 +277,7 @@
           label: "Start",
           title: "Launch or resume the interactive requirements authoring agent.",
           primary: true,
-          disabled: !state.activeProjectRoot || !inStage || state.requirementsRunning,
+          disabled: !state.activeProjectRoot || !inStage,
           run: action.startRequirementsAgent,
         },
         {
@@ -302,7 +307,7 @@
           label: "Start",
           title: "Launch or resume the interactive design authoring agent.",
           primary: true,
-          disabled: !state.activeProjectRoot || !inStage || state.designRunning,
+          disabled: !state.activeProjectRoot || !inStage,
           run: action.startDesignAgent,
         },
         {
@@ -670,7 +675,7 @@
         label: "Start",
         title: options.startTitle,
         primary: true,
-        disabled: !state.activeProjectRoot || !inStage || runState.running,
+        disabled: !state.activeProjectRoot || !inStage,
         run: options.start,
       },
       {
@@ -707,7 +712,7 @@
       {
         label: "Start interactive",
         title: options.interactiveTitle,
-        disabled: !hasProject || !options.inStage || options.running,
+        disabled: !hasProject || !options.inStage,
         run: options.startInteractive,
       },
       {
@@ -837,6 +842,7 @@
       label,
       clearOutput = false,
       acceptsInput = true,
+      choice = null,
     ) {
       if (!activeProjectRoot) {
         appendOutput("activate a project first\n", "error");
@@ -863,6 +869,8 @@
       appendOutput(`${label}\n`, "system");
       const response = await fetch(contextUrl(endpoint), {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(choice || {}),
       });
       const payload = await response.json().catch(() => ({ error: "start failed" }));
       if (!response.ok) {
@@ -892,6 +900,130 @@
       const value = String(session.updated_at || session.created_at || "");
       const parsed = new Date(value);
       return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+    }
+
+    function ensureStageSessionDialog() {
+      if (stageSessionDialog) {
+        return stageSessionDialog;
+      }
+      const dialog = document.createElement("dialog");
+      dialog.className = "ad-hoc-session-dialog";
+      dialog.innerHTML = `
+        <form method="dialog" class="ad-hoc-session-form">
+          <header class="ad-hoc-session-header">
+            <div>
+              <h2 class="stage-session-title">Start stage agent</h2>
+              <p>Start fresh, resume history, or focus a running session.</p>
+            </div>
+            <button type="button" class="ad-hoc-session-close" aria-label="Close">&times;</button>
+          </header>
+          <fieldset class="ad-hoc-session-options">
+            <legend>Session</legend>
+            <div class="ad-hoc-session-list"></div>
+          </fieldset>
+          <label class="ad-hoc-session-name-field">
+            <span>Name</span>
+            <input class="ad-hoc-session-name" type="text" autocomplete="off"
+              maxlength="120" required>
+          </label>
+          <p class="ad-hoc-session-error" role="alert" hidden></p>
+          <footer class="ad-hoc-session-footer">
+            <button type="button" class="ad-hoc-session-cancel">Cancel</button>
+            <button type="submit" class="ad-hoc-session-submit">Start</button>
+          </footer>
+        </form>`;
+      document.body.append(dialog);
+      stageSessionDialog = dialog;
+      return dialog;
+    }
+
+    function stageSessionOption(session, index) {
+      const option = document.createElement("label");
+      option.className = "ad-hoc-session-option";
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "stage-session";
+      input.value = String(session.electroboy_session_id || session.session_id || "");
+      input.dataset.providerSessionId = String(session.provider_session_id || "");
+      input.dataset.sessionName = String(session.name || session.title || "Stage session");
+      const copy = document.createElement("span");
+      copy.className = "ad-hoc-session-option-copy";
+      const title = document.createElement("strong");
+      title.textContent = input.dataset.sessionName;
+      const details = document.createElement("span");
+      details.className = "ad-hoc-session-details";
+      const status = session.status === "running" ? "running" : "resumable";
+      details.textContent = `${status} · ${adHocSessionDate(session)} · ${session.provider || "agent"}`;
+      copy.append(title, details);
+      option.append(input, copy);
+      return option;
+    }
+
+    async function chooseStageSession(stage, label) {
+      const parameters = new URLSearchParams({ stage });
+      const response = await fetch(
+        contextUrl(`/api/agents/stage-sessions?${parameters.toString()}`),
+        { cache: "no-store" },
+      );
+      const payload = await response.json().catch(() => ({ error: "session history failed" }));
+      if (!response.ok) {
+        throw new Error(payload.error || "session history failed");
+      }
+      const dialog = ensureStageSessionDialog();
+      dialog.querySelector(".stage-session-title").textContent = `Start ${label}`;
+      const list = dialog.querySelector(".ad-hoc-session-list");
+      const nameInput = dialog.querySelector(".ad-hoc-session-name");
+      const submit = dialog.querySelector(".ad-hoc-session-submit");
+      const error = dialog.querySelector(".ad-hoc-session-error");
+      const newOption = document.createElement("label");
+      newOption.className = "ad-hoc-session-option";
+      newOption.innerHTML = `
+        <input type="radio" name="stage-session" value="" checked>
+        <span class="ad-hoc-session-option-copy">
+          <strong>New session</strong>
+          <span class="ad-hoc-session-details">Start with a clean ${label} context.</span>
+        </span>`;
+      const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      list.replaceChildren(
+        newOption,
+        ...sessions.map((session, index) => stageSessionOption(session, index)),
+      );
+      nameInput.value = `${label} session`;
+      error.hidden = true;
+      submit.textContent = "Start";
+      dialog.querySelector(".ad-hoc-session-options").onchange = (event) => {
+        if (event.target.name !== "stage-session") return;
+        nameInput.value = event.target.dataset.sessionName || `${label} session`;
+        submit.textContent = event.target.value ? "Resume" : "Start";
+      };
+      return new Promise((resolve) => {
+        const finish = (choice) => {
+          dialog.close();
+          resolve(choice);
+        };
+        dialog.querySelector(".ad-hoc-session-close").onclick = () => finish(null);
+        dialog.querySelector(".ad-hoc-session-cancel").onclick = () => finish(null);
+        dialog.oncancel = (event) => {
+          event.preventDefault();
+          finish(null);
+        };
+        dialog.querySelector("form").onsubmit = (event) => {
+          event.preventDefault();
+          const selected = dialog.querySelector('input[name="stage-session"]:checked');
+          const name = nameInput.value.trim();
+          if (!name) {
+            error.textContent = "Enter a session name.";
+            error.hidden = false;
+            return;
+          }
+          finish({
+            session_id: selected ? selected.value : "",
+            provider_session_id: selected ? selected.dataset.providerSessionId || "" : "",
+            name,
+          });
+        };
+        dialog.showModal();
+      });
     }
 
     function ensureAdHocSessionDialog() {
@@ -1133,9 +1265,21 @@
       if (currentWorkflowStage !== "requirements") {
         return;
       }
-      await runRequirementsAgent(
+      let choice;
+      try {
+        choice = await chooseStageSession("requirements", "requirements");
+      } catch (error) {
+        appendOutput(`${error.message || "session history failed"}\n`, "error");
+        return;
+      }
+      if (!choice) return;
+      await runStageAgent(
+        "requirements",
         "/api/agents/requirements/start",
         "$ electroboy requirements",
+        false,
+        true,
+        choice,
       );
     }
 
@@ -1147,12 +1291,21 @@
       if (currentWorkflowStage !== "design") {
         return;
       }
+      let choice;
+      try {
+        choice = await chooseStageSession("design", "design");
+      } catch (error) {
+        appendOutput(`${error.message || "session history failed"}\n`, "error");
+        return;
+      }
+      if (!choice) return;
       await runStageAgent(
         "design",
         "/api/agents/design/start",
         "$ electroboy design",
         false,
         true,
+        choice,
       );
     }
 
@@ -1199,6 +1352,14 @@
       if (currentWorkflowStage !== "design-review") {
         return;
       }
+      let choice;
+      try {
+        choice = await chooseStageSession("design-review", "design review");
+      } catch (error) {
+        appendOutput(`${error.message || "session history failed"}\n`, "error");
+        return;
+      }
+      if (!choice) return;
       designReviewInteractive = true;
       runtimeApi.updateState({ designReviewInteractive });
       await runStageAgent(
@@ -1207,6 +1368,7 @@
         "$ electroboy design-review --interactive",
         true,
         true,
+        choice,
       );
     }
 
@@ -1293,10 +1455,27 @@
       if (currentWorkflowStage !== stage) {
         return;
       }
+      let choice = null;
+      if (acceptsInput) {
+        try {
+          choice = await chooseStageSession(stage, label);
+        } catch (error) {
+          appendOutput(`${error.message || "session history failed"}\n`, "error");
+          return;
+        }
+        if (!choice) return;
+      }
       const endpoint = acceptsInput
         ? `/api/agents/${stage}/start-interactive`
         : `/api/agents/${stage}/start`;
-      await runStageAgent(stage, endpoint, label, acceptsInput === false, acceptsInput);
+      await runStageAgent(
+        stage,
+        endpoint,
+        label,
+        acceptsInput === false,
+        acceptsInput,
+        choice,
+      );
     }
 
     async function stopGenericStageAgent(stage, label) {

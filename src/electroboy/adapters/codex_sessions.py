@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+import time
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -101,6 +104,34 @@ def codex_session_from_path(
         Path(path).expanduser().resolve(),
         include_messages=include_messages,
     )
+
+
+def start_codex_session_tracking(
+    root: Path | str,
+    known_paths: Collection[Path],
+    is_active: Callable[[], bool],
+    on_discovered: Callable[[CodexSessionSummary], None],
+    *,
+    name: str = "electroboy-codex-session-index",
+) -> threading.Thread:
+    """Report the Codex rollout created by one newly launched session."""
+
+    expected_root = Path(root).expanduser().resolve()
+    known = frozenset(path.resolve() for path in known_paths)
+
+    def track() -> None:
+        while is_active():
+            for path in codex_session_paths() - known:
+                session = codex_session_from_path(path, include_messages=False)
+                if session is None or session.cwd != expected_root:
+                    continue
+                on_discovered(session)
+                return
+            time.sleep(0.25)
+
+    thread = threading.Thread(target=track, name=name, daemon=True)
+    thread.start()
+    return thread
 
 
 def _read_codex_session(

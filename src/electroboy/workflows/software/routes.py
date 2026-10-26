@@ -242,11 +242,35 @@ def _ad_hoc_sessions(request: RouteRequest) -> ServiceResponse:
     )
 
 
+def _stage_sessions(request: RouteRequest) -> ServiceResponse:
+    stage = str((request.params.get("stage") or [""])[0])
+    return _workflow_action(
+        lambda: _controller(request).stage_sessions(request.context_id, stage)
+    )
+
+
+def _stage_session_request(request: RouteRequest) -> dict[str, str]:
+    try:
+        payload = request.body()
+    except ValueError:
+        payload = {}
+    return {
+        "session_id": str(payload.get("session_id") or ""),
+        "provider_session_id": str(payload.get("provider_session_id") or ""),
+        "name": str(payload.get("name") or ""),
+    }
+
+
 def _requirements_start(request: RouteRequest) -> ServiceResponse:
+    choice = _stage_session_request(request)
     return _agent_started(
         request,
-        lambda: _controller(request).start_requirements_agent(request.context_id),
+        lambda: _controller(request).start_requirements_agent(
+            request.context_id,
+            **choice,
+        ),
         "requirements agent",
+        include_session_id=True,
     )
 
 
@@ -262,10 +286,15 @@ def _requirements_restart(request: RouteRequest) -> ServiceResponse:
 
 
 def _design_start(request: RouteRequest) -> ServiceResponse:
+    choice = _stage_session_request(request)
     return _agent_started(
         request,
-        lambda: _controller(request).start_design_agent(request.context_id),
+        lambda: _controller(request).start_design_agent(
+            request.context_id,
+            **choice,
+        ),
         "design agent",
+        include_session_id=True,
     )
 
 
@@ -289,13 +318,16 @@ def _design_review_start(request: RouteRequest) -> ServiceResponse:
 
 
 def _design_review_start_interactive(request: RouteRequest) -> ServiceResponse:
+    choice = _stage_session_request(request)
     return _agent_started(
         request,
         lambda: _controller(request).start_design_review_agent(
             request.context_id,
             interactive=True,
+            **choice,
         ),
         "interactive design review",
+        include_session_id=True,
     )
 
 
@@ -525,10 +557,16 @@ def _generic_stage_handler(stage: str, action: str) -> RouteHandler:
                     )
                     status = "restarted"
                 else:
+                    choice = (
+                        _stage_session_request(request)
+                        if action == "start-interactive"
+                        else {}
+                    )
                     session, started = controller.start_workflow_stage_agent(
                         request.context_id,
                         stage,
                         interactive=(True if action == "start-interactive" else None),
+                        **choice,
                     )
                     status = "started" if started else "running"
                 return JsonResponse(
@@ -538,6 +576,7 @@ def _generic_stage_handler(stage: str, action: str) -> RouteHandler:
                         ),
                         "status": status,
                         "command": session.command,
+                        "session_id": session.session_id,
                     }
                 )
             if action == "stop":
@@ -607,6 +646,7 @@ ROUTES = (
     _route("POST", "/api/work-items/bugs", "start_bug"),
     _route("POST", "/api/work-items/bugs/switch", "switch_bug"),
     _route("GET", "/api/agents/ad-hoc/sessions", "ad_hoc_sessions"),
+    _route("GET", "/api/agents/stage-sessions", "stage_sessions"),
     _route("POST", "/api/agents/ad-hoc/start", "ad_hoc_start"),
     _route("POST", "/api/agents/requirements/start", "requirements_start"),
     _route("POST", "/api/agents/requirements/restart", "requirements_restart"),
@@ -674,6 +714,7 @@ HANDLERS: dict[str, RouteHandler] = {
     "start_bug": _start_bug,
     "switch_bug": _switch_bug,
     "ad_hoc_sessions": _ad_hoc_sessions,
+    "stage_sessions": _stage_sessions,
     "ad_hoc_start": _ad_hoc_start,
     "requirements_start": _requirements_start,
     "requirements_restart": _requirements_restart,

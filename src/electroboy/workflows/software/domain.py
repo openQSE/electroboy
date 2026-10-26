@@ -965,6 +965,7 @@ def _generic_stage_command(
     force: bool = False,
     reason: str | None = None,
     interactive: bool = False,
+    session_id: str | None = None,
 ) -> list[str]:
     config = _generic_stage_config(stage)
     command_parts = [str(config["command"])]
@@ -974,6 +975,8 @@ def _generic_stage_command(
         command_parts.extend(["--reason", reason])
     if interactive and bool(config.get("interactive_arg")):
         command_parts.append("--interactive")
+    if session_id:
+        command_parts.extend(["--session-id", session_id])
     return _electroboy_command(root, command_parts)
 
 
@@ -1144,8 +1147,14 @@ def _should_force_completed_requirements_approval(store: StateStore) -> bool:
     )
 
 
-def _requirements_command(root: Path) -> list[str]:
-    return _electroboy_command(root, ["requirements"])
+def _requirements_command(
+    root: Path,
+    session_id: str | None = None,
+) -> list[str]:
+    command = ["requirements"]
+    if session_id:
+        command.extend(["--session-id", session_id])
+    return _electroboy_command(root, command)
 
 
 def _stage_command(
@@ -1155,6 +1164,7 @@ def _stage_command(
     force: bool = False,
     reason: str | None = None,
     interactive: bool = False,
+    session_id: str | None = None,
 ) -> list[str]:
     command_parts = ["electroboy", command]
     if force:
@@ -1163,6 +1173,8 @@ def _stage_command(
         command_parts.extend(["--reason", reason])
     if interactive:
         command_parts.append("--interactive")
+    if session_id:
+        command_parts.extend(["--session-id", session_id])
     return _electroboy_command(root, command_parts[1:])
 
 

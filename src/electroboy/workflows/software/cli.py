@@ -811,6 +811,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="open an interactive design-review session",
     )
+    design_review.add_argument(
+        "--session-id",
+        help="provider session id to resume for interactive design review",
+    )
     _add_approval_parser(subparsers, "design-approve", "approve reviewed design")
 
     implementation_plan = subparsers.add_parser(
@@ -857,6 +861,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--interactive",
         action="store_true",
         help="open an interactive coding agent shell for the active phase",
+    )
+    code.add_argument(
+        "--session-id",
+        help="provider session id to resume for interactive implementation",
     )
     code_mode.add_argument(
         "--commit",
@@ -1215,6 +1223,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--interactive",
         action="store_true",
         help="open an interactive validation test-review session",
+    )
+    validate.add_argument(
+        "--session-id",
+        help="provider session id to resume for interactive validation",
     )
     validation_approve = subparsers.add_parser(
         "validation-approve",
@@ -3794,7 +3806,10 @@ def _cmd_design_review(
         return 1
 
     if getattr(args, "interactive", False):
-        return _cmd_design_review_interactive(store)
+        return _cmd_design_review_interactive(
+            store,
+            session_id=getattr(args, "session_id", None),
+        )
 
     update_log_path = _init_design_review_update_log(store)
     for pass_number in range(1, DESIGN_REVIEW_MAX_PASSES + 1):
@@ -3863,7 +3878,11 @@ def _cmd_design_review(
     return 1
 
 
-def _cmd_design_review_interactive(store: StateStore) -> int:
+def _cmd_design_review_interactive(
+    store: StateStore,
+    *,
+    session_id: str | None = None,
+) -> int:
     artifact = _artifact_path(store, "docs/detailed-design.md")
     result, event_id, _issue_file = _invoke_agent_role(
         store,
@@ -3872,6 +3891,7 @@ def _cmd_design_review_interactive(store: StateStore) -> int:
         context_paths=_design_review_context_paths(store),
         session_stage=STAGE_DESIGN_REVIEW,
         session_artifact=artifact,
+        explicit_session_id=session_id,
     )
     if not result.ok:
         print(
@@ -4288,7 +4308,11 @@ def _cmd_code_interactive(
         next_phase = _next_uncommitted_phase(store)
         if next_phase is None:
             _print_progress("implementation", "all planned phases are committed")
-            return _cmd_code_interactive_followup(store, operator_messages)
+            return _cmd_code_interactive_followup(
+                store,
+                operator_messages,
+                session_id=getattr(args, "session_id", None),
+            )
         _start_code_phase(store, next_phase)
         phase = next_phase
         _print_progress("implementation", f"started phase {phase}")
@@ -4317,6 +4341,7 @@ def _cmd_code_interactive(
         context_paths=_implementation_agent_context_paths(store),
         session_stage=STAGE_IMPLEMENTATION,
         session_artifact=plan_path,
+        explicit_session_id=getattr(args, "session_id", None),
     )
     if not result.ok:
         print(
@@ -4345,6 +4370,8 @@ def _cmd_code_interactive(
 def _cmd_code_interactive_followup(
     store: StateStore,
     operator_messages: list[str],
+    *,
+    session_id: str | None = None,
 ) -> int:
     plan_path = _artifact_path(store, "docs/implementation-plan.md")
     result, event_id, _issue_file = _invoke_agent_role(
@@ -4354,6 +4381,7 @@ def _cmd_code_interactive_followup(
         context_paths=_implementation_agent_context_paths(store),
         session_stage=STAGE_IMPLEMENTATION,
         session_artifact=plan_path,
+        explicit_session_id=session_id,
     )
     if not result.ok:
         print(
@@ -8599,6 +8627,7 @@ def _cmd_validate(
             store,
             commands,
             blockers_only=bool(getattr(args, "blockers_only", False)),
+            session_id=getattr(args, "session_id", None),
         )
     test_review_code = _run_validation_test_review(
         store,
@@ -8679,6 +8708,7 @@ def _cmd_validation_test_review_interactive(
     commands: list[tuple[list[str] | str, bool, str]],
     *,
     blockers_only: bool = False,
+    session_id: str | None = None,
 ) -> int:
     artifact = _artifact_path(store, TEST_REVIEW_SUMMARY_PATH)
     result, event_id, _issue_file = _invoke_agent_role(
@@ -8694,6 +8724,7 @@ def _cmd_validation_test_review_interactive(
         context_paths=_implementation_agent_context_paths(store),
         session_stage=STAGE_VALIDATION,
         session_artifact=artifact,
+        explicit_session_id=session_id,
     )
     if not result.ok:
         print(

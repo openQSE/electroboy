@@ -9,7 +9,9 @@ from uuid import uuid4
 
 from electroboy.adapters.codex_sessions import (
     CodexSessionSummary,
+    codex_session_by_id,
     codex_session_paths,
+    start_codex_session_tracking,
 )
 from electroboy.models import (
     GATE_DESIGN,
@@ -87,6 +89,37 @@ from .domain import (
 )
 
 
+INTERACTIVE_WORKFLOW_STAGES = frozenset(
+    {
+        "requirements",
+        "design",
+        "design-review",
+        "implementation-plan",
+        "code",
+        "test-plan",
+        "validate",
+    }
+)
+
+
+def _interactive_stage(stage: str) -> str:
+    if stage not in INTERACTIVE_WORKFLOW_STAGES:
+        raise AgentSessionError(f"stage does not support interactive sessions: {stage}")
+    return stage
+
+
+def _stage_session_payload(session: AgentSession) -> dict[str, object]:
+    metadata = session.metadata or {}
+    return {
+        **session.payload(),
+        "electroboy_session_id": session.session_id,
+        "provider": metadata.get("provider"),
+        "provider_session_id": metadata.get("provider_session_id"),
+        "title": session.name or session.label,
+        "resumable": bool(metadata.get("provider_session_id")),
+    }
+
+
 class SoftwareWorkflowController(BoundWorkflowController):
     """Own software-workflow actions and agent sequencing."""
 
@@ -110,6 +143,155 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context = self.services.contexts.require(context_id)
             active_root = context.active_project_root
         return workflow_payload(active_root)
+
+    def stage_sessions(self, context_id: str, stage: str) -> dict[str, object]:
+        """List running and resumable provider sessions for one stage."""
+
+        _interactive_stage(stage)
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            command_root = self.services.contexts.command_root(context)
+            if command_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != stage:
+                raise AgentSessionError(f"{stage} stage is not active")
+            current_by_id = {
+                session.session_id: session
+                for session in self.services.sessions.for_context(context)
+                if session.kind == stage and session.interactive
+            }
+            current_payloads = [
+                _stage_session_payload(session)
+                for session in current_by_id.values()
+            ]
+        history = self.services.sessions.provider_history(command_root, stage)
+        known_provider_ids = {
+            str(payload.get("provider_session_id") or "")
+            for payload in current_payloads
+            if payload.get("provider_session_id")
+        }
+        return {
+            "project_root": str(command_root),
+            "stage": stage,
+            "sessions": [
+                *current_payloads,
+                *[
+                    entry
+                    for entry in history
+                    if str(entry.get("provider_session_id") or "")
+                    not in known_provider_ids
+                ],
+            ],
+        }
+
+    def _stage_session_choice(
+        self,
+        context_id: str,
+        stage: str,
+        session_id: str,
+        provider_session_id: str,
+    ) -> tuple[AgentSession | None, str | None]:
+        requested_session_id = session_id.strip()
+        requested_provider_id = provider_session_id.strip()
+        with self.services.contexts.lock:
+            context = self.services.contexts.require(context_id)
+            command_root = self.services.contexts.command_root(context)
+            if command_root is None:
+                raise AgentSessionError("activate a project first")
+            if context.workflow_stage != stage:
+                raise AgentSessionError(f"{stage} stage is not active")
+            if requested_session_id:
+                existing = next(
+                    (
+                        session
+                        for session in self.services.sessions.for_context(context)
+                        if session.session_id == requested_session_id
+                    ),
+                    None,
+                )
+                if existing is None or existing.kind != stage or not existing.interactive:
+                    raise AgentSessionError("stage session was not found")
+                metadata = existing.metadata or {}
+                requested_provider_id = requested_provider_id or str(
+                    metadata.get("provider_session_id") or ""
+                )
+                if existing.is_active():
+                    context.selected_session_id = existing.session_id
+                    self.services.sessions.record(context, existing)
+                    return existing, None
+        if requested_provider_id:
+            history_ids = {
+                str(entry.get("provider_session_id") or "")
+                for entry in self.services.sessions.provider_history(
+                    command_root,
+                    stage,
+                )
+            }
+            if self.services.sessions.backend == "codex":
+                provider_session = codex_session_by_id(requested_provider_id)
+                valid = (
+                    requested_provider_id in history_ids
+                    and provider_session is not None
+                    and provider_session.cwd == command_root.resolve()
+                )
+            else:
+                valid = requested_provider_id in history_ids
+            if not valid:
+                raise AgentSessionError(
+                    "Provider session was not found for this project and stage."
+                )
+        return None, requested_provider_id or None
+
+    def _stage_session_metadata(
+        self,
+        provider_session_id: str | None,
+    ) -> tuple[dict[str, object], frozenset[Path]]:
+        backend = self.services.sessions.backend
+        provider_id = provider_session_id
+        if backend == "opencode" and not provider_id:
+            provider_id = "ses_" + uuid4().hex
+        metadata: dict[str, object] = {
+            "provider": backend,
+            "resumed_session": bool(provider_session_id),
+        }
+        if provider_id:
+            metadata["provider_session_id"] = provider_id
+        known_paths = (
+            codex_session_paths()
+            if backend == "codex" and provider_id is None
+            else frozenset()
+        )
+        return metadata, known_paths
+
+    def _track_stage_session(
+        self,
+        context_id: str,
+        session: AgentSession,
+        known_paths: frozenset[Path],
+    ) -> None:
+        if not known_paths and self.services.sessions.backend != "codex":
+            return
+        if session.metadata.get("provider_session_id"):
+            return
+
+        def discovered(provider: CodexSessionSummary) -> None:
+            with self.services.contexts.lock:
+                try:
+                    context = self.services.contexts.require(context_id)
+                except StateError:
+                    return
+                session.metadata["provider_session_id"] = provider.session_id
+                session.metadata["provider"] = "codex"
+                session.metadata["resumed_session"] = False
+                self.services.sessions.record(context, session)
+
+        start_codex_session_tracking(
+            session.cwd,
+            known_paths,
+            session.is_active,
+            discovered,
+            name=f"electroboy-{session.kind}-index-{session.session_id[:8]}",
+        )
 
     def _reserve_project_workspace(
         self,
@@ -783,8 +965,6 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 raise StateError("activate a project first")
             previous_stage = context.workflow_stage
         terminated_agent = False
-        if previous_stage != stage:
-            terminated_agent = self.services.sessions.terminate_workflow(context_id)
         reset_decision = None
         reset_output = ""
         if previous_stage != stage:
@@ -897,7 +1077,22 @@ class SoftwareWorkflowController(BoundWorkflowController):
         context_id: str,
         *,
         allow_stage_reopen: bool = False,
+        session_id: str = "",
+        provider_session_id: str = "",
+        name: str = "",
     ) -> tuple[AgentSession, bool]:
+        existing = None
+        provider_id = None
+        if not allow_stage_reopen or session_id or provider_session_id:
+            existing, provider_id = self._stage_session_choice(
+                context_id,
+                "requirements",
+                session_id,
+                provider_session_id,
+            )
+            if existing is not None:
+                return existing, False
+        metadata, known_paths = self._stage_session_metadata(provider_id)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -914,12 +1109,17 @@ class SoftwareWorkflowController(BoundWorkflowController):
             lock_names = SESSION_ARTIFACT_LOCKS["requirements"]
             self.services.sessions.require_locks_available(context, lock_names)
             session = AgentSession(
-                command=_requirements_command(command_root),
+                command=_requirements_command(
+                    command_root,
+                    str(metadata.get("provider_session_id") or "") or None,
+                ),
                 cwd=command_root,
                 label="requirements agent",
+                name=normalize_session_name(name),
                 kind="requirements",
                 interactive=True,
                 lock_names=lock_names,
+                metadata=metadata,
             )
             session = self.services.sessions.prepare(context, session)
             context.requirements_session = session
@@ -941,6 +1141,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context = self.services.contexts.require(context_id)
             if context.requirements_session is session:
                 context.requirements_started = True
+        self._track_stage_session(context_id, session, known_paths)
         return session, True
 
     def restart_requirements_agent(
@@ -972,7 +1173,22 @@ class SoftwareWorkflowController(BoundWorkflowController):
         context_id: str,
         *,
         allow_stage_reopen: bool = False,
+        session_id: str = "",
+        provider_session_id: str = "",
+        name: str = "",
     ) -> tuple[AgentSession, bool]:
+        existing = None
+        provider_id = None
+        if not allow_stage_reopen or session_id or provider_session_id:
+            existing, provider_id = self._stage_session_choice(
+                context_id,
+                "design",
+                session_id,
+                provider_session_id,
+            )
+            if existing is not None:
+                return existing, False
+        metadata, known_paths = self._stage_session_metadata(provider_id)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -989,12 +1205,18 @@ class SoftwareWorkflowController(BoundWorkflowController):
             lock_names = SESSION_ARTIFACT_LOCKS["design"]
             self.services.sessions.require_locks_available(context, lock_names)
             session = AgentSession(
-                command=_stage_command(command_root, "design"),
+                command=_stage_command(
+                    command_root,
+                    "design",
+                    session_id=str(metadata.get("provider_session_id") or "") or None,
+                ),
                 cwd=command_root,
                 label="design agent",
+                name=normalize_session_name(name),
                 kind="design",
                 interactive=True,
                 lock_names=lock_names,
+                metadata=metadata,
             )
             session = self.services.sessions.prepare(context, session)
             context.design_session = session
@@ -1016,6 +1238,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context = self.services.contexts.require(context_id)
             if context.design_session is session:
                 context.design_started = True
+        self._track_stage_session(context_id, session, known_paths)
         return session, True
 
     def restart_design_agent(
@@ -1070,7 +1293,22 @@ class SoftwareWorkflowController(BoundWorkflowController):
         force: bool = False,
         allow_stage_reopen: bool = False,
         interactive: bool = False,
+        session_id: str = "",
+        provider_session_id: str = "",
+        name: str = "",
     ) -> tuple[AgentSession, bool]:
+        metadata: dict[str, object] = {}
+        known_paths: frozenset[Path] = frozenset()
+        if interactive:
+            existing, provider_id = self._stage_session_choice(
+                context_id,
+                "design-review",
+                session_id,
+                provider_session_id,
+            )
+            if existing is not None:
+                return existing, False
+            metadata, known_paths = self._stage_session_metadata(provider_id)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -1092,6 +1330,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     "design-review",
                     force=force,
                     interactive=interactive,
+                    session_id=(
+                        str(metadata.get("provider_session_id") or "") or None
+                    ),
                 ),
                 cwd=command_root,
                 label=(
@@ -1099,9 +1340,11 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     if interactive
                     else "design-review agent"
                 ),
+                name=normalize_session_name(name),
                 kind="design-review",
                 interactive=interactive,
                 lock_names=lock_names,
+                metadata=metadata,
                 on_completed=(
                     None
                     if interactive
@@ -1133,6 +1376,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context = self.services.contexts.require(context_id)
             if context.design_review_session is session:
                 context.design_review_started = True
+        if interactive:
+            self._track_stage_session(context_id, session, known_paths)
         return session, True
 
     def restart_design_review_agent(
@@ -1369,8 +1614,30 @@ class SoftwareWorkflowController(BoundWorkflowController):
         interactive: bool | None = None,
         force: bool = False,
         allow_stage_reopen: bool = False,
+        session_id: str = "",
+        provider_session_id: str = "",
+        name: str = "",
     ) -> tuple[AgentSession, bool]:
         config = _generic_stage_config(stage)
+        accepts_input = (
+            bool(config["interactive_default"])
+            if interactive is None
+            else interactive
+        )
+        metadata: dict[str, object] = {}
+        known_paths: frozenset[Path] = frozenset()
+        if accepts_input and (
+            not allow_stage_reopen or session_id or provider_session_id
+        ):
+            existing, provider_id = self._stage_session_choice(
+                context_id,
+                stage,
+                session_id,
+                provider_session_id,
+            )
+            if existing is not None:
+                return existing, False
+            metadata, known_paths = self._stage_session_metadata(provider_id)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -1386,11 +1653,6 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 return existing, False
             lock_names = SESSION_ARTIFACT_LOCKS.get(stage, frozenset())
             self.services.sessions.require_locks_available(context, lock_names)
-            accepts_input = (
-                bool(config["interactive_default"])
-                if interactive is None
-                else interactive
-            )
             session = AgentSession(
                 command=_generic_stage_command(
                     command_root,
@@ -1402,6 +1664,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
                         else None
                     ),
                     interactive=accepts_input,
+                    session_id=(
+                        str(metadata.get("provider_session_id") or "") or None
+                    ),
                 ),
                 cwd=command_root,
                 label=(
@@ -1409,9 +1674,11 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     if accepts_input
                     else f"{_stage_display_label(stage)} agent"
                 ),
+                name=normalize_session_name(name),
                 kind=stage,
                 interactive=accepts_input,
                 lock_names=lock_names,
+                metadata=metadata,
                 on_completed=lambda returncode: self._mark_generic_stage_completed(
                     context_id,
                     stage,
@@ -1438,6 +1705,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
             context = self.services.contexts.require(context_id)
             if context.stage_sessions.get(stage) is session:
                 context.stage_started.add(stage)
+        if accepts_input:
+            self._track_stage_session(context_id, session, known_paths)
         return session, True
 
     def restart_workflow_stage_agent(

@@ -30,6 +30,7 @@ from electroboy.models import (  # noqa: E402
     STAGE_VALIDATION,
 )
 from electroboy.state_store import StateStore  # noqa: E402
+from electroboy.workflows.software.cli import build_parser  # noqa: E402
 
 
 class CliTests(unittest.TestCase):
@@ -39,6 +40,17 @@ class CliTests(unittest.TestCase):
         with redirect_stdout(stdout), redirect_stderr(stderr):
             code = main(args)
         return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_interactive_stage_commands_accept_explicit_session_ids(self) -> None:
+        session_id = "019f3cc1-8f78-70d3-83ff-29ef45e331b8"
+        parser = build_parser()
+
+        for command in ("design-review", "code", "validate"):
+            with self.subTest(command=command):
+                args = parser.parse_args(
+                    [command, "--interactive", "--session-id", session_id]
+                )
+                self.assertEqual(args.session_id, session_id)
 
     def test_new_and_status(self) -> None:
         with temp_project() as root:

@@ -190,6 +190,12 @@ body contains `{"provider_session_id": "<uuid>"}`. Resume requests are rejected
 when the provider session is missing or its recorded working directory differs
 from the active project command root.
 
+Interactive workflow stages expose the same selection model through `GET
+/api/agents/stage-sessions?context_id=<id>&stage=<stage>`. Stage start routes
+accept `session_id`, `provider_session_id`, and `name` in a JSON body to focus
+a running session, resume validated provider history, or create a named
+session. History is scoped to the active project, stage, and agent provider.
+
 `feature start` records feature metadata in the current run's `feature.json`.
 When `--name` is omitted in an interactive shell, ElectroBoy prompts for the
 feature artifact name. In non-interactive use, it derives a slug from the title

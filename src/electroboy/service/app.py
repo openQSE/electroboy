@@ -1076,10 +1076,16 @@ class ServiceState:
         context_id: str,
         *,
         allow_stage_reopen: bool = False,
+        session_id: str = "",
+        provider_session_id: str = "",
+        name: str = "",
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("software").start_requirements_agent(
             context_id,
             allow_stage_reopen=allow_stage_reopen,
+            session_id=session_id,
+            provider_session_id=provider_session_id,
+            name=name,
         )
 
     def restart_requirements_agent(
@@ -1103,10 +1109,16 @@ class ServiceState:
         context_id: str,
         *,
         allow_stage_reopen: bool = False,
+        session_id: str = "",
+        provider_session_id: str = "",
+        name: str = "",
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("software").start_design_agent(
             context_id,
             allow_stage_reopen=allow_stage_reopen,
+            session_id=session_id,
+            provider_session_id=provider_session_id,
+            name=name,
         )
 
     def restart_design_agent(
@@ -1125,12 +1137,18 @@ class ServiceState:
         force: bool = False,
         allow_stage_reopen: bool = False,
         interactive: bool = False,
+        session_id: str = "",
+        provider_session_id: str = "",
+        name: str = "",
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("software").start_design_review_agent(
             context_id,
             force=force,
             allow_stage_reopen=allow_stage_reopen,
             interactive=interactive,
+            session_id=session_id,
+            provider_session_id=provider_session_id,
+            name=name,
         )
 
     def restart_design_review_agent(

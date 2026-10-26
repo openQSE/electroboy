@@ -10422,6 +10422,47 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaisesRegex(AgentSessionError, "start requirements first"):
                 state.requirements_document_root(context_id)
 
+    def test_requirements_start_resumes_selected_provider_session(self) -> None:
+        provider_session_id = "019f3cc1-8f78-70d3-83ff-29ef45e331b8"
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            service_root.mkdir()
+            project_root.mkdir()
+            StateStore(project_root).init_run(run_id="run-1")
+
+            state = ServiceState(service_root)
+            context_id = str(state.create_context()["context_id"])
+            state.open_project(context_id, str(project_root))
+            controller = state.workflow_controller("software")
+
+            with (
+                mock.patch.object(
+                    controller,
+                    "_stage_session_choice",
+                    return_value=(None, provider_session_id),
+                ),
+                mock.patch("electroboy.service.AgentSession.start"),
+            ):
+                session, started = state.start_requirements_agent(
+                    context_id,
+                    provider_session_id=provider_session_id,
+                    name="Requirements history",
+                )
+                history = controller.stage_sessions(context_id, "requirements")
+
+        self.assertTrue(started)
+        self.assertEqual(session.name, "Requirements history")
+        self.assertEqual(
+            session.metadata["provider_session_id"],
+            provider_session_id,
+        )
+        self.assertEqual(session.command[-2:], ["--session-id", provider_session_id])
+        sessions = history["sessions"]
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["name"], "Requirements history")
+        self.assertEqual(sessions[0]["provider_session_id"], provider_session_id)
+
     def test_requirements_approval_can_run_before_start_with_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -10497,7 +10538,7 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaisesRegex(StateError, "unknown workflow stage"):
                 state.select_workflow_stage(context_id, "project")
 
-    def test_service_state_terminates_requirements_agent_when_jumping_stage(self) -> None:
+    def test_service_state_preserves_requirements_agent_when_jumping_stage(self) -> None:
         class FakeSession:
             def __init__(self) -> None:
                 self.terminated = False
@@ -10525,11 +10566,11 @@ class ServiceTests(unittest.TestCase):
             payload = state.select_workflow_stage(context_id, "design")
             manifest = StateStore(project_root).load_current_manifest()
 
-        self.assertTrue(session.terminated)
-        self.assertTrue(payload["terminated_agent"])
+        self.assertFalse(session.terminated)
+        self.assertFalse(payload["terminated_agent"])
         self.assertIsNotNone(payload["reset_decision"])
         self.assertEqual(payload["workflow_stage"], "design")
-        self.assertIsNone(state.current_requirements_session(context_id))
+        self.assertIs(state.current_requirements_session(context_id), session)
         self.assertEqual(manifest.active_stage, STAGE_DESIGN)
 
     def test_workflow_stage_selection_preserves_non_workflow_agents(self) -> None:
@@ -10575,12 +10616,12 @@ class ServiceTests(unittest.TestCase):
                     "README.md"
                 )
 
-        self.assertTrue(requirements.terminated)
+        self.assertFalse(requirements.terminated)
         self.assertFalse(ad_hoc.terminated)
         self.assertFalse(documentation.terminated)
         self.assertIs(preserved_ad_hoc, ad_hoc)
         self.assertIs(preserved_documentation, documentation)
-        self.assertTrue(payload["terminated_agent"])
+        self.assertFalse(payload["terminated_agent"])
         self.assertEqual(payload["workflow_stage"], "design")
 
     def test_after_requirements_approval_only_allows_requirements_restart(self) -> None:
