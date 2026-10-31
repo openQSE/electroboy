@@ -4691,6 +4691,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("viewport.scrollLeft += rect.left", mermaid)
         self.assertIn("function handleWheelZoom(event)", mermaid)
         self.assertIn("function startPan(event)", mermaid)
+        self.assertIn("let spacePanActive = false;", mermaid)
+        self.assertIn("const isSpacePan = event.button === 0 && spacePanActive;", mermaid)
+        self.assertIn('event.code !== "Space"', mermaid)
         self.assertIn("event.button !== 1", mermaid)
         self.assertIn("viewport.scrollLeft", mermaid)
         self.assertIn(
@@ -6500,6 +6503,9 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("Resize corkboard cards", page)
             self.assertIn('id="canvasViewport"', page)
             self.assertIn("function startCanvasPan(event)", page)
+            self.assertIn("let spacePanActive = false;", page)
+            self.assertIn("const isSpacePan = event.button === 0 && spacePanActive;", page)
+            self.assertIn('event.code !== "Space"', page)
             self.assertIn("event.button !== 1", page)
             self.assertIn("function applyCanvasPan()", page)
             self.assertIn(

@@ -1883,6 +1883,7 @@ def render_corkboard_html(
     let connectorState = null;
     let connectorCutState = null;
     let canvasPanState = null;
+    let spacePanActive = false;
     let draggedPath = "";
     let folderInsertionMarker = null;
     let folderDropTarget = "";
@@ -2898,7 +2899,12 @@ def render_corkboard_html(
     }}
 
     function startConnectorDrag(event, card, cardElement, side) {{
-      if (!usesFreeformLayout() || !supports("connect-card") || event.button !== 0) {{
+      if (
+        !usesFreeformLayout() ||
+        !supports("connect-card") ||
+        spacePanActive ||
+        event.button !== 0
+      ) {{
         return;
       }}
       event.preventDefault();
@@ -3783,7 +3789,8 @@ def render_corkboard_html(
     }}
 
     function startCanvasPan(event) {{
-      if (!usesFreeformLayout() || event.button !== 1) {{
+      const isSpacePan = event.button === 0 && spacePanActive;
+      if (!usesFreeformLayout() || (event.button !== 1 && !isSpacePan)) {{
         return;
       }}
       event.preventDefault();
@@ -4191,6 +4198,7 @@ def render_corkboard_html(
     function startDrag(event) {{
       if (
         !supports("move-card") ||
+        spacePanActive ||
         event.button !== 0 ||
         event.target.closest("textarea, button")
       ) {{
@@ -4650,6 +4658,22 @@ def render_corkboard_html(
       updateCardFontScale(cardFontSlider.value),
     );
     canvasViewport.addEventListener("wheel", handleBoardWheel, {{ passive: false }});
+    document.addEventListener("keydown", (event) => {{
+      if (
+        event.code !== "Space" ||
+        event.target.closest("input, textarea, select, [contenteditable='true']")
+      ) {{
+        return;
+      }}
+      event.preventDefault();
+      spacePanActive = true;
+    }});
+    document.addEventListener("keyup", (event) => {{
+      if (event.code === "Space") spacePanActive = false;
+    }});
+    window.addEventListener("blur", () => {{
+      spacePanActive = false;
+    }});
     canvasViewport.addEventListener("pointerdown", startCanvasPan);
     canvasViewport.addEventListener("pointerdown", startConnectorCut);
     canvasViewport.addEventListener("pointermove", updateCanvasPan);

@@ -352,6 +352,7 @@ body {
   let baseWidth = 0;
   let baseHeight = 0;
   let panState = null;
+  let spacePanActive = false;
   const content = document.getElementById("diagramContent");
   const viewport = document.querySelector(".diagram-viewport");
   const toolbar = document.querySelector(".diagram-toolbar");
@@ -665,7 +666,11 @@ body {
   }
 
   function startPan(event) {
-    if (event.button !== 1 || event.target.closest("a")) {
+    const isSpacePan = event.button === 0 && spacePanActive;
+    if (
+      (!isSpacePan && event.button !== 1) ||
+      (!isSpacePan && event.target.closest("a"))
+    ) {
       return;
     }
     event.preventDefault();
@@ -725,6 +730,22 @@ body {
   });
   zoomIn.addEventListener("click", () => changeZoom(zoomStep));
   viewport.addEventListener("wheel", handleWheelZoom, { passive: false });
+  document.addEventListener("keydown", (event) => {
+    if (
+      event.code !== "Space" ||
+      event.target.closest("input, textarea, select, [contenteditable='true']")
+    ) {
+      return;
+    }
+    event.preventDefault();
+    spacePanActive = true;
+  });
+  document.addEventListener("keyup", (event) => {
+    if (event.code === "Space") spacePanActive = false;
+  });
+  window.addEventListener("blur", () => {
+    spacePanActive = false;
+  });
   viewport.addEventListener("scroll", syncSequenceHeader);
   viewport.addEventListener("pointerdown", startPan);
   viewport.addEventListener("pointermove", updatePan);
