@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from pathlib import Path
 from dataclasses import replace
+from pathlib import Path
 
 from electroboy.adapters.base import AgentInvocation, AgentResult, AgentRuntime
 from electroboy.runtime import backend_config, runtime_for_role
@@ -17,13 +18,38 @@ from electroboy.runtime import backend_config, runtime_for_role
 from .sessions import AgentSession, AgentSessionError
 
 
-# Provider identity stays independent of the executable used to launch it.
-BACKEND_BINARIES = {
-    "codex": "codex",
-    "codex-ornl": "codex",
-    "codex-atoz": "codex",
-    "opencode": "opencode",
-}
+def _provider_for_binary(binary: object) -> str:
+    """Recognize provider commands and Codex wrapper names, never paths."""
+    if isinstance(binary, str) and "\0" not in binary and Path(binary).name == binary:
+        if binary in {"codex", "opencode"}:
+            return binary
+        # Codex's sandbox helper cannot run agent conversations.
+        if binary.startswith("codex-") and binary not in {
+            "codex-", "codex-linux-sandbox",
+        }:
+            return "codex"
+    raise ValueError("Unknown backend binary.")
+
+
+def _discover_codex_binaries() -> set[str]:
+    binaries = set()
+    for directory in os.get_exec_path():
+        try:
+            with os.scandir(directory or os.curdir) as entries:
+                for entry in entries:
+                    if not entry.name.startswith("codex"):
+                        continue
+                    try:
+                        if (
+                            _provider_for_binary(entry.name) == "codex"
+                            and shutil.which(entry.name) is not None
+                        ):
+                            binaries.add(entry.name)
+                    except (OSError, ValueError):
+                        continue
+        except OSError:
+            continue
+    return binaries
 
 
 class AgentBackend:
@@ -44,11 +70,13 @@ class AgentBackend:
         if state_path and state_path.exists():
             try:
                 saved = json.loads(state_path.read_text(encoding="utf-8"))
-                if isinstance(saved, dict) and saved.get("binary") in BACKEND_BINARIES:
-                    self.binary = saved["binary"]
+                if isinstance(saved, dict):
+                    binary = saved.get("binary")
+                    _provider_for_binary(binary)
+                    self.binary = binary
             except (OSError, ValueError, TypeError):
                 pass
-        self.selected = BACKEND_BINARIES[self.binary]
+        self.selected = _provider_for_binary(self.binary)
         self.revision = 0
         self.switching = False
         self.invocations: dict[object, tuple[threading.Event, threading.Event]] = {}
@@ -65,12 +93,14 @@ class AgentBackend:
                 for s in self.sessions()
                 if s.is_active()
             ]
+            discovered = _discover_codex_binaries() | {self.binary}
+            binaries = ["codex", *sorted(discovered - {"codex", "opencode"}), "opencode"]
             return {
                 "backend": self.binary,
                 "provider": self.selected,
-                "backends": list(BACKEND_BINARIES),
+                "backends": binaries,
                 "availability": {
-                    binary: self._available(binary) for binary in BACKEND_BINARIES
+                    binary: self._available(binary) for binary in binaries
                 },
                 "revision": self.revision,
                 "switching": self.switching,
@@ -79,7 +109,7 @@ class AgentBackend:
             }
 
     def _command(self, binary: str, root: Path, interactive: bool) -> str:
-        if binary in {"codex-ornl", "codex-atoz"}:
+        if binary != _provider_for_binary(binary):
             return binary
         return backend_config(binary, root, interactive=interactive).command
 
@@ -108,7 +138,7 @@ class AgentBackend:
                 raise AgentSessionError("Agent backend changed; retry the operation.")
             session.metadata["provider"] = self.selected
             session.environment["ELECTROBOY_AGENT_BACKEND"] = self.selected
-            if self.binary in {"codex-ornl", "codex-atoz"}:
+            if self.binary != self.selected:
                 # Terminal commands are already built with the project's arguments.
                 # Replace only a direct provider launch, never the workflow CLI.
                 command = backend_config(
@@ -128,9 +158,7 @@ class AgentBackend:
         with self.lock:
             self.require_ready()
             backend, revision = self.selected, self.revision
-            executable = (
-                self.binary if self.binary in {"codex-ornl", "codex-atoz"} else None
-            )
+            executable = self.binary if self.binary != backend else None
             cancel_epoch = self.cancel_epoch
 
         def factory(role: str, root: Path) -> AgentRuntime:
@@ -147,8 +175,7 @@ class AgentBackend:
     def switch(
         self, backend: str, *, confirmed: bool = False, revision: int | None = None
     ) -> dict[str, object]:
-        if backend not in BACKEND_BINARIES:
-            raise ValueError("Unknown backend binary.")
+        provider = _provider_for_binary(backend)
         with self.lock:
             self.require_ready(revision)
             if backend == self.binary:
@@ -200,7 +227,7 @@ class AgentBackend:
                     )
                     temporary.replace(self.state_path)
                 self.binary = backend
-                self.selected = BACKEND_BINARIES[backend]
+                self.selected = provider
         finally:
             with self.lock:
                 self.switching = False

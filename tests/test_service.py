@@ -143,8 +143,8 @@ class ServiceTests(unittest.TestCase):
             self.assertIn(f'id="{control}"', toolbar)
         self.assertLess(sidebar.index('class="sidebar-agent-controls"'), sidebar.index('id="stageActionPanel"'))
         self.assertIn('id="agentBackend"', index)
-        for binary in ("codex", "codex-ornl", "codex-atoz", "opencode"):
-            self.assertIn(f'value="{binary}">{binary}', index)
+        selector = index.split('<select id="agentBackend"', 1)[1].split('</select>', 1)[0]
+        self.assertNotIn("<option", selector)
         source = (
             Path(__file__).resolve().parents[1]
             / "src/electroboy/modules/assets/agent-backend.js"
@@ -152,6 +152,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("agent-focus-session-dialog agent-terminate-dialog", source)
         self.assertIn("Stop agents and switch", source)
         self.assertIn("confirmed: true", source)
+        self.assertIn("config.backends.map", source)
         self.assertNotIn("window.confirm", source)
 
     def test_installed_entry_points_register_provider_metadata(self) -> None:

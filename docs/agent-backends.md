@@ -1,10 +1,15 @@
 # Selecting an agent backend
 
-The **Backend** dropdown in the shared left sidebar selects `codex`,
-`codex-ornl`, `codex-atoz`, or `opencode` for all workspaces served by one
-ElectroBoy service. The two named Codex wrappers use the Codex adapter and
-session format. Entries unavailable in the service user's environment are
-disabled. The initial selection is `codex`. Page reloads and other browser tabs
+The **Backend** dropdown in the shared left sidebar discovers executable files
+named `codex` or `codex-*` on the ElectroBoy service's `PATH`. There is no fixed
+list of wrapper names. Discovered wrappers use the Codex adapter and session
+format. Duplicate names appear once and resolve in normal `PATH` order;
+executable symlinks are supported. The internal `codex-linux-sandbox` helper is
+excluded because it is not an agent CLI. The built-in `codex` and `opencode`
+entries also support project-configured executable paths. Unavailable entries are
+disabled. Discovery refreshes with the selector, so installing or removing a
+wrapper in an existing `PATH` directory updates the choices without a restart.
+The initial selection is `codex`. Page reloads and other browser tabs
 use the server's selection. The service saves successful selections in
 `.electroboy/service/agent-backend.json` beneath its state root and restores
 them on restart. An unavailable saved choice remains selected so the operator
@@ -37,16 +42,20 @@ size to their contents so larger interface fonts do not clip their labels.
 Install and authenticate the selected CLI in the service user's environment.
 The GUI selection chooses the provider for every role. For `codex` and
 `opencode`, project runtime entries still supply executable paths, arguments,
-environment allowlists, and options. Selecting `codex-ornl`
-or `codex-atoz` overrides only the executable for both interactive and background
-work; the project's Codex arguments, environment allowlists, and options remain
-in effect. These names must be executable files on the service's `PATH`, rather
-than shell aliases or functions. Wrapper-specific history discovery still uses
-the service's `CODEX_HOME`; the service cannot infer a home set inside a wrapper.
+environment allowlists, and options. Selecting a discovered `codex-*` wrapper
+overrides only the executable for both interactive and background work; the
+project's Codex arguments, environment allowlists, and options remain in effect.
+These names must be executable files on the service's `PATH`, rather
+than shell aliases or functions. Start the service from the environment whose
+`PATH` should supply the choices; changing a parent shell's `PATH` requires
+restarting the service to inherit it. Discovery checks filenames and executable
+permissions without running the discovered programs. Wrapper-specific history
+discovery still uses the service's `CODEX_HOME`; the service cannot infer a home
+set inside a wrapper.
 Project role mappings cannot silently select a different provider for a GUI launch.
 Standalone CLI commands retain their normal project configuration behavior.
 ElectroBoy propagates `ELECTROBOY_AGENT_BACKEND` into managed agent children,
-and `ELECTROBOY_AGENT_EXECUTABLE` when a named Codex wrapper is selected.
+and `ELECTROBOY_AGENT_EXECUTABLE` when a discovered Codex wrapper is selected.
 
 OpenCode support targets the v2 CLI, checked against installed version 2.0.32.
 Interactive sessions use `opencode <directory> --standalone --session ...
@@ -76,9 +85,10 @@ jobs capture a runtime factory with the same revision and cancellation event.
 Workflow code requests these capabilities through `SessionServices`.
 
 GET returns the selected binary as `backend`, its provider as `provider`,
-the supported `backends`, per-entry `availability`, revision, switching state,
-and active-agent counts. Switching between two Codex binaries follows the same
-confirmation and cancellation rules as changing providers.
+the discovered choices and built-in providers as `backends`, per-entry
+`availability`, revision, switching state, and active-agent counts. Switching
+between two Codex binaries follows the same confirmation and cancellation rules
+as changing providers.
 POST accepts `backend`, `revision`, and `confirmed: true`. Unknown backends,
 stale revisions, missing confirmation, unavailable executables, and failed
 termination produce errors without reporting a successful switch.

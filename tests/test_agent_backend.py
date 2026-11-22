@@ -1,6 +1,7 @@
 """Provider switching must cancel work before admitting another provider."""
 
 import json
+import os
 import sys
 import threading
 import time
@@ -335,7 +336,95 @@ def test_tmux_switch_stops_session_and_propagates_provider(tmp_path):
         session.terminate()
 
 
-@pytest.mark.parametrize("binary", ["codex-ornl", "codex-atoz"])
+def test_backend_discovers_executable_codex_names_from_path(tmp_path, monkeypatch):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    for directory, name in (
+        (first, "codex"),
+        (first, "codex-lab"),
+        (first, "codex-duplicate"),
+        (second, "codex-duplicate"),
+        (second, "codexpert"),
+        (second, "codex-"),
+        (second, "codex-linux-sandbox"),
+    ):
+        executable = directory / name
+        executable.touch()
+        executable.chmod(0o755)
+    (first / "codex-disabled").touch(mode=0o644)
+    (first / "codex-directory").mkdir()
+    (first / "codex-linked").symlink_to(first / "codex-lab")
+    (first / "codex-broken").symlink_to(first / "missing")
+    invalid_directory = tmp_path / "ordinary-file"
+    invalid_directory.touch()
+    monkeypatch.setenv("PATH", os.pathsep.join(map(str, (
+        tmp_path / "missing", invalid_directory, first, second, first,
+    ))))
+    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
+    payload = backend.payload()
+    assert payload["backends"] == [
+        "codex", "codex-duplicate", "codex-lab", "codex-linked", "opencode",
+    ]
+    assert payload["availability"] == {
+        "codex": True, "codex-duplicate": True, "codex-lab": True,
+        "codex-linked": True, "opencode": False,
+    }
+
+    # Refresh discovery when executables appear or disappear in existing PATH dirs.
+    (first / "codex-lab").unlink()
+    (second / "codex-new").write_text("new executable")
+    (second / "codex-new").chmod(0o755)
+    assert backend.payload()["backends"] == [
+        "codex", "codex-duplicate", "codex-new", "opencode",
+    ]
+
+
+def test_backend_discovery_honors_empty_path_entries(tmp_path, monkeypatch):
+    executable = tmp_path / "codex-local"
+    executable.touch(mode=0o755)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", os.pathsep.join(("", str(tmp_path / "missing"))))
+    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
+    payload = backend.payload()
+    assert payload["backends"] == ["codex", "codex-local", "opencode"]
+    assert payload["availability"]["codex-local"] is True
+    monkeypatch.setenv("PATH", "")
+    assert backend.payload()["backends"] == ["codex", "opencode"]
+
+
+def test_saved_codex_wrapper_remains_visible_after_removal(tmp_path, monkeypatch):
+    executable = tmp_path / "codex-temporary"
+    executable.touch(mode=0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    path = tmp_path / "state" / "backend.json"
+    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
+    backend.switch("codex-temporary", confirmed=True, revision=0)
+    executable.unlink()
+
+    restored = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
+    payload = restored.payload()
+    assert payload["backend"] == "codex-temporary"
+    assert payload["provider"] == "codex"
+    assert payload["backends"] == ["codex", "codex-temporary", "opencode"]
+    assert payload["availability"]["codex-temporary"] is False
+
+
+@pytest.mark.parametrize("binary", [
+    "unrelated", "../codex-team", "codex-team/tool", "codex-", "codex-\0",
+    "codex-linux-sandbox",
+    ["codex-team"], {"name": "codex-team"}, None,
+])
+def test_invalid_saved_binary_falls_back_to_codex(tmp_path, binary):
+    path = tmp_path / "backend.json"
+    path.write_text(json.dumps({"binary": binary}))
+    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
+    assert backend.binary == backend.selected == "codex"
+    with pytest.raises(ValueError, match="Unknown backend binary"):
+        backend.switch(binary, confirmed=True, revision=0)
+
+
+@pytest.mark.parametrize("binary", ["codex-team-alpha", "codex-personal-test"])
 def test_binary_selection_reaches_terminal_background_and_workflow_children(tmp_path, binary):
     from electroboy.runtime import backend_config
 
@@ -375,27 +464,27 @@ def test_binary_selection_persists_and_same_provider_switch_invalidates_jobs(tmp
     path = tmp_path / "state" / "backend.json"
     backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
     with patch("shutil.which", return_value="/bin/true"):
-        backend.switch("codex-ornl", confirmed=True, revision=0)
+        backend.switch("codex-team-alpha", confirmed=True, revision=0)
         factory = backend.runtime_factory()
-        backend.switch("codex-atoz", confirmed=True, revision=1)
+        backend.switch("codex-personal-test", confirmed=True, revision=1)
     assert factory.cancel_event.is_set()
     with pytest.raises(AgentSessionError, match="changed"):
         factory("code_review", tmp_path)
     restored = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
-    assert restored.binary == "codex-atoz"
+    assert restored.binary == "codex-personal-test"
     assert restored.selected == "codex"
     with patch("shutil.which", return_value=None):
-        assert restored.payload()["availability"]["codex-atoz"] is False
+        assert restored.payload()["availability"]["codex-personal-test"] is False
         with pytest.raises(AgentSessionError, match="unavailable"):
-            restored.switch("codex-ornl", confirmed=True, revision=0)
-    assert restored.binary == "codex-atoz"
-    assert json.loads(path.read_text())["binary"] == "codex-atoz"
+            restored.switch("codex-team-alpha", confirmed=True, revision=0)
+    assert restored.binary == "codex-personal-test"
+    assert json.loads(path.read_text())["binary"] == "codex-personal-test"
     path.write_text("invalid json")
     assert AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path).binary == "codex"
 
 
 def test_selected_binary_executes_and_same_provider_switch_stops_it(tmp_path, monkeypatch):
-    executable = tmp_path / "codex-ornl"
+    executable = tmp_path / "codex-team-alpha"
     marker = tmp_path / "started.txt"
     executable.write_text(
         f"#!{sys.executable}\n"
@@ -404,11 +493,11 @@ def test_selected_binary_executes_and_same_provider_switch_stops_it(tmp_path, mo
         "time.sleep(60)\n"
     )
     executable.chmod(0o755)
-    import os
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
     sessions = []
     backend = AgentBackend(threading.RLock(), lambda: sessions, lambda: [tmp_path])
-    backend.switch("codex-ornl", confirmed=True, revision=0)
+    assert "codex-team-alpha" in backend.payload()["backends"]
+    backend.switch("codex-team-alpha", confirmed=True, revision=0)
     session = AgentSession(interactive_command(tmp_path, "fixture"), tmp_path)
     backend.prepare(session)
     sessions.append(session)
@@ -421,10 +510,10 @@ def test_selected_binary_executes_and_same_provider_switch_stops_it(tmp_path, mo
         # The target may be absent; that must not stop the running wrapper.
         with patch("shutil.which", return_value=None):
             with pytest.raises(AgentSessionError, match="unavailable"):
-                backend.switch("codex-atoz", confirmed=True, revision=1)
+                backend.switch("codex-personal-test", confirmed=True, revision=1)
         assert session.is_active()
         with patch("shutil.which", return_value="/bin/true"):
-            backend.switch("codex-atoz", confirmed=True, revision=1)
+            backend.switch("codex-personal-test", confirmed=True, revision=1)
         assert not session.is_active()
     finally:
         session.terminate()
@@ -433,7 +522,7 @@ def test_selected_binary_executes_and_same_provider_switch_stops_it(tmp_path, mo
 @pytest.mark.parametrize("provider", ["codex", "opencode"])
 def test_explicit_backend_ignores_inherited_wrapper(tmp_path, monkeypatch, provider):
     monkeypatch.setenv("ELECTROBOY_AGENT_BACKEND", "codex")
-    monkeypatch.setenv("ELECTROBOY_AGENT_EXECUTABLE", "codex-ornl")
+    monkeypatch.setenv("ELECTROBOY_AGENT_EXECUTABLE", "codex-team-alpha")
     backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
     with patch("shutil.which", return_value="/bin/true"):
         backend.switch(provider, confirmed=True, revision=0)
