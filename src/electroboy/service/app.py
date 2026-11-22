@@ -269,7 +269,8 @@ class ServiceState:
 
     def __post_init__(self) -> None:
         self.agent_backend = AgentBackend(
-            self.lock, self._backend_sessions, self._backend_roots
+            self.lock, self._backend_sessions, self._backend_roots,
+            Path(self.state_root or self.root).resolve() / ".electroboy/service/agent-backend.json",
         )
         self.root = self.root.resolve()
         self.state_root = Path(self.state_root or self.root).resolve()

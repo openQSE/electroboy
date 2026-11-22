@@ -371,6 +371,29 @@ def test_binary_selection_reaches_terminal_background_and_workflow_children(tmp_
     assert runtime.config.adapter == "codex_exec"
 
 
+def test_binary_selection_persists_and_same_provider_switch_invalidates_jobs(tmp_path):
+    path = tmp_path / "state" / "backend.json"
+    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
+    with patch("shutil.which", return_value="/bin/true"):
+        backend.switch("codex-ornl", confirmed=True, revision=0)
+        factory = backend.runtime_factory()
+        backend.switch("codex-atoz", confirmed=True, revision=1)
+    assert factory.cancel_event.is_set()
+    with pytest.raises(AgentSessionError, match="changed"):
+        factory("code_review", tmp_path)
+    restored = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
+    assert restored.binary == "codex-atoz"
+    assert restored.selected == "codex"
+    with patch("shutil.which", return_value=None):
+        assert restored.payload()["availability"]["codex-atoz"] is False
+        with pytest.raises(AgentSessionError, match="unavailable"):
+            restored.switch("codex-ornl", confirmed=True, revision=0)
+    assert restored.binary == "codex-atoz"
+    assert json.loads(path.read_text())["binary"] == "codex-atoz"
+    path.write_text("invalid json")
+    assert AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path).binary == "codex"
+
+
 def test_selected_binary_executes_and_same_provider_switch_stops_it(tmp_path, monkeypatch):
     executable = tmp_path / "codex-ornl"
     marker = tmp_path / "started.txt"

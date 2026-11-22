@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import threading
 import time
@@ -33,11 +34,20 @@ class AgentBackend:
         lock,
         sessions: Callable[[], Iterable[AgentSession]],
         roots: Callable[[], Iterable[Path]],
+        state_path: Path | None = None,
     ) -> None:
         self.lock = lock
         self.sessions = sessions
         self.roots = roots
+        self.state_path = state_path
         self.binary = "codex"
+        if state_path and state_path.exists():
+            try:
+                saved = json.loads(state_path.read_text(encoding="utf-8"))
+                if isinstance(saved, dict) and saved.get("binary") in BACKEND_BINARIES:
+                    self.binary = saved["binary"]
+            except (OSError, ValueError, TypeError):
+                pass
         self.selected = BACKEND_BINARIES[self.binary]
         self.revision = 0
         self.switching = False
@@ -182,6 +192,13 @@ class AgentBackend:
                     "Backend unchanged. Could not stop: " + "; ".join(failures)
                 )
             with self.lock:
+                if self.state_path:
+                    self.state_path.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = self.state_path.with_suffix(".tmp")
+                    temporary.write_text(
+                        json.dumps({"binary": backend}) + "\n", encoding="utf-8"
+                    )
+                    temporary.replace(self.state_path)
                 self.binary = backend
                 self.selected = BACKEND_BINARIES[backend]
         finally:

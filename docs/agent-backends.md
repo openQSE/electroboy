@@ -5,7 +5,10 @@ The **Backend** dropdown in the shared left sidebar selects `codex`,
 ElectroBoy service. The two named Codex wrappers use the Codex adapter and
 session format. Entries unavailable in the service user's environment are
 disabled. The initial selection is `codex`. Page reloads and other browser tabs
-use the server's selection.
+use the server's selection. The service saves successful selections in
+`.electroboy/service/agent-backend.json` beneath its state root and restores
+them on restart. An unavailable saved choice remains selected so the operator
+can see it and choose an available alternative.
 
 Changing the selection opens an ElectroBoy confirmation dialog. Cancel, Escape,
 and the close button leave the selection and agents untouched. Confirming stops
@@ -119,7 +122,7 @@ frontend. No workflow-specific selector or adapter was added.
 Validation passed with 313 tests across these two commands. Fixture execution
 covers launching a named wrapper and stopping it during a same-provider switch;
 other tests cover both wrapper names, PTY/tmux configuration, workflow-child
-environment propagation, background resolution, availability,
+environment propagation, background resolution, persistence, availability,
 and stale revisions. JavaScript syntax and `git diff --check` also passed.
 No live model requests or browser interaction checks were performed.
 
