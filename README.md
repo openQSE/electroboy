@@ -143,10 +143,19 @@ electroboy status
 ```
 
 `new` creates or enters the target directory. If the directory is not already
-inside a Git worktree, it initializes a GitHub-ready repository. Existing
-repositories are reused instead of nesting a new repository. The command also
-creates the standard pipeline artifacts, creates `.electroboy/`, and
-installs `path/to/project/.electroboy/bin/activate`.
+a Git repository root, it initializes a repository there. Existing project
+repositories are reused. The command also
+creates `.electroboy/` and installs
+`path/to/project/.electroboy/bin/activate`. Content is created on first use.
+Entering or starting Requirements creates its Markdown and JSONL files; Design,
+Implementation Plan, and Test Plan create their own artifacts when used.
+Feature runs use the same behavior with their feature-specific filenames.
+Opening a project or checking status does not populate future-stage documents.
+
+Creative Writing projects start with an empty binder. Documents, folders, and
+corkboards are created through their create actions. The scratchpad file is
+created when notes are first saved, so loading an empty scratchpad does not add
+files. Existing project content is preserved.
 
 Use a meta-project when several related repositories need shared agent
 context. Run commands from the top-level workspace, register repositories, and

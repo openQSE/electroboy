@@ -10,8 +10,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-from electroboy.artifacts import ArtifactManager
-from electroboy.feature_artifacts import read_feature_record
+from electroboy.artifacts import ARTIFACT_TEMPLATES
+from electroboy.feature_artifacts import (
+    DEFAULT_ARTIFACT_PATHS,
+    artifact_paths_for_run,
+    read_feature_record,
+    resolve_artifact_path,
+)
 from electroboy.models import (
     STAGE_COMPLETE,
     STAGE_DESIGN,
@@ -29,6 +34,11 @@ from electroboy.models import (
 from electroboy.service.commands import electroboy_command
 from electroboy.service.sessions import AgentSessionError
 from electroboy.state_store import StateError, StateStore
+from electroboy.structured_artifacts import (
+    artifact_jsonl_path,
+    import_artifact,
+    render_artifact,
+)
 
 if TYPE_CHECKING:
     from electroboy.service.context import BrowserContext
@@ -203,7 +213,6 @@ def initialize_project(project_root: Path | str):
     project_root = Path(project_root).expanduser().resolve()
     project_root.mkdir(parents=True, exist_ok=True)
     _init_git_repository(project_root)
-    ArtifactManager(project_root).init_templates()
     _write_project_config(project_root)
     _write_project_gitignore(project_root)
     _write_project_runtime(project_root)
@@ -211,6 +220,58 @@ def initialize_project(project_root: Path | str):
 
     store = StateStore(project_root)
     return store.init_run()
+
+
+STRUCTURED_AUTHORING_ARTIFACTS = {
+    STAGE_REQUIREMENTS: ("requirements", "docs/requirements.md"),
+    STAGE_DESIGN: ("design", "docs/detailed-design.md"),
+    STAGE_DESIGN_REVIEW: ("design", "docs/detailed-design.md"),
+    STAGE_DESIGN_ACCEPTANCE: ("design", "docs/detailed-design.md"),
+    STAGE_PLAN: ("implementation-plan", "docs/implementation-plan.md"),
+    STAGE_TEST_PLAN: ("test-plan", "docs/test-plan.md"),
+}
+
+
+def ensure_stage_artifact(project_root: Path | str, stage: str) -> list[str]:
+    """Create only the requested stage's artifact, preserving existing sources."""
+    template = STRUCTURED_AUTHORING_ARTIFACTS.get(stage)
+    if template is None:
+        return []
+    store = StateStore(project_root)
+    manifest = store.load_current_manifest()
+    paths = artifact_paths_for_run(store.root, manifest.run_id)
+    artifact, template_path = template
+    markdown_path = resolve_artifact_path(paths, template_path)
+    markdown_file = store.root / markdown_path
+    jsonl_path = artifact_jsonl_path(store.root, artifact, markdown_path)
+    if (store.root / jsonl_path).exists():
+        if markdown_file.exists():
+            return []
+        render_artifact(
+            store.root,
+            artifact,
+            jsonl_path=jsonl_path,
+            markdown_path=markdown_path,
+        )
+        return [markdown_path]
+    written = []
+    if not markdown_file.exists():
+        content = ARTIFACT_TEMPLATES[template_path]
+        for default_path in DEFAULT_ARTIFACT_PATHS.values():
+            content = content.replace(
+                default_path, resolve_artifact_path(paths, default_path),
+            )
+        markdown_file.parent.mkdir(parents=True, exist_ok=True)
+        markdown_file.write_text(content, encoding="utf-8")
+        written.append(markdown_path)
+    import_artifact(
+        store.root,
+        artifact,
+        markdown_path=markdown_path,
+        jsonl_path=jsonl_path,
+    )
+    written.append(jsonl_path)
+    return written
 
 
 def initialize_meta_project(path: Path | str) -> tuple[Path, dict[str, object]]:

@@ -63,7 +63,7 @@ class ProjectEnvironmentTests(unittest.TestCase):
             self.assertTrue(
                 (root / ".electroboy" / "shared" / "current-run").exists()
             )
-            self.assertTrue((root / "docs" / "requirements.md").exists())
+            self.assertFalse((root / "docs").exists())
             gitignore = (root / ".gitignore").read_text(encoding="utf-8")
             self.assertIn(".electroboy/local/", gitignore)
             self.assertIn(".electroboy/shared/runs/*/progress/", gitignore)

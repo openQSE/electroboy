@@ -1334,7 +1334,7 @@ A-->B
             "docs/test-review-add-dashboard.md",
         )
         self.assertEqual(feature["workflow"][-1], "code-approve")
-        self.assertTrue(requirements_exists)
+        self.assertFalse(requirements_exists)
         self.assertFalse(canonical_requirements_exists)
         self.assertTrue(activate_exists)
 
@@ -1380,8 +1380,8 @@ A-->B
             feature["artifacts"]["design"],
             "docs/detailed-design-adm-sched-v01.md",
         )
-        self.assertTrue(requirements_exists)
-        self.assertTrue(design_exists)
+        self.assertFalse(requirements_exists)
+        self.assertFalse(design_exists)
 
     def test_feature_start_warns_before_amending_existing_feature(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1401,6 +1401,7 @@ A-->B
                 0,
             )
 
+            write_file(root / "docs" / "requirements-dashboard.md", "# Existing work\n")
             blocked, _stdout, blocked_stderr = self.run_cli(
                 [
                     "--root",

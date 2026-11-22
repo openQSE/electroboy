@@ -8,8 +8,9 @@ wrappers.
 
 Operator workflow commands:
 
-- `new <path>` creates a GitHub-ready project, initializes artifacts, creates
-  `.electroboy/`, and installs `<path>/.electroboy/bin/activate`.
+- `new <path>` creates a GitHub-ready project, creates `.electroboy/`, and
+  installs `<path>/.electroboy/bin/activate`. Stage artifacts are created on
+  first use rather than during project creation.
 - `meta init <path>` initializes an explicit meta-project registry and installs
   `<path>/.electroboy/bin/activate`.
 - `add <path> [path...]` registers one or more repositories in the current
@@ -281,13 +282,28 @@ electroboy deactivate
 ```
 
 `new` creates the target directory when needed. If the target is not already
-inside a Git worktree, it initializes a repository. Existing repositories are
-reused. Activation exports `ELECTROBOY_PROJECT_ROOT`, prepends
+a Git repository root, it initializes a repository there. Existing project
+repositories are reused. Activation exports `ELECTROBOY_PROJECT_ROOT`, prepends
 `<project>/.electroboy/bin` to `PATH`, prefixes the shell prompt with the
 project name, defines an `electroboy` shell function, and registers Bash
 completion when Bash is available. The generated wrappers pass
 `--root <project>` to the Python module and use project-local runtime code
 when available, including the `ai-pipeline` wrapper.
+
+New projects, feature intake, and meta-project target activation do not seed
+document templates. Selecting an authoring stage in the GUI or starting its CLI
+command creates only that stage's Markdown and JSONL pair. Feature-specific
+paths are resolved before creation. Existing Markdown is imported when its
+JSONL source is missing; an existing source can regenerate a missing Markdown
+companion without being replaced. Reports are written by their producing
+operations, and documentation is created by its authoring or editing actions.
+
+Creative project creation and `/api/creative/init` create only workspace
+metadata. Documents, folders, and corkboards use explicit create actions.
+`GET /api/creative/scratch` returns empty Markdown when no scratchpad exists;
+it does not write a file. Saving nonempty notes creates the scratchpad and its
+parent directory. A blank save does not create a new scratchpad, while clearing
+an existing scratchpad still saves that edit.
 
 If `.electroboy/project.toml` enables Python activation, the activation
 script sources the configured Python environment. It only deactivates that

@@ -11,6 +11,7 @@ from electroboy.artifact_types import (
     strip_document_type_header,
 )
 from electroboy.modules.creative_workspace import (
+    CREATIVE_SCRATCHPAD_PATH,
     _create_creative_document,
     _create_creative_folder,
     _creative_agent_target,
@@ -18,7 +19,6 @@ from electroboy.modules.creative_workspace import (
     _creative_writing_command,
     _document_target_path,
     _empty_creative_trash,
-    _ensure_creative_scratchpad,
     _ensure_creative_workspace,
     _existing_creative_project_root,
     _move_creative_entry,
@@ -96,7 +96,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 **self.services.contexts.project_payload(context_id),
                 "status": "resumed",
             }
-        _ensure_creative_workspace(project_root, seed_defaults=False)
+        _ensure_creative_workspace(project_root)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             context.reset_project(
@@ -119,7 +119,6 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
 
     def create_creative_project(self, context_id: str, path: str) -> dict[str, object]:
         project_root = _resolve_project_path(path)
-        project_is_new = not project_root.exists()
         context_id, resumed = self._reserve_project_workspace(
             context_id,
             project_root,
@@ -130,7 +129,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 "status": "resumed",
             }
         project_root.mkdir(parents=True, exist_ok=True)
-        _ensure_creative_workspace(project_root, seed_defaults=project_is_new)
+        _ensure_creative_workspace(project_root)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             context.reset_project(
@@ -153,7 +152,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
 
     def initialize_creative_workspace(self, context_id: str) -> dict[str, object]:
         project_root = self.services.contexts.active_project_root(context_id)
-        _ensure_creative_workspace(project_root, seed_defaults=False)
+        _ensure_creative_workspace(project_root)
         return self.creative_tree(context_id)
 
     def creative_tree(self, context_id: str) -> dict[str, object]:
@@ -271,10 +270,13 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
 
     def creative_scratchpad(self, context_id: str) -> dict[str, object]:
         project_root = self.services.contexts.active_project_root(context_id)
-        path = _ensure_creative_scratchpad(project_root)
+        relative_path, path = _document_target_path(project_root, CREATIVE_SCRATCHPAD_PATH)
         return {
-            "path": path.relative_to(project_root).as_posix(),
-            "markdown": strip_document_type_header(path.read_text(encoding="utf-8")),
+            "path": relative_path,
+            "markdown": (
+                strip_document_type_header(path.read_text(encoding="utf-8"))
+                if path.exists() else ""
+            ),
         }
 
     def save_creative_scratchpad(
@@ -283,14 +285,14 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         markdown: str,
     ) -> dict[str, object]:
         project_root = self.services.contexts.active_project_root(context_id)
-        path = _ensure_creative_scratchpad(project_root)
-        path.write_text(
-            f"{markdown_document_header()}{strip_document_type_header(markdown)}",
-            encoding="utf-8",
-        )
+        relative_path, path = _document_target_path(project_root, CREATIVE_SCRATCHPAD_PATH)
+        content = strip_document_type_header(markdown)
+        if path.exists() or content.strip():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"{markdown_document_header()}{content}", encoding="utf-8")
         return {
             "status": "saved",
-            "path": path.relative_to(project_root).as_posix(),
+            "path": relative_path,
         }
 
     def save_creative_corkboard(

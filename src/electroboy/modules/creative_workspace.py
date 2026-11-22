@@ -49,15 +49,6 @@ def _resolve_project_path(path: str) -> Path:
     return Path(path).expanduser().resolve()
 
 
-CREATIVE_DEFAULT_FOLDERS = (
-    "chapters",
-    "scratchpad",
-    "characters",
-    "corkboard",
-    "reviews",
-    "research",
-)
-
 CREATIVE_SCRATCHPAD_PATH = "scratchpad/scratchpad.md"
 
 CREATIVE_IGNORED_NAMES = frozenset({".git", ".electroboy", "__pycache__"})
@@ -155,38 +146,9 @@ def _creative_path(project_root: Path | str, relative_path: str) -> tuple[str, P
     return normalized_path, resolved
 
 
-def _ensure_creative_workspace(
-    project_root: Path | str,
-    *,
-    seed_defaults: bool = True,
-) -> None:
+def _ensure_creative_workspace(project_root: Path | str) -> None:
     project_root = Path(project_root).expanduser().resolve()
     (project_root / ".electroboy").mkdir(parents=True, exist_ok=True)
-    if not seed_defaults:
-        return
-    for folder in CREATIVE_DEFAULT_FOLDERS:
-        (project_root / folder).mkdir(parents=True, exist_ok=True)
-    _ensure_creative_scratchpad(project_root)
-    chapters = project_root / "chapters"
-    if not any(chapters.glob("*.md")):
-        _create_creative_document(project_root, "chapters/chapter-01.md")
-    for path in [
-        "characters/characters.md",
-        "reviews/review-notes.md",
-    ]:
-        _create_creative_document(project_root, path)
-    _create_creative_corkboard(
-        project_root,
-        f"corkboard/ideas{CREATIVE_CORKBOARD_SUFFIX}",
-    )
-
-
-def _ensure_creative_scratchpad(project_root: Path | str) -> Path:
-    _relative, path = _document_target_path(project_root, CREATIVE_SCRATCHPAD_PATH)
-    if not path.exists() or not path.read_text(encoding="utf-8").strip():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_document_starter_markdown("Scratchpad"), encoding="utf-8")
-    return path
 
 
 def _create_creative_folder(project_root: Path | str, relative_path: str) -> str:

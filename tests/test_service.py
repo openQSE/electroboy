@@ -5065,6 +5065,7 @@ class ServiceTests(unittest.TestCase):
             payload = server.service_state.create_context()
             context_id = str(payload["context_id"])
             server.service_state.create_creative_project(context_id, str(project_root))
+            server.service_state.create_creative_document(context_id, "chapters/chapter-01.md")
             server.service_state.initialize_creative_workspace(context_id)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -5825,8 +5826,8 @@ class ServiceTests(unittest.TestCase):
             scratch = state.creative_scratchpad(context_id)
 
             self.assertTrue((project_root / "chapters").is_dir())
-            self.assertTrue((project_root / "characters").is_dir())
-            self.assertTrue((project_root / "chapters" / "chapter-01.md").is_file())
+            self.assertFalse((project_root / "characters").exists())
+            self.assertFalse((project_root / "chapters" / "chapter-01.md").exists())
             self.assertFalse((project_root / "docs" / "requirements.md").exists())
             self.assertTrue((project_root / ".electroboy").is_dir())
             self.assertEqual(created["project_mode"], "creative")
@@ -5896,7 +5897,7 @@ class ServiceTests(unittest.TestCase):
             )
             self.assertEqual(restored_folder["folder_color"], "rose")
             self.assertEqual(restored_tree["trash"], [])
-            self.assertIn("chapters", [entry["name"] for entry in tree["entries"]])
+            self.assertEqual(tree["entries"], [])
             self.assertNotIn(".gitignore", [entry["name"] for entry in tree["entries"]])
             self.assertEqual(scratch["path"], "scratchpad/scratchpad.md")
             self.assertIn("Keep this.", scratch["markdown"])
@@ -5923,7 +5924,7 @@ class ServiceTests(unittest.TestCase):
             self.assertFalse((project_root / "chapters").exists())
             self.assertTrue((project_root / ".electroboy").is_dir())
 
-    def test_create_creative_project_only_seeds_a_new_directory(self) -> None:
+    def test_create_creative_project_preserves_an_existing_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
             project_root = Path(tmp) / "existing-story"
@@ -5947,6 +5948,7 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
+            state.create_creative_folder(context_id, "research")
             state.create_creative_folder(context_id, "chapters/act-one")
             state.create_creative_document(
                 context_id,
@@ -6036,6 +6038,8 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
+            state.create_creative_document(context_id, "chapters/chapter-01.md")
+            state.create_creative_folder(context_id, "characters")
 
             trashed = state.delete_creative_entry(
                 context_id,
@@ -6105,6 +6109,7 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
+            state.create_creative_corkboard(context_id, "corkboard/ideas.corkboard.json")
             board_path = project_root / "corkboard" / "ideas.corkboard.json"
             typed_path = project_root / "corkboard" / "ideas.md"
             board_path.rename(typed_path)
@@ -6157,6 +6162,7 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
+            state.create_creative_corkboard(context_id, "corkboard/ideas.corkboard.json")
             board_path = project_root / "corkboard" / "ideas.corkboard.json"
             broken_path = project_root / "corkboard" / "ideas.md"
             broken_path.write_text(board_path.read_text(encoding="utf-8"), encoding="utf-8")
@@ -6215,6 +6221,7 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
+            state.create_creative_folder(context_id, "chapters")
             (project_root / "chapters" / "legacy.md").write_text(
                 "# Legacy chapter\n\nThis file predates typed headers.\n",
                 encoding="utf-8",
@@ -6243,7 +6250,7 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
-            for directory in ("corkboards", "mind-maps", "worldbuilding"):
+            for directory in ("corkboard", "corkboards", "mind-maps", "worldbuilding"):
                 (project_root / directory).mkdir()
 
             tree = state.creative_tree(context_id)
@@ -6263,6 +6270,7 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
+            state.create_creative_document(context_id, "chapters/chapter-01.md")
             state.create_creative_document(context_id, "chapters/chapter-02.md")
 
             page, status = creative_corkboard_html(
@@ -6690,6 +6698,8 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
+            state.create_creative_document(context_id, "chapters/chapter-01.md")
+            state.create_creative_corkboard(context_id, "corkboard/ideas.corkboard.json")
             controller = state.workflow_controller("creative-writing")
 
             self.assertIsInstance(controller, CorkboardWorkflowController)
@@ -8023,6 +8033,8 @@ class ServiceTests(unittest.TestCase):
                 context_id,
                 str(project_root),
             )
+            server.service_state.create_creative_document(context_id, "chapters/chapter-01.md")
+            server.service_state.create_creative_corkboard(context_id, "corkboard/ideas.corkboard.json")
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
 
@@ -8235,6 +8247,7 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
+            state.create_creative_corkboard(context_id, "corkboard/ideas.corkboard.json")
             state.initialize_creative_workspace(context_id)
 
             with (
@@ -8271,6 +8284,7 @@ class ServiceTests(unittest.TestCase):
             state = ServiceState(service_root)
             context_id = str(state.create_context()["context_id"])
             state.create_creative_project(context_id, str(project_root))
+            state.create_creative_folder(context_id, "chapters")
             state.initialize_creative_workspace(context_id)
 
             with (

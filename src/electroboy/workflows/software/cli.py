@@ -18,9 +18,8 @@ import time
 from pathlib import Path
 from typing import Iterator, Sequence
 
-from ...artifacts import ARTIFACT_TEMPLATES, ArtifactError, ArtifactManager
+from ...artifacts import ArtifactError, ArtifactManager
 from ...feature_artifacts import (
-    DEFAULT_ARTIFACT_PATHS,
     DEFAULT_PATH_KEYS,
     artifact_paths_for_run,
     feature_artifact_paths,
@@ -83,6 +82,7 @@ from .agent_rules import (
     materialize_software_agent_rules,
     prompt_with_software_agent_rules,
 )
+from .domain import STRUCTURED_AUTHORING_ARTIFACTS, ensure_stage_artifact
 
 
 STAGE_REQUIRED_FILES = {
@@ -408,15 +408,6 @@ AUTHORING_ARTIFACT_STAGES = {
     "docs/detailed-design.md": STAGE_DESIGN,
     "docs/implementation-plan.md": STAGE_PLAN,
     TEST_PLAN_PATH: STAGE_TEST_PLAN,
-}
-
-STRUCTURED_AUTHORING_ARTIFACTS = {
-    STAGE_REQUIREMENTS: ("requirements", "docs/requirements.md"),
-    STAGE_DESIGN: ("design", "docs/detailed-design.md"),
-    STAGE_DESIGN_REVIEW: ("design", "docs/detailed-design.md"),
-    STAGE_DESIGN_ACCEPTANCE: ("design", "docs/detailed-design.md"),
-    STAGE_PLAN: ("implementation-plan", "docs/implementation-plan.md"),
-    STAGE_TEST_PLAN: ("test-plan", TEST_PLAN_PATH),
 }
 
 STRUCTURED_ARTIFACT_DEFAULT_MARKDOWN_PATHS = {
@@ -1982,7 +1973,6 @@ def _target_store_from_record(
 def _ensure_target_pipeline_project(project_root: Path) -> RunManifest:
     project_root.mkdir(parents=True, exist_ok=True)
     _init_git_repository(project_root)
-    ArtifactManager(project_root).init_templates()
     _write_project_config(project_root)
     _write_project_gitignore(project_root)
     _write_project_runtime(project_root)
@@ -2239,7 +2229,6 @@ def _cmd_new(args: argparse.Namespace) -> int:
     project_root = Path(args.path).resolve()
     project_root.mkdir(parents=True, exist_ok=True)
     _init_git_repository(project_root)
-    ArtifactManager(project_root).init_templates()
     _write_project_config(project_root)
     _write_project_gitignore(project_root)
     _write_project_runtime(project_root)
@@ -2879,7 +2868,6 @@ def _cmd_feature_start(store: StateStore, args: argparse.Namespace) -> int:
             print(f"error: {branch_error}", file=sys.stderr)
             return 1
 
-    _init_feature_templates(project_root, feature_artifacts)
     _write_project_config(project_root)
     _write_project_gitignore(project_root)
     _write_project_runtime(project_root)
@@ -3031,39 +3019,6 @@ def _confirm_feature_amend(
         return False
     answer = input("Amend existing feature artifacts? [y/N]: ").strip().lower()
     return answer in {"y", "yes"}
-
-
-def _init_feature_templates(root: Path, artifacts: dict[str, str]) -> list[str]:
-    template_keys = {
-        "requirements": "docs/requirements.md",
-        "design": "docs/detailed-design.md",
-        "implementation_plan": "docs/implementation-plan.md",
-        "test_plan": "docs/test-plan.md",
-        "api": "docs/api.md",
-    }
-    written: list[str] = []
-    for key, template_path in template_keys.items():
-        relative_path = artifacts.get(key, template_path)
-        path = root / relative_path
-        if path.exists():
-            continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        template = ARTIFACT_TEMPLATES[template_path]
-        for default_path in DEFAULT_ARTIFACT_PATHS.values():
-            template = template.replace(
-                default_path,
-                resolve_artifact_path(artifacts, default_path),
-            )
-        path.write_text(template, encoding="utf-8")
-        written.append(relative_path)
-    return written
-
-
-def _init_run_templates(store: StateStore) -> list[str]:
-    manifest = store.load_current_manifest()
-    if read_feature_record(store.root, manifest.run_id):
-        return _init_feature_templates(store.root, _run_artifact_paths(store))
-    return ArtifactManager(store.root).init_templates()
 
 
 def _feature_title(title_or_issue_url: str) -> str:
@@ -3432,6 +3387,8 @@ def _ensure_structured_stage_inputs(
     created_or_updated: list[str] = []
     for artifact in STRUCTURED_STAGE_INPUT_ARTIFACTS.get(stage, []):
         jsonl_path, markdown_path = _structured_pair_for_artifact(store, artifact)
+        if not any((store.root / path).exists() for path in (jsonl_path, markdown_path)):
+            continue
         created_or_updated.extend(
             _ensure_structured_artifact(
                 store,
@@ -3713,8 +3670,8 @@ def _run_authoring_session(
     stage: str,
     out_of_band: bool = False,
 ) -> int:
-    _init_run_templates(store)
-    structured_changes = _ensure_structured_stage_inputs(store, stage)
+    structured_changes = ensure_stage_artifact(store.root, stage)
+    structured_changes.extend(_ensure_structured_stage_inputs(store, stage))
     artifact = _stage_required_file(store, stage)
     reason = getattr(args, "reason", None)
     artifact_snapshot = _authoring_artifact_snapshot(store)

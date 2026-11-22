@@ -82,6 +82,7 @@ from .domain import (
     _upsert_feature_record,
     _visible_workflow_stage,
     _write_current_bug_record,
+    ensure_stage_artifact,
     initialize_meta_project,
     initialize_project,
     project_payload_extension,
@@ -978,6 +979,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 stage,
                 target_stage,
             )
+        ensure_stage_artifact(project_root, target_stage)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             context.workflow_stage = stage

@@ -965,6 +965,11 @@ workflow node.
 
 The workflow controller maps stage actions to existing CLI commands. The CLI
 continues to enforce gates, forced movement, approvals, and artifact policy.
+Project and feature creation initialize workflow state and runtime setup without
+creating document templates. A workflow-owned stage artifact initializer is
+shared by CLI authoring and GUI stage selection. It resolves feature paths and
+creates only the requested stage's Markdown and JSONL pair, preserving existing
+sources. Optional context files for stages that have not been used stay absent.
 Document and corkboard are sidecar capabilities rather than approval gates.
 The software workflow binds the shared project-backed corkboard provider and
 stores its boards under `.electroboy/shared/corkboards/`.
@@ -974,16 +979,11 @@ stores its boards under `.electroboy/shared/corkboards/`.
 The creative-writing workflow composes Markdown documents, binder, corkboard,
 agent sessions, and project shell.
 
-It owns project creation defaults:
-
-```text
-chapters/
-characters/
-scratchpad/
-corkboard/
-reviews/
-research/
-```
+It initializes only workspace metadata when a project is created or opened.
+The binder starts empty. Folder, document, and corkboard actions create their
+content and parent directories when requested. Scratchpad reads have no file
+side effects; the first nonempty save creates its document. Opening or
+initializing an existing workspace never seeds sample content.
 
 The binder mirrors the filesystem. Markdown documents open in document panes.
 Folder corkboards and freeform corkboards open through the corkboard module.

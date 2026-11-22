@@ -253,8 +253,8 @@ class MetaProjectTests(unittest.TestCase):
         self.assertIn("active repo: qhw-characterization", status_stdout)
         self.assertIn("registered repos:", status_stdout)
         self.assertEqual(registry["active"], "qhw-characterization")
-        self.assertTrue(qfw_requirements_exists)
-        self.assertTrue(qhw_requirements_exists)
+        self.assertFalse(qfw_requirements_exists)
+        self.assertFalse(qhw_requirements_exists)
 
     def test_stage_command_uses_active_target_from_meta_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
