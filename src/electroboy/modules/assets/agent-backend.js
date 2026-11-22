@@ -19,7 +19,7 @@
       </form>`;
     const count = config.active_agents.length + config.background_agents;
     dialog.querySelector("section p").textContent =
-      `Switch to ${target === "codex" ? "Codex" : "OpenCode"}? This will stop all active agents and cancel queued agent work across every workspace in this ElectroBoy service, including other browser tabs. ` +
+      `Switch to ${target}? This will stop all active agents and cancel queued agent work across every workspace in this ElectroBoy service, including other browser tabs. ` +
       `${count} agent${count === 1 ? " is" : "s are"} currently active. Future agents will use the selected backend. Files already written will remain.`;
     document.body.append(dialog);
     return new Promise((resolve) => {
@@ -62,6 +62,16 @@
         return payload;
       }
       function render() {
+        if (config) {
+          select.replaceChildren(...config.backends.map((binary) => {
+            const option = document.createElement("option");
+            option.value = binary;
+            option.textContent = binary;
+            option.disabled = config.availability?.[binary] === false;
+            if (option.disabled) option.title = "Executable unavailable in the service environment";
+            return option;
+          }));
+        }
         select.value = config?.backend || "codex";
         select.disabled = busy || !config || config.switching;
       }
@@ -94,7 +104,7 @@
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({backend: target, confirmed: true, revision: config.revision}),
           });
-          status.textContent = `Backend: ${config.backend === "codex" ? "Codex" : "OpenCode"}`;
+          status.textContent = `Backend: ${config.backend}`;
           await runtime.modules.invoke("agent-sessions", "refreshServiceSessions");
         } catch (error) {
           status.textContent = error.message;

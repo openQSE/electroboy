@@ -333,3 +333,97 @@ def test_tmux_switch_stops_session_and_propagates_provider(tmp_path):
         assert backend.selected == "opencode"
     finally:
         session.terminate()
+
+
+@pytest.mark.parametrize("binary", ["codex-ornl", "codex-atoz"])
+def test_binary_selection_reaches_terminal_background_and_workflow_children(tmp_path, binary):
+    from electroboy.runtime import backend_config
+
+    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
+    with patch("shutil.which", return_value="/bin/true"):
+        payload = backend.switch(binary, confirmed=True, revision=0)
+    assert payload["backend"] == binary
+    assert payload["provider"] == "codex"
+    original = backend_config("codex", tmp_path, interactive=True)
+    terminal = AgentSession([original.command, "--no-alt-screen"], tmp_path)
+    backend.prepare(terminal)
+    assert terminal.command == [binary, "--no-alt-screen"]
+    assert terminal.metadata["provider"] == "codex"
+    assert terminal.environment["ELECTROBOY_AGENT_EXECUTABLE"] == binary
+    converted = TmuxAgentSession.from_agent_session(terminal)
+    assert converted.command == terminal.command
+    assert converted.environment == terminal.environment
+
+    # A pipeline child launches ElectroBoy first, then resolves its own runtime.
+    pipeline = AgentSession([sys.executable, "-m", "electroboy", "code"], tmp_path)
+    backend.prepare(pipeline)
+    assert pipeline.command[0] == sys.executable
+    with patch.dict("os.environ", pipeline.environment):
+        runtime = runtime_for_role("code_review", tmp_path)
+        assert runtime.config.command == binary
+        assert runtime.config.args == DEFAULT_CONFIG.runtimes["codex"].args
+        assert runtime.config.env == DEFAULT_CONFIG.runtimes["codex"].env
+    runtime = backend.runtime_factory()("design_author", tmp_path)
+    assert runtime.config.command == binary
+    assert runtime.config.adapter == "codex_interactive"
+    runtime = backend.runtime_factory()("code_review", tmp_path)
+    assert runtime.config.command == binary
+    assert runtime.config.adapter == "codex_exec"
+
+
+def test_selected_binary_executes_and_same_provider_switch_stops_it(tmp_path, monkeypatch):
+    executable = tmp_path / "codex-ornl"
+    marker = tmp_path / "started.txt"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import os, time\nfrom pathlib import Path\n"
+        "Path('started.txt').write_text(os.environ['ELECTROBOY_AGENT_BACKEND'])\n"
+        "time.sleep(60)\n"
+    )
+    executable.chmod(0o755)
+    import os
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    sessions = []
+    backend = AgentBackend(threading.RLock(), lambda: sessions, lambda: [tmp_path])
+    backend.switch("codex-ornl", confirmed=True, revision=0)
+    session = AgentSession(interactive_command(tmp_path, "fixture"), tmp_path)
+    backend.prepare(session)
+    sessions.append(session)
+    session.start()
+    try:
+        deadline = time.monotonic() + 5
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert marker.read_text() == "codex"
+        # The target may be absent; that must not stop the running wrapper.
+        with patch("shutil.which", return_value=None):
+            with pytest.raises(AgentSessionError, match="unavailable"):
+                backend.switch("codex-atoz", confirmed=True, revision=1)
+        assert session.is_active()
+        with patch("shutil.which", return_value="/bin/true"):
+            backend.switch("codex-atoz", confirmed=True, revision=1)
+        assert not session.is_active()
+    finally:
+        session.terminate()
+
+
+@pytest.mark.parametrize("provider", ["codex", "opencode"])
+def test_explicit_backend_ignores_inherited_wrapper(tmp_path, monkeypatch, provider):
+    monkeypatch.setenv("ELECTROBOY_AGENT_BACKEND", "codex")
+    monkeypatch.setenv("ELECTROBOY_AGENT_EXECUTABLE", "codex-ornl")
+    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
+    with patch("shutil.which", return_value="/bin/true"):
+        backend.switch(provider, confirmed=True, revision=0)
+
+    runtime = runtime_for_role("code_review", tmp_path, backend=provider)
+    assert runtime.config.command == DEFAULT_CONFIG.runtimes[provider].command
+    runtime = backend.runtime_factory()("code_review", tmp_path)
+    assert runtime.config.command == DEFAULT_CONFIG.runtimes[provider].command
+
+    # Workflow CLI children inherit os.environ plus the prepared session values.
+    pipeline = AgentSession([sys.executable, "-m", "electroboy", "code"], tmp_path)
+    backend.prepare(pipeline)
+    with patch.dict("os.environ", pipeline.environment):
+        runtime = runtime_for_role("code_review", tmp_path)
+        assert runtime.config.command == DEFAULT_CONFIG.runtimes[provider].command
+    assert TmuxAgentSession.from_agent_session(pipeline).environment == pipeline.environment

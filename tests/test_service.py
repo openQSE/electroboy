@@ -143,8 +143,8 @@ class ServiceTests(unittest.TestCase):
             self.assertIn(f'id="{control}"', toolbar)
         self.assertLess(sidebar.index('class="sidebar-agent-controls"'), sidebar.index('id="stageActionPanel"'))
         self.assertIn('id="agentBackend"', index)
-        self.assertIn('value="codex">Codex', index)
-        self.assertIn('value="opencode">OpenCode', index)
+        for binary in ("codex", "codex-ornl", "codex-atoz", "opencode"):
+            self.assertIn(f'value="{binary}">{binary}', index)
         source = (
             Path(__file__).resolve().parents[1]
             / "src/electroboy/modules/assets/agent-backend.js"

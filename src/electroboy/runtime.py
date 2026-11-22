@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 from .adapters.base import AgentRuntime
@@ -38,6 +39,7 @@ def runtime_for_role(
     config: PipelineConfig | None = None,
     execution_root: Path | str | None = None,
     backend: str | None = None,
+    executable: str | None = None,
 ) -> AgentRuntime:
     pipeline_config = config or load_pipeline_config(root)
     selected = backend or os.environ.get("ELECTROBOY_AGENT_BACKEND")
@@ -54,6 +56,10 @@ def runtime_for_role(
         if selected
         else pipeline_config.runtime_for_role(role)
     )
+    if not backend and executable is None:
+        executable = os.environ.get("ELECTROBOY_AGENT_EXECUTABLE")
+    if selected and executable:
+        runtime_config = replace(runtime_config, command=executable)
     return runtime_from_config(runtime_config, execution_root or root)
 
 

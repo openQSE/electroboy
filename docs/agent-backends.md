@@ -1,9 +1,11 @@
 # Selecting an agent backend
 
-The **Backend** dropdown in the shared left sidebar selects **Codex** or **OpenCode**
-for all workspaces served by one ElectroBoy service. The initial selection is
-Codex. Page reloads and other browser tabs use the server's selection. Restarting
-the service resets it to Codex.
+The **Backend** dropdown in the shared left sidebar selects `codex`,
+`codex-ornl`, `codex-atoz`, or `opencode` for all workspaces served by one
+ElectroBoy service. The two named Codex wrappers use the Codex adapter and
+session format. Entries unavailable in the service user's environment are
+disabled. The initial selection is `codex`. Page reloads and other browser tabs
+use the server's selection.
 
 Changing the selection opens an ElectroBoy confirmation dialog. Cancel, Escape,
 and the close button leave the selection and agents untouched. Confirming stops
@@ -30,11 +32,18 @@ size to their contents so larger interface fonts do not clip their labels.
 ## Configuration and scope
 
 Install and authenticate the selected CLI in the service user's environment.
-The GUI selection chooses the provider for every role. Project runtime entries
-still supply executable paths, arguments, environment allowlists, and options;
-role mappings cannot silently select a different provider for a GUI launch.
+The GUI selection chooses the provider for every role. For `codex` and
+`opencode`, project runtime entries still supply executable paths, arguments,
+environment allowlists, and options. Selecting `codex-ornl`
+or `codex-atoz` overrides only the executable for both interactive and background
+work; the project's Codex arguments, environment allowlists, and options remain
+in effect. These names must be executable files on the service's `PATH`, rather
+than shell aliases or functions. Wrapper-specific history discovery still uses
+the service's `CODEX_HOME`; the service cannot infer a home set inside a wrapper.
+Project role mappings cannot silently select a different provider for a GUI launch.
 Standalone CLI commands retain their normal project configuration behavior.
-ElectroBoy propagates `ELECTROBOY_AGENT_BACKEND` only into managed agent children.
+ElectroBoy propagates `ELECTROBOY_AGENT_BACKEND` into managed agent children,
+and `ELECTROBOY_AGENT_EXECUTABLE` when a named Codex wrapper is selected.
 
 OpenCode support targets the v2 CLI, checked against installed version 2.0.32.
 Interactive sessions use `opencode <directory> --standalone --session ...
@@ -63,7 +72,10 @@ sessions carry a selection snapshot and a child environment override. Background
 jobs capture a runtime factory with the same revision and cancellation event.
 Workflow code requests these capabilities through `SessionServices`.
 
-GET returns the backend, revision, switching state, and active-agent counts.
+GET returns the selected binary as `backend`, its provider as `provider`,
+the supported `backends`, per-entry `availability`, revision, switching state,
+and active-agent counts. Switching between two Codex binaries follows the same
+confirmation and cancellation rules as changing providers.
 POST accepts `backend`, `revision`, and `confirmed: true`. Unknown backends,
 stale revisions, missing confirmation, unavailable executables, and failed
 termination produce errors without reporting a successful switch.
@@ -96,3 +108,23 @@ the styled dialog, cancellation, switching both ways, reload, and tab sync.
   checks of this feature succeeded using Brave.
 - No paid model requests were made. OpenCode v2.0.32 help was checked locally;
   adapter execution tests used deterministic fixture executables.
+
+### Binary selector validation
+
+The approved selector design reuses the existing backend switch lifecycle and
+keeps provider identity separate from binary selection. Implementation extends
+the backend coordinator and runtime resolver, then the existing agent-sessions
+frontend. No workflow-specific selector or adapter was added.
+
+Validation passed with 313 tests across these two commands. Fixture execution
+covers launching a named wrapper and stopping it during a same-provider switch;
+other tests cover both wrapper names, PTY/tmux configuration, workflow-child
+environment propagation, background resolution, availability,
+and stale revisions. JavaScript syntax and `git diff --check` also passed.
+No live model requests or browser interaction checks were performed.
+
+```bash
+source .electroboy/bin/activate
+python -m pytest tests/test_agent_backend.py tests/test_runtime_config.py tests/test_runtime_adapters.py tests/test_service.py -q
+python -m pytest tests/test_opencode_runtime.py tests/test_opencode_integration.py tests/test_code_learner_controller.py tests/test_code_learner_agent_sessions.py tests/test_code_learner_tutor.py tests/test_ad_hoc_sessions.py -q
+```

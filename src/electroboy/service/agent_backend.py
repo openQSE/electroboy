@@ -16,6 +16,15 @@ from electroboy.runtime import backend_config, runtime_for_role
 from .sessions import AgentSession, AgentSessionError
 
 
+# Provider identity stays independent of the executable used to launch it.
+BACKEND_BINARIES = {
+    "codex": "codex",
+    "codex-ornl": "codex",
+    "codex-atoz": "codex",
+    "opencode": "opencode",
+}
+
+
 class AgentBackend:
     """Coordinate terminal sessions and background invocations for one service."""
 
@@ -28,7 +37,8 @@ class AgentBackend:
         self.lock = lock
         self.sessions = sessions
         self.roots = roots
-        self.selected = "codex"
+        self.binary = "codex"
+        self.selected = BACKEND_BINARIES[self.binary]
         self.revision = 0
         self.switching = False
         self.invocations: dict[object, tuple[threading.Event, threading.Event]] = {}
@@ -46,13 +56,29 @@ class AgentBackend:
                 if s.is_active()
             ]
             return {
-                "backend": self.selected,
-                "backends": ["codex", "opencode"],
+                "backend": self.binary,
+                "provider": self.selected,
+                "backends": list(BACKEND_BINARIES),
+                "availability": {
+                    binary: self._available(binary) for binary in BACKEND_BINARIES
+                },
                 "revision": self.revision,
                 "switching": self.switching,
                 "active_agents": active,
                 "background_agents": len(self.invocations),
             }
+
+    def _command(self, binary: str, root: Path, interactive: bool) -> str:
+        if binary in {"codex-ornl", "codex-atoz"}:
+            return binary
+        return backend_config(binary, root, interactive=interactive).command
+
+    def _available(self, binary: str) -> bool:
+        roots = list(self.roots()) or [Path(".")]
+        return all(
+            shutil.which(self._command(binary, root, interactive)) is not None
+            for root in roots for interactive in (False, True)
+        )
 
     def require_ready(self, revision: int | None = None) -> None:
         if self.switching or (revision is not None and revision != self.revision):
@@ -72,6 +98,18 @@ class AgentBackend:
                 raise AgentSessionError("Agent backend changed; retry the operation.")
             session.metadata["provider"] = self.selected
             session.environment["ELECTROBOY_AGENT_BACKEND"] = self.selected
+            if self.binary in {"codex-ornl", "codex-atoz"}:
+                # Terminal commands are already built with the project's arguments.
+                # Replace only a direct provider launch, never the workflow CLI.
+                command = backend_config(
+                    self.selected, session.cwd, interactive=True
+                ).command
+                if session.command and session.command[0] == command:
+                    session.command = [self.binary, *session.command[1:]]
+                session.environment["ELECTROBOY_AGENT_EXECUTABLE"] = self.binary
+            else:
+                # Shadow any wrapper inherited from the service environment.
+                session.environment["ELECTROBOY_AGENT_EXECUTABLE"] = ""
             revision = self.revision
             session.start_guard = lambda: self.launch(revision)
 
@@ -80,12 +118,17 @@ class AgentBackend:
         with self.lock:
             self.require_ready()
             backend, revision = self.selected, self.revision
+            executable = (
+                self.binary if self.binary in {"codex-ornl", "codex-atoz"} else None
+            )
             cancel_epoch = self.cancel_epoch
 
         def factory(role: str, root: Path) -> AgentRuntime:
             with self.lock:
                 self.require_ready(revision)
-            runtime = runtime_for_role(role, root, backend=backend)
+            runtime = runtime_for_role(
+                role, root, backend=backend, executable=executable
+            )
             return ManagedRuntime(self, revision, runtime)
 
         factory.cancel_event = cancel_epoch
@@ -94,21 +137,19 @@ class AgentBackend:
     def switch(
         self, backend: str, *, confirmed: bool = False, revision: int | None = None
     ) -> dict[str, object]:
-        if backend not in {"codex", "opencode"}:
-            raise ValueError("Backend must be codex or opencode.")
+        if backend not in BACKEND_BINARIES:
+            raise ValueError("Unknown backend binary.")
         with self.lock:
             self.require_ready(revision)
-            if backend == self.selected:
+            if backend == self.binary:
                 return self.payload()
             if confirmed is not True:
                 raise AgentSessionError(
                     "Confirm stopping all agents before switching backend."
                 )
-            for root in self.roots():
+            for root in list(self.roots()) or [Path(".")]:
                 for interactive in (False, True):
-                    command = backend_config(
-                        backend, root, interactive=interactive
-                    ).command
+                    command = self._command(backend, root, interactive)
                     if shutil.which(command) is None:
                         raise AgentSessionError(
                             f"Backend executable is unavailable: {command}"
@@ -141,7 +182,8 @@ class AgentBackend:
                     "Backend unchanged. Could not stop: " + "; ".join(failures)
                 )
             with self.lock:
-                self.selected = backend
+                self.binary = backend
+                self.selected = BACKEND_BINARIES[backend]
         finally:
             with self.lock:
                 self.switching = False
