@@ -8,6 +8,40 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.mind-map-pane .mind-map-font-picker summary {
+  cursor: pointer;
+  border: 1px solid var(--theme-border, #46566e);
+  border-radius: 5px;
+  padding: 6px 8px;
+}
+
+.mind-map-pane .mind-map-font-picker summary[aria-disabled="true"] {
+  opacity: .42;
+  cursor: default;
+}
+
+.mind-map-pane .mind-map-font-list {
+  max-height: 240px;
+  overflow-y: auto;
+  display: grid;
+  gap: 3px;
+  padding: 5px 0;
+}
+
+.mind-map-pane .mind-map-font-search {
+  width: 100%;
+  margin-top: 5px;
+}
+
+.mind-map-pane .mind-map-font-list button {
+  text-align: left;
+  width: 100%;
+}
+
+.mind-map-pane .mind-map-font-list button[hidden] {
+  display: none;
+}
+
 .mind-map-pane .mind-map-tool-button-group button {
   display: flex;
   align-items: center;

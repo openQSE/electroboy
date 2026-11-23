@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import base64
 import html
+import hashlib
+import json
 import mimetypes
 import posixpath
+import subprocess
 import zipfile
+from functools import lru_cache
 from http import HTTPStatus
 from pathlib import Path
 from xml.etree import ElementTree
@@ -16,6 +20,7 @@ from electroboy.service.http import (
     HtmlResponse,
     JsonResponse,
     ServiceResponse,
+    TextResponse,
 )
 from electroboy.service.mind_map import MindMapProvider, MindMapWorkflowController
 from electroboy.service.registry import ServiceModule
@@ -33,6 +38,58 @@ from .mind_map_documents import (
     save_mind_map,
 )
 from .mind_map_workspace import render_mind_map_html
+
+
+@lru_cache(maxsize=1)
+def _system_fonts() -> dict[str, tuple[str, Path]]:
+    try:
+        result = subprocess.run(
+            ["fc-list", "--format", "%{family[0]}\t%{file}\t%{style[0]}\n"],
+            capture_output=True, text=True, check=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    families: dict[str, tuple[str, Path, int]] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        family, filename, style = parts
+        path = Path(filename)
+        if not family or path.suffix.lower() not in {".ttf", ".otf", ".woff", ".woff2"}:
+            continue
+        rank = 0 if style.lower() in {"regular", "normal", "book"} else 1
+        current = families.get(family.casefold())
+        if current is None or (rank, filename) < (current[2], str(current[1])):
+            families[family.casefold()] = (family, path, rank)
+    return {
+        hashlib.sha256((family + "\0" + str(path)).encode()).hexdigest(): (family, path)
+        for family, path, _ in families.values()
+    }
+
+
+def _fonts(_request: RouteRequest) -> ServiceResponse:
+    fonts = sorted(_system_fonts().items(), key=lambda item: item[1][0].casefold())
+    return JsonResponse({"fonts": [{"id": key, "family": value[0]} for key, value in fonts]})
+
+
+def _font_css(_request: RouteRequest) -> ServiceResponse:
+    rules = []
+    for key, (family, _path) in _system_fonts().items():
+        name = json.dumps(family, ensure_ascii=False)
+        rules.append(f'@font-face{{font-family:{name};src:url("/api/mind-map/font?id={key}");font-display:swap;}}')
+    return TextResponse("\n".join(rules), content_type="text/css; charset=utf-8")
+
+
+def _font_file(request: RouteRequest) -> ServiceResponse:
+    key = str((request.params.get("id") or [""])[0])
+    font = _system_fonts().get(key)
+    if font is None:
+        return JsonResponse({"error": "font not found"}, status=HTTPStatus.NOT_FOUND)
+    try:
+        return BinaryResponse(font[1].read_bytes(), mimetypes.guess_type(font[1].name)[0] or "application/octet-stream")
+    except OSError:
+        return JsonResponse({"error": "font unavailable"}, status=HTTPStatus.NOT_FOUND)
 
 
 def _provider(request: RouteRequest) -> MindMapProvider:
@@ -264,6 +321,9 @@ padding:0 2rem;color:#202632}}img{{max-width:100%;height:auto}}</style></head>
 
 
 _HANDLERS = {
+    "fonts": _fonts,
+    "font_css": _font_css,
+    "font_file": _font_file,
     "view": _view,
     "mind_map": _mind_map,
     "documents": _documents,
@@ -279,6 +339,9 @@ def module() -> ServiceModule:
         id="mind_map",
         label="Mind Map",
         routes=(
+            route("GET", "/api/mind-map/fonts", "mind_map", "fonts"),
+            route("GET", "/api/mind-map/fonts.css", "mind_map", "font_css"),
+            route("GET", "/api/mind-map/font", "mind_map", "font_file"),
             route("GET", "/artifacts/mind-map", "mind_map", "view"),
             route("GET", "/api/mind-map", "mind_map", "mind_map"),
             route("GET", "/api/mind-map/documents", "mind_map", "documents"),

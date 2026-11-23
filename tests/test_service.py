@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import http.client
+import importlib
 import json
 import os
 import shutil
@@ -14,6 +15,7 @@ import unittest
 from datetime import datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 from urllib.parse import urlencode
 
@@ -131,6 +133,52 @@ from electroboy.state_store import StateError, StateStore  # noqa: E402
 
 
 class ServiceTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_mind_map_font_search_filters_existing_and_new_choices(self) -> None:
+        source = read_service_text_asset("js/modules/mind-map-pane-tools.js")
+        script = r'''
+const assert = require("assert");
+const source = require("fs").readFileSync(0, "utf8");
+const code = source.slice(source.indexOf("    function matchesFont(label)"),
+  source.indexOf('    addFont("", "Default font");'));
+const handlers = {}, choices = [];
+const fontSearch = {value:"", addEventListener: (name, fn) => handlers[name] = fn};
+const fontList = {querySelectorAll: () => choices, append: choice => choices.push(choice)};
+const document = {createElement: () => ({style:{}, addEventListener: () => {}})};
+const fontPicker = {}, post = () => {};
+eval(`${code}
+  addFont("Example Serif", "Example Serif");
+  addFont("Example Sans", "Example Sans");
+  fontSearch.value = "  SeRiF  "; handlers.input();
+  assert.equal(choices[0].hidden, false); assert.equal(choices[1].hidden, true);
+  addFont("Other Serif", "Other Serif"); assert.equal(choices[2].hidden, false);
+  fontSearch.value = ""; handlers.input(); assert.ok(choices.every(c => !c.hidden));
+`);
+'''
+        result = subprocess.run([shutil.which("node"), "-e", script], input=source,
+                                text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_mind_map_font_discovery_and_restricted_delivery(self) -> None:
+        module = importlib.import_module("electroboy.modules.mind_map")
+        with tempfile.TemporaryDirectory() as directory:
+            font = Path(directory) / "font.ttf"
+            font.write_bytes(b"font data")
+            listing = f"Example Serif\t{font}\tRegular\nExample Serif\t{font}\tBold\n"
+            module._system_fonts.cache_clear()
+            try:
+                with mock.patch.object(module.subprocess, "run", return_value=SimpleNamespace(stdout=listing)):
+                    fonts = module._system_fonts()
+                self.assertEqual(len(fonts), 1)
+                key = next(iter(fonts))
+                listing_response = module._fonts(None)
+                self.assertEqual(listing_response.payload["fonts"], [{"id": key, "family": "Example Serif"}])
+                self.assertNotIn(str(font), module._font_css(None).body)
+                self.assertEqual(module._font_file(SimpleNamespace(params={"id": [key]})).data, b"font data")
+                self.assertEqual(module._font_file(SimpleNamespace(params={"id": [str(font)]})).status, HTTPStatus.NOT_FOUND)
+            finally:
+                module._system_fonts.cache_clear()
+
     def test_shared_sidebar_controls_and_styled_backend_confirmation(self) -> None:
         index = read_service_text_asset("index.html")
         sidebar = index.split('<aside', 1)[1].split('</aside>', 1)[0]
@@ -546,6 +594,9 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(("GET", "/artifacts/mind-map"), mind_map_routes)
         self.assertIn(("GET", "/api/mind-map"), mind_map_routes)
         self.assertIn(("GET", "/api/mind-map/documents"), mind_map_routes)
+        self.assertIn(("GET", "/api/mind-map/fonts"), mind_map_routes)
+        self.assertIn(("GET", "/api/mind-map/fonts.css"), mind_map_routes)
+        self.assertIn(("GET", "/api/mind-map/font"), mind_map_routes)
         self.assertIn(("POST", "/api/mind-map/document"), mind_map_routes)
         self.assertIn("mind-map-provider", modules["mind_map"]["capabilities"])
         self.assertIn("editable-mind-map", modules["mind_map"]["capabilities"])
@@ -7445,6 +7496,7 @@ class ServiceTests(unittest.TestCase):
                     "text_italic": True,
                     "text_underline": True,
                     "text_align": "center",
+                    "font_family": "Example Serif",
                     "links": [{"type": "file", "target": "launch.md"}],
                 }
             ]
@@ -7466,6 +7518,7 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue(loaded["document"]["nodes"][0]["text_italic"])
             self.assertTrue(loaded["document"]["nodes"][0]["text_underline"])
             self.assertEqual(loaded["document"]["nodes"][0]["text_align"], "center")
+            self.assertEqual(loaded["document"]["nodes"][0]["font_family"], "Example Serif")
             self.assertEqual(loaded["document"]["nodes"][0]["width"], 260.0)
             self.assertEqual(loaded["document"]["nodes"][0]["min_height"], 58.0)
             self.assertEqual(list_mind_maps(root)[0]["title"], "Launch plan")
@@ -7625,7 +7678,7 @@ const source = require("fs").readFileSync(0, "utf8");
 const add = source.slice(source.indexOf("    function addNode(kind)"), source.indexOf("    function descendants("));
 const markdown = source.slice(source.indexOf("    function newMarkdownNode("), source.indexOf("    function appendMarkdownTree("));
 eval(`(() => {
-  let documentState = {nodes: [{id:"p", parent_id:null, text_align:"center"}]};
+  let documentState = {nodes: [{id:"p", parent_id:null, text_align:"center", font_family:"Example Serif"}]};
   let selectedId = "p", editingId, collapsed = new Set();
   const nodeById = id => documentState.nodes.find(n => n.id === id);
   const childrenOf = id => documentState.nodes.filter(n => n.parent_id === id);
@@ -7640,9 +7693,11 @@ eval(`(() => {
   const DEFAULT_NODE_WIDTH = 260, DEFAULT_NODE_MIN_HEIGHT = 58;
   ${add}\n${markdown}
   addNode("child"); assert.equal(documentState.nodes[1].text_align, "center");
+  assert.equal(documentState.nodes[1].font_family, "Example Serif");
   documentState.nodes[1].text_align = "right";
   addNode("sibling"); assert.equal(documentState.nodes[2].text_align, "center");
   addNode("root"); assert.equal(documentState.nodes[3].text_align, "left");
+  assert.equal(documentState.nodes[3].font_family, "");
   assert.equal(newMarkdownNode({text:"x"}, "p", "right", {x:0,y:0}).text_align, "center");
 })()`);
 '''
@@ -7686,6 +7741,9 @@ eval(`(async () => {
   setNodeColor("blue"); assert.deepEqual(documentState.nodes.map(n => n.color), ["blue", "blue", "default"]);
   toggleTextStyle("text_bold"); assert.ok(documentState.nodes[0].text_bold && documentState.nodes[1].text_bold);
   documentState = JSON.parse(saved); assert.equal(documentState.nodes[1].text_bold, false);
+  setFontFamily("Example Serif");
+  assert.deepEqual(documentState.nodes.slice(0, 2).map(n => n.font_family), ["Example Serif", "Example Serif"]);
+  documentState = JSON.parse(saved); assert.equal(documentState.nodes[0].font_family, undefined);
   await deleteSelected(); assert.equal(confirmed, 1); assert.equal(documentState.nodes.length, 0);
   documentState = JSON.parse(saved); assert.equal(documentState.nodes.length, 3);
   documentState.nodes = [

@@ -69,6 +69,13 @@ Light, Dracula, Nord, Gruvbox Dark, Solarized Light, and Catppuccin Mocha. The
 selection is remembered by the browser and updates open panes and windows.
 See [Color schemes](docs/color-schemes.md) for coverage and extension guidance.
 
+The mind-map Text tool lists fonts discovered on the service host through
+Fontconfig (`fc-list`). Font previews and node text load those fonts from the
+service, including when the browser runs on another machine. Restart the service
+after installing fonts to refresh the list. If Fontconfig is unavailable, the
+picker offers common browser fonts; a saved font missing on another server uses
+a fallback. Font choice is stored per node and inherited by new children.
+
 Mermaid diagrams use the pinned Mermaid 12.3.0 renderer with ElectroBoy's existing
 classic styling. Flowcharts use the bundled ELK layout by default; mind maps
 retain their own supported layout. This applies to document panes, course

@@ -41,6 +41,7 @@ _PAGE = r"""<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mind Map</title>
   <link rel="stylesheet" href="/assets/service/css/selects.css">
+  <link rel="stylesheet" href="/api/mind-map/fonts.css">
   <style>
     :root { color-scheme: var(--theme-color-scheme, dark); font-family: Inter, system-ui, sans-serif; }
     * { box-sizing: border-box; }
@@ -665,6 +666,7 @@ _PAGE = r"""<!doctype html>
         order: childrenOf(parentId).length, x: position.x, y: position.y,
         side, color: initialNodeColor(parentId), font_size: initialNodeFontSize(kind, selected),
         text_align: nodeById(parentId)?.text_align || "left",
+        font_family: nodeById(parentId)?.font_family || "",
         font_size_mode: "auto",
         width: DEFAULT_NODE_WIDTH, min_height: DEFAULT_NODE_MIN_HEIGHT, links: [] };
       if (kind === "child") collapsed.delete(parentId);
@@ -817,6 +819,7 @@ _PAGE = r"""<!doctype html>
         x: position.x, y: position.y, side,
         color: initialNodeColor(parentId),
         text_align: parent?.text_align || "left",
+        font_family: parent?.font_family || "",
         font_size: parent
           ? Math.max(MINIMUM_NODE_FONT_SIZE,
             nodeFontSize(parent) - NODE_GENERATION_FONT_STEP)
@@ -1314,6 +1317,11 @@ _PAGE = r"""<!doctype html>
       updateSelectedNodes((node) => (node.text_align || "left") !== alignment,
         (node) => { node.text_align = alignment; });
     }
+    function setFontFamily(family) {
+      if (typeof family !== "string" || family.length > 256) return;
+      updateSelectedNodes((node) => (node.font_family || "") !== family,
+        (node) => { node.font_family = family; }, true);
+    }
     function updateSelectedNodes(needsChange, change, affectsHeight = false) {
       const nodes = selectedNodes().filter(needsChange);
       if (!nodes.length) return;
@@ -1435,6 +1443,7 @@ _PAGE = r"""<!doctype html>
         selectedTextItalic: common((node) => Boolean(node.text_italic)),
         selectedTextUnderline: common((node) => Boolean(node.text_underline)),
         selectedTextAlign: common((node) => node.text_align || "left"),
+        selectedFontFamily: common((node) => node.font_family || ""),
         selectedResolvedColor: selectedId ? resolvedNodeColor(nodeById(selectedId)) : "default",
         selectedFontSize: common((node) => nodeFontSize(node)),
         selectedFontSizeMode: common((node) => node.font_size_mode || "auto"),
@@ -1487,6 +1496,7 @@ _PAGE = r"""<!doctype html>
       if (editingId === node.id) {
         const editor = document.createElement("textarea"); editor.value = node.text;
         editor.style.textAlign = node.text_align || "left";
+        if (node.font_family) editor.style.fontFamily = JSON.stringify(node.font_family) + ", sans-serif";
         editor.addEventListener("pointerdown", (event) => event.stopPropagation());
         editor.addEventListener("click", (event) => event.stopPropagation());
         editor.addEventListener("keydown", (event) => {
@@ -1501,6 +1511,7 @@ _PAGE = r"""<!doctype html>
       } else {
         const text = document.createElement("div"); text.className = "node-text";
         text.style.textAlign = node.text_align || "left";
+        if (node.font_family) text.style.fontFamily = JSON.stringify(node.font_family) + ", sans-serif";
         text.dataset.bold = String(Boolean(node.text_bold));
         text.dataset.italic = String(Boolean(node.text_italic));
         text.dataset.underline = String(Boolean(node.text_underline));
@@ -1888,6 +1899,7 @@ _PAGE = r"""<!doctype html>
       "text-align-left": () => setTextAlign("left"),
       "text-align-center": () => setTextAlign("center"),
       "text-align-right": () => setTextAlign("right"),
+      "font-family-set": (data) => setFontFamily(data?.family),
       compact: () => { compact = true; render(); }, expand: () => { compact = false; render(); },
       "zoom-out": () => adjustZoom(zoom / 1.2), "zoom-in": () => adjustZoom(zoom * 1.2),
       "zoom-set": (data) => adjustZoom(data?.zoom),

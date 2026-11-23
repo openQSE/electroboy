@@ -239,6 +239,61 @@
       ["Rose", "color-rose", "Use rose"],
     ], post);
     const textSection = section(controller, "mind-map-text", "Text");
+    const fontPicker = document.createElement("details");
+    fontPicker.className = "mind-map-font-picker";
+    const fontSummary = document.createElement("summary");
+    fontSummary.textContent = "Default font";
+    fontSummary.setAttribute("aria-label", "Selected node font");
+    const fontSearch = document.createElement("input");
+    fontSearch.type = "search";
+    fontSearch.className = "mind-map-font-search";
+    fontSearch.placeholder = "Search fonts";
+    fontSearch.setAttribute("aria-label", "Search fonts");
+    const fontList = document.createElement("div");
+    fontList.className = "mind-map-font-list";
+    fontPicker.append(fontSummary, fontSearch, fontList);
+    textSection.append(fontPicker);
+    let fontEnabled = false;
+    fontSummary.addEventListener("click", (event) => {
+      if (!fontEnabled) event.preventDefault();
+    });
+    function matchesFont(label) {
+      return label.toLocaleLowerCase().includes(fontSearch.value.trim().toLocaleLowerCase());
+    }
+    fontSearch.addEventListener("input", () => {
+      fontList.querySelectorAll("button").forEach((choice) => {
+        choice.hidden = !matchesFont(choice.textContent);
+      });
+    });
+    function addFont(family, label) {
+      const choice = document.createElement("button");
+      choice.type = "button";
+      choice.textContent = label;
+      choice.hidden = !matchesFont(label);
+      if (family) choice.style.fontFamily = `${JSON.stringify(family)}, sans-serif`;
+      choice.addEventListener("click", () => {
+        post("font-family-set", { family });
+        fontPicker.open = false;
+      });
+      fontList.append(choice);
+    }
+    addFont("", "Default font");
+    if (!document.querySelector('link[data-mind-map-fonts]')) {
+      const stylesheet = document.createElement("link");
+      stylesheet.rel = "stylesheet";
+      stylesheet.href = "/api/mind-map/fonts.css";
+      stylesheet.dataset.mindMapFonts = "true";
+      document.head.append(stylesheet);
+    }
+    const fallbackFonts = ["Arial", "Georgia", "Times New Roman", "Verdana", "Courier New"];
+    fetch("/api/mind-map/fonts").then((response) => response.ok ? response.json() : { fonts: [] })
+      .then((data) => {
+        const fonts = Array.isArray(data.fonts) && data.fonts.length
+          ? data.fonts : fallbackFonts.map((family) => ({ family }));
+        fonts.forEach((font) => {
+          if (typeof font.family === "string" && font.family) addFont(font.family, font.family);
+        });
+      }).catch(() => fallbackFonts.forEach((family) => addFont(family, family)));
     const fontControls = fontSizeGroup(textSection, post);
     const textColorRow = document.createElement("div");
     textColorRow.className = "pane-tool-color-row";
@@ -331,6 +386,13 @@
       if (data.type !== "electroboy-mind-map-state") return;
       mapPath = String(data.mapPath || mapPath);
       onState(data);
+      fontEnabled = Boolean(data.selected);
+      fontSummary.setAttribute("aria-disabled", String(!fontEnabled));
+      if (!fontEnabled) fontPicker.open = false;
+      const family = data.selectedFontFamily;
+      fontSummary.textContent = !data.selected ? "Default font"
+        : family === null ? "Mixed fonts" : family || "Default font";
+      fontSummary.style.fontFamily = family ? `${JSON.stringify(family)}, sans-serif` : "";
       fontControls.input.disabled = !data.selected;
       textColor.disabled = !data.selected;
       if (data.selected && data.selectedTextColor) {
