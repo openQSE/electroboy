@@ -1283,6 +1283,12 @@ _PAGE = r"""<!doctype html>
       checkpoint(); node[field] = !Boolean(node[field]); markDirty(); render();
       scheduleLayoutAfterMeasure(node, previousHeight);
     }
+    function setTextAlign(alignment) {
+      const node = nodeById(selectedId);
+      if (!node || !["left", "center", "right"].includes(alignment)
+          || (node.text_align || "left") === alignment) return;
+      checkpoint(); node.text_align = alignment; markDirty(); render();
+    }
     function transform() {
       viewport.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
       saveView();
@@ -1389,6 +1395,7 @@ _PAGE = r"""<!doctype html>
         selectedTextBold: Boolean(nodeById(selectedId)?.text_bold),
         selectedTextItalic: Boolean(nodeById(selectedId)?.text_italic),
         selectedTextUnderline: Boolean(nodeById(selectedId)?.text_underline),
+        selectedTextAlign: nodeById(selectedId)?.text_align || "left",
         selectedResolvedColor: selectedId ? resolvedNodeColor(nodeById(selectedId)) : "default",
         selectedFontSize: selectedId ? nodeFontSize(nodeById(selectedId)) : ROOT_NODE_FONT_SIZE,
         selectedFontSizeMode: nodeById(selectedId)?.font_size_mode || "auto",
@@ -1440,6 +1447,7 @@ _PAGE = r"""<!doctype html>
       }
       if (editingId === node.id) {
         const editor = document.createElement("textarea"); editor.value = node.text;
+        editor.style.textAlign = node.text_align || "left";
         editor.addEventListener("pointerdown", (event) => event.stopPropagation());
         editor.addEventListener("click", (event) => event.stopPropagation());
         editor.addEventListener("keydown", (event) => {
@@ -1453,6 +1461,7 @@ _PAGE = r"""<!doctype html>
         element.append(editor); queueMicrotask(() => { editor.focus(); editor.select(); });
       } else {
         const text = document.createElement("div"); text.className = "node-text";
+        text.style.textAlign = node.text_align || "left";
         text.dataset.bold = String(Boolean(node.text_bold));
         text.dataset.italic = String(Boolean(node.text_italic));
         text.dataset.underline = String(Boolean(node.text_underline));
@@ -1830,6 +1839,9 @@ _PAGE = r"""<!doctype html>
       "text-bold": () => toggleTextStyle("text_bold"),
       "text-italic": () => toggleTextStyle("text_italic"),
       "text-underline": () => toggleTextStyle("text_underline"),
+      "text-align-left": () => setTextAlign("left"),
+      "text-align-center": () => setTextAlign("center"),
+      "text-align-right": () => setTextAlign("right"),
       compact: () => { compact = true; render(); }, expand: () => { compact = false; render(); },
       "zoom-out": () => adjustZoom(zoom / 1.2), "zoom-in": () => adjustZoom(zoom * 1.2),
       "zoom-set": (data) => adjustZoom(data?.zoom),

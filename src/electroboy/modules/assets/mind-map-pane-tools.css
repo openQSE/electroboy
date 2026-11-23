@@ -136,6 +136,7 @@
 .mind-map-pane [data-mind-map-action="text-bold"][aria-pressed="true"],
 .mind-map-pane [data-mind-map-action="text-italic"][aria-pressed="true"],
 .mind-map-pane [data-mind-map-action="text-underline"][aria-pressed="true"],
+.mind-map-pane [data-mind-map-action^="text-align-"][aria-pressed="true"],
 .mind-map-pane [data-mind-map-action^="layout-"][aria-pressed="true"] {
   border-color: var(--theme-accent, #66d9e8);
   background: var(--theme-accent-soft, #174050);

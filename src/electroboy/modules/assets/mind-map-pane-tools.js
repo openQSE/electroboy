@@ -33,6 +33,9 @@
     bold: '<path d="M7 4h6a4 4 0 0 1 0 8H7z"></path><path d="M7 12h7a4 4 0 0 1 0 8H7z"></path><path d="M7 4v16"></path>',
     italic: '<path d="M10 4h8"></path><path d="M6 20h8"></path><path d="M14 4 10 20"></path>',
     underline: '<path d="M6 4v6a6 6 0 0 0 12 0V4"></path><path d="M4 21h16"></path>',
+    "align-left": '<path d="M4 6h16M4 10h10M4 14h16M4 18h10"></path>',
+    "align-center": '<path d="M4 6h16M7 10h10M4 14h16M7 18h10"></path>',
+    "align-right": '<path d="M4 6h16M10 10h10M4 14h16M10 18h10"></path>',
   });
 
   function iconSvg(name) {
@@ -259,6 +262,13 @@
       textStyleRow.append(button(label, action, post, { title, icon, iconOnly: true }));
     });
     textSection.append(textStyleRow);
+    const alignmentRow = document.createElement("div");
+    alignmentRow.className = "mind-map-tool-button-group mind-map-tool-style-row";
+    ["left", "center", "right"].forEach((alignment) => {
+      alignmentRow.append(button(`Align ${alignment}`, `text-align-${alignment}`, post,
+        { title: `Align text ${alignment}`, icon: `align-${alignment}`, iconOnly: true }));
+    });
+    textSection.append(alignmentRow);
     group(section(controller, "mind-map-link", "Link"), [
       ["File", "link-file", "Link a file", "file-link"],
       ["Web", "link-web", "Link a website", "web"],
@@ -291,6 +301,7 @@
       "color-blue", "color-teal", "color-green", "color-amber", "color-rose",
       "font-size-decrease", "font-size-increase", "font-size-auto", "focus",
       "text-bold", "text-italic", "text-underline",
+      "text-align-left", "text-align-center", "text-align-right",
     ]);
     controls.forEach((control) => {
       control.disabled = needsSelection.has(control.dataset.mindMapAction)
@@ -365,6 +376,10 @@
         }
         if (action === "text-underline") {
           control.setAttribute("aria-pressed", String(Boolean(data.selected && data.selectedTextUnderline)));
+        }
+        if (action.startsWith("text-align-")) {
+          control.setAttribute("aria-pressed", String(Boolean(data.selected
+            && action === `text-align-${data.selectedTextAlign || "left"}`)));
         }
       });
     }

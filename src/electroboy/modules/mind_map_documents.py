@@ -150,6 +150,9 @@ def normalize_mind_map(value: object) -> dict[str, object]:
             if not isinstance(style, bool):
                 raise StateError(f"node {node_id} {field} must be a boolean")
             text_styles[field] = style
+        text_align = str(raw_node.get("text_align") or "left").strip().lower()
+        if text_align not in {"left", "center", "right"}:
+            raise StateError(f"node {node_id} has an invalid text_align")
         width = _finite_number(
             raw_node.get("width", DEFAULT_NODE_WIDTH),
             field=f"node {node_id} width",
@@ -179,6 +182,7 @@ def normalize_mind_map(value: object) -> dict[str, object]:
                 "font_size": font_size,
                 "font_size_mode": font_size_mode,
                 "text_color": text_color,
+                "text_align": text_align,
                 **text_styles,
                 "width": width,
                 "min_height": min_height,
