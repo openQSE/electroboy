@@ -303,6 +303,10 @@
       "text-bold", "text-italic", "text-underline",
       "text-align-left", "text-align-center", "text-align-right",
     ]);
+    const needsSingleSelection = new Set([
+      "copy", "paste", "child", "sibling", "branch-left", "branch-right", "edit",
+      "link-file", "link-web", "create-document", "remove-link", "focus", "tidy",
+    ]);
     controls.forEach((control) => {
       control.disabled = needsSelection.has(control.dataset.mindMapAction)
         || ["undo", "redo", "paste"].includes(control.dataset.mindMapAction);
@@ -332,18 +336,20 @@
       if (data.selected && data.selectedTextColor) {
         textColor.value = data.selectedTextColor;
       }
+      textColor.title = data.selected && !data.selectedTextColor
+        ? "Mixed text colors" : "Selected node text color";
       if (document.activeElement !== zoomPercent) {
         const percent = Math.round(Number(data.zoom || 1) * 100);
         zoomPercent.value = Number.isFinite(percent) ? String(percent) : "100";
       }
       if (document.activeElement !== fontControls.input) {
         fontControls.input.value = data.selected
-          ? String(data.selectedFontSize || 16)
+          ? (data.selectedFontSize == null ? "" : String(data.selectedFontSize))
           : "16";
       }
       fontControls.automatic.setAttribute(
         "aria-pressed",
-        String(Boolean(data.selected && data.selectedFontSizeMode !== "custom")),
+        String(Boolean(data.selected && data.selectedFontSizeMode === "auto")),
       );
       controls.forEach((control) => {
         const action = control.dataset.mindMapAction;
@@ -351,6 +357,7 @@
         if (action === "undo") control.disabled = !data.canUndo;
         if (action === "redo") control.disabled = !data.canRedo;
         if (action === "paste") control.disabled = !data.canPaste;
+        if (needsSingleSelection.has(action) && data.selectionCount > 1) control.disabled = true;
         if (action === "branch-left") control.disabled = !data.canMoveBranchLeft;
         if (action === "branch-right") control.disabled = !data.canMoveBranchRight;
         if (action === "focus") {
@@ -365,7 +372,7 @@
         if (action.startsWith("color-")) {
           control.setAttribute(
             "aria-pressed",
-            String(data.selected && action === `color-${data.selectedColor || "default"}`),
+            String(data.selected && action === `color-${data.selectedColor}`),
           );
         }
         if (action === "text-bold") {
@@ -379,7 +386,7 @@
         }
         if (action.startsWith("text-align-")) {
           control.setAttribute("aria-pressed", String(Boolean(data.selected
-            && action === `text-align-${data.selectedTextAlign || "left"}`)));
+            && action === `text-align-${data.selectedTextAlign}`)));
         }
       });
     }

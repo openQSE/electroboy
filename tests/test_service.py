@@ -1145,7 +1145,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('textSection.append(alignmentRow)', mind_map_tools)
         self.assertLess(mind_map_tools.index('textSection.append(textStyleRow)'),
                         mind_map_tools.index('textSection.append(alignmentRow)'))
-        self.assertIn('selectedTextAlign || "left"', mind_map_tools)
+        self.assertIn('data.selectedTextAlign', mind_map_tools)
         self.assertIn('textColor.type = "color";', mind_map_tools)
         self.assertIn("function zoomPercentInput(body, post)", mind_map_tools)
         self.assertIn('post("zoom-set", { zoom: percent / 100 })', mind_map_tools)
@@ -7612,6 +7612,69 @@ class ServiceTests(unittest.TestCase):
             [node["side"] for node in normalized["nodes"]],
             ["right", "left", "right"],
         )
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_mind_map_multiple_selection_operations(self) -> None:
+        page, _ = render_editable_mind_map_html({
+            "path": "/tmp/test.mindmap.json", "revision": "1",
+            "document": empty_mind_map(),
+        }, context_id="test", connection_id="test")
+        script = r'''
+const assert = require("assert");
+let source = require("fs").readFileSync(0, "utf8");
+const selection = source.slice(source.indexOf("    let selectedId = null;"),
+  source.indexOf("    let editingId = null;"));
+const operations = source.slice(source.indexOf("    function setNodeColor(color)"), source.indexOf("    function transform()"));
+const deletion = source.slice(source.indexOf("    async function deleteSelected()"), source.indexOf("    function beginEdit()"));
+eval(`(async () => {
+  let documentState = { nodes: [
+    {id:"a", parent_id:null, color:"default", text_bold:true},
+    {id:"b", parent_id:"a", color:"default", text_bold:false},
+    {id:"c", parent_id:"b", color:"default"}], relationships:[] };
+  let editingId = null, layoutMode = "local", focusMode = false, saved, confirmed = 0;
+  const nodeById = (id) => documentState.nodes.find((node) => node.id === id);
+  const childrenOf = (id) => documentState.nodes.filter(n => n.parent_id === id)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+  const descendants = (id) => { const result = new Set();
+    const visit = (parent) => documentState.nodes.filter(n => n.parent_id === parent)
+      .forEach(n => { result.add(n.id); visit(n.id); }); visit(id); return result; };
+  const treeRoot = (node) => node.parent_id ? treeRoot(nodeById(node.parent_id)) : node;
+  const checkpoint = () => { saved = JSON.stringify(documentState); };
+  const markDirty = () => {}, render = () => {}, renderedNodeHeight = () => 0;
+  const scheduleLayoutAfterMeasure = () => {}, applyLayoutMode = () => {};
+  const confirmDialog = async () => { confirmed++; return true; };
+  ${selection}\n${operations}\n${deletion}
+  selectOnly("a"); toggleSelection("b");
+  assert.equal(selectedNodes().length, 2);
+  setNodeColor("blue"); assert.deepEqual(documentState.nodes.map(n => n.color), ["blue", "blue", "default"]);
+  toggleTextStyle("text_bold"); assert.ok(documentState.nodes[0].text_bold && documentState.nodes[1].text_bold);
+  documentState = JSON.parse(saved); assert.equal(documentState.nodes[1].text_bold, false);
+  await deleteSelected(); assert.equal(confirmed, 1); assert.equal(documentState.nodes.length, 0);
+  documentState = JSON.parse(saved); assert.equal(documentState.nodes.length, 3);
+  documentState.nodes = [
+    {id:"root", parent_id:null, order:0},
+    {id:"p", parent_id:"root", order:0},
+    {id:"p1", parent_id:"p", order:0},
+    {id:"p2", parent_id:"p", order:1},
+    {id:"q", parent_id:"root", order:1},
+    {id:"q1", parent_id:"q", order:0},
+    {id:"q2", parent_id:"q", order:1},
+  ];
+  selectOnly("p"); selectRange("p2");
+  assert.deepEqual([...selectedIds], ["p", "p1", "p2"]);
+  selectRange("q");
+  assert.deepEqual([...selectedIds], ["p", "p1", "p2", "q", "q1", "q2"]);
+  selectOnly("q"); selectRange("p");
+  assert.deepEqual(new Set(selectedIds), new Set(["p", "p1", "p2", "q", "q1", "q2"]));
+  selectOnly("q1"); selectRange("p2");
+  assert.deepEqual([...selectedIds], ["p2", "q", "q1"]);
+  selectOnly("p1"); toggleSelection("q1"); selectRange("q2");
+  assert.deepEqual([...selectedIds], ["q1", "q2"]);
+})().catch(error => { console.error(error); process.exitCode = 1; });`);
+'''
+        result = subprocess.run([shutil.which("node"), "-e", script], input=page,
+                                text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_editable_mind_map_workspace_has_keyboard_canvas_and_links(self) -> None:
         page, status = render_editable_mind_map_html(

@@ -256,6 +256,41 @@ _PAGE = r"""<!doctype html>
     let revision = initial.revision;
     let path = initial.path;
     let selectedId = null;
+    let selectedIds = new Set();
+    let selectionAnchor = null;
+    function selectOnly(id) {
+      selectedId = id;
+      selectedIds = new Set(id ? [id] : []);
+      selectionAnchor = id;
+    }
+    function selectedNodes() {
+      return documentState.nodes.filter((node) => selectedIds.has(node.id));
+    }
+    function toggleSelection(id) {
+      if (selectedIds.has(id)) selectedIds.delete(id);
+      else selectedIds.add(id);
+      selectedId = selectedIds.has(id) ? id : (Array.from(selectedIds).pop() || null);
+      selectionAnchor = selectedId;
+      if (selectedIds.size !== 1) focusMode = false;
+    }
+    function selectRange(id) {
+      if (!nodeById(selectionAnchor) || !nodeById(id)) { selectOnly(id); return; }
+      const ordered = [];
+      function visit(parentId) {
+        childrenOf(parentId).forEach((node) => { ordered.push(node.id); visit(node.id); });
+      }
+      visit(null);
+      const start = ordered.indexOf(selectionAnchor);
+      const end = ordered.indexOf(id);
+      if (start < 0 || end < 0) { selectOnly(id); return; }
+      selectedIds = new Set(ordered.slice(Math.min(start, end), Math.max(start, end) + 1));
+      if (childrenOf(selectionAnchor).length && childrenOf(id).length) {
+        descendants(selectionAnchor).forEach((childId) => selectedIds.add(childId));
+        descendants(id).forEach((childId) => selectedIds.add(childId));
+      }
+      selectedId = id;
+      if (selectedIds.size !== 1) focusMode = false;
+    }
     let editingId = null;
     let pan = { x: 80, y: 70 };
     let zoom = 1;
@@ -544,7 +579,7 @@ _PAGE = r"""<!doctype html>
         if (!stored) return;
         if (stored.pan) pan = stored.pan;
         if (Number.isFinite(stored.zoom)) zoom = Math.min(4, Math.max(.15, stored.zoom));
-        if (nodeById(stored.selectedId)) selectedId = stored.selectedId;
+        if (nodeById(stored.selectedId)) selectOnly(stored.selectedId);
         compact = stored.compact !== false;
         expanded = new Set(Array.isArray(stored.expanded) ? stored.expanded : []);
         collapsed = new Set(Array.isArray(stored.collapsed) ? stored.collapsed : []);
@@ -575,7 +610,9 @@ _PAGE = r"""<!doctype html>
     }
     function restoreSnapshot(serialized) {
       documentState = JSON.parse(serialized); editingId = null;
-      if (!nodeById(selectedId)) selectedId = null;
+      selectedIds = new Set(Array.from(selectedIds).filter((id) => nodeById(id)));
+      if (!nodeById(selectedId)) selectedId = Array.from(selectedIds).pop() || null;
+      if (!nodeById(selectionAnchor)) selectionAnchor = selectedId;
       markDirty(); render();
     }
     function undo() {
@@ -630,7 +667,7 @@ _PAGE = r"""<!doctype html>
         font_size_mode: "auto",
         width: DEFAULT_NODE_WIDTH, min_height: DEFAULT_NODE_MIN_HEIGHT, links: [] };
       if (kind === "child") collapsed.delete(parentId);
-      documentState.nodes.push(node); selectedId = node.id; editingId = node.id; markDirty();
+      documentState.nodes.push(node); selectOnly(node.id); editingId = node.id; markDirty();
       render();
     }
     function descendants(id, result = new Set()) {
@@ -757,7 +794,7 @@ _PAGE = r"""<!doctype html>
         collapsed.delete(parent.id);
         reflowDescendants(pastedRoot, side);
       }
-      selectedId = pastedRoot.id;
+      selectOnly(pastedRoot.id);
       editingId = null;
       markDirty();
       render();
@@ -827,7 +864,7 @@ _PAGE = r"""<!doctype html>
         reflowDescendants(root, side);
         return root;
       });
-      selectedId = roots[0].id;
+      selectOnly(roots[0].id);
       editingId = null;
       markDirty();
       render();
@@ -1186,31 +1223,30 @@ _PAGE = r"""<!doctype html>
       return new Set([selectedId]);
     }
     async function deleteSelected() {
-      if (!selectedId) return;
-      const node = nodeById(selectedId);
-      if (!node) return;
-      const childCount = descendants(node.id).size;
-      if (childCount && !await confirmDialog(
-        "Delete branch?",
-        `Delete this node and ${childCount} descendant(s)? This can be undone.`,
+      const nodes = selectedNodes();
+      if (!nodes.length) return;
+      const removed = new Set();
+      nodes.forEach((node) => { removed.add(node.id); descendants(node.id).forEach((id) => removed.add(id)); });
+      if ((nodes.length > 1 || removed.size > 1) && !await confirmDialog(
+        "Delete selected nodes?",
+        `Delete ${removed.size} node(s), including descendants? This can be undone.`,
         "Delete",
         true,
       )) return;
       checkpoint();
-      const root = treeRoot(node);
-      const removed = descendants(node.id); removed.add(node.id);
+      const roots = new Set(nodes.map((node) => treeRoot(node)?.id).filter(Boolean));
       documentState.nodes = documentState.nodes.filter((candidate) => !removed.has(candidate.id));
       documentState.relationships = documentState.relationships.filter(
         (edge) => !removed.has(edge.source) && !removed.has(edge.target));
-      selectedId = node.parent_id && nodeById(node.parent_id) ? node.parent_id : null;
+      selectOnly(null);
       editingId = null;
-      if (layoutMode === "repack" && root && nodeById(root.id)) {
-        applyLayoutMode(root);
-      }
+      if (layoutMode === "repack") roots.forEach((id) => {
+        const root = nodeById(id); if (root) applyLayoutMode(root);
+      });
       markDirty(); render();
     }
     function beginEdit() {
-      if (!selectedId) return;
+      if (selectedIds.size !== 1) return;
       editingId = selectedId; render();
     }
     function commitEdit(nodeId, textarea, options = {}) {
@@ -1241,53 +1277,47 @@ _PAGE = r"""<!doctype html>
       });
     }
     function setNodeColor(color) {
-      const node = nodeById(selectedId);
-      if (!node || node.color === color) return;
-      checkpoint(); node.color = color; markDirty(); render();
+      const nodes = selectedNodes().filter((node) => node.color !== color);
+      if (!nodes.length) return;
+      checkpoint(); nodes.forEach((node) => { node.color = color; }); markDirty(); render();
     }
     function setNodeFontSize(value) {
-      const node = nodeById(selectedId);
       const fontSize = Number(value);
-      if (!node || !Number.isFinite(fontSize) || fontSize <= 0) return;
+      if (!Number.isFinite(fontSize) || fontSize <= 0) return;
       const normalized = Math.round(fontSize * 100) / 100;
-      if (node.font_size_mode === "custom" && nodeFontSize(node) === normalized) return;
-      const previousHeight = renderedNodeHeight(node);
-      checkpoint(); node.font_size = normalized; node.font_size_mode = "custom";
-      markDirty(); render(); scheduleLayoutAfterMeasure(node, previousHeight);
+      updateSelectedNodes((node) => node.font_size_mode !== "custom" || nodeFontSize(node) !== normalized,
+        (node) => { node.font_size = normalized; node.font_size_mode = "custom"; }, true);
     }
     function adjustNodeFontSize(delta) {
-      const node = nodeById(selectedId);
-      if (!node) return;
-      setNodeFontSize(Math.max(.1,
-        nodeFontSize(node) + delta));
+      updateSelectedNodes(() => true, (node) => {
+        node.font_size = Math.round(Math.max(.1, nodeFontSize(node) + delta) * 100) / 100;
+        node.font_size_mode = "custom";
+      }, true);
     }
     function useAutomaticNodeFontSize() {
-      const node = nodeById(selectedId);
-      if (!node || node.font_size_mode !== "custom") return;
-      const previousHeight = renderedNodeHeight(node);
-      checkpoint(); node.font_size_mode = "auto"; delete node.font_size;
-      markDirty(); render(); scheduleLayoutAfterMeasure(node, previousHeight);
+      updateSelectedNodes((node) => node.font_size_mode === "custom",
+        (node) => { node.font_size_mode = "auto"; delete node.font_size; }, true);
     }
     function setTextColor(color) {
-      const node = nodeById(selectedId);
-      if (!node || !/^#[0-9a-f]{6}$/i.test(String(color))) return;
-      if (node.text_color === color) return;
-      const previousHeight = renderedNodeHeight(node);
-      checkpoint(); node.text_color = color;
-      markDirty(); render(); scheduleLayoutAfterMeasure(node, previousHeight);
+      if (!/^#[0-9a-f]{6}$/i.test(String(color))) return;
+      updateSelectedNodes((node) => node.text_color !== color, (node) => { node.text_color = color; });
     }
     function toggleTextStyle(field) {
-      const node = nodeById(selectedId);
-      if (!node) return;
-      const previousHeight = renderedNodeHeight(node);
-      checkpoint(); node[field] = !Boolean(node[field]); markDirty(); render();
-      scheduleLayoutAfterMeasure(node, previousHeight);
+      const nodes = selectedNodes();
+      const value = !nodes.every((node) => Boolean(node[field]));
+      updateSelectedNodes((node) => Boolean(node[field]) !== value, (node) => { node[field] = value; }, true);
     }
     function setTextAlign(alignment) {
-      const node = nodeById(selectedId);
-      if (!node || !["left", "center", "right"].includes(alignment)
-          || (node.text_align || "left") === alignment) return;
-      checkpoint(); node.text_align = alignment; markDirty(); render();
+      if (!["left", "center", "right"].includes(alignment)) return;
+      updateSelectedNodes((node) => (node.text_align || "left") !== alignment,
+        (node) => { node.text_align = alignment; });
+    }
+    function updateSelectedNodes(needsChange, change, affectsHeight = false) {
+      const nodes = selectedNodes().filter(needsChange);
+      if (!nodes.length) return;
+      const heights = nodes.map((node) => renderedNodeHeight(node));
+      checkpoint(); nodes.forEach(change); markDirty(); render();
+      if (affectsHeight) nodes.forEach((node, index) => scheduleLayoutAfterMeasure(node, heights[index]));
     }
     function transform() {
       viewport.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
@@ -1384,21 +1414,28 @@ _PAGE = r"""<!doctype html>
       document.title = `${dirty ? "*" : ""}${documentState.title} — Mind Map`;
       if (dirty && !status.classList.contains("error")) setStatus("Unsaved changes");
       const selectedNode = nodeById(selectedId);
+      const nodes = selectedNodes();
+      const common = (getter) => {
+        if (!nodes.length) return null;
+        const value = getter(nodes[0]);
+        return nodes.every((node) => getter(node) === value) ? value : null;
+      };
       const selectedParent = selectedNode?.parent_id
         ? nodeById(selectedNode.parent_id) : null;
       const selectedRootChild = Boolean(selectedParent
         && selectedParent.parent_id === null);
       if (window.parent !== window) window.parent.postMessage({
         type: "electroboy-mind-map-state", selected: Boolean(selectedId),
-        selectedColor: nodeById(selectedId)?.color || "default",
-        selectedTextColor: nodeById(selectedId)?.text_color || "#ffffff",
-        selectedTextBold: Boolean(nodeById(selectedId)?.text_bold),
-        selectedTextItalic: Boolean(nodeById(selectedId)?.text_italic),
-        selectedTextUnderline: Boolean(nodeById(selectedId)?.text_underline),
-        selectedTextAlign: nodeById(selectedId)?.text_align || "left",
+        selectionCount: nodes.length,
+        selectedColor: common((node) => node.color || "default"),
+        selectedTextColor: common((node) => node.text_color || "#ffffff"),
+        selectedTextBold: common((node) => Boolean(node.text_bold)),
+        selectedTextItalic: common((node) => Boolean(node.text_italic)),
+        selectedTextUnderline: common((node) => Boolean(node.text_underline)),
+        selectedTextAlign: common((node) => node.text_align || "left"),
         selectedResolvedColor: selectedId ? resolvedNodeColor(nodeById(selectedId)) : "default",
-        selectedFontSize: selectedId ? nodeFontSize(nodeById(selectedId)) : ROOT_NODE_FONT_SIZE,
-        selectedFontSizeMode: nodeById(selectedId)?.font_size_mode || "auto",
+        selectedFontSize: common((node) => nodeFontSize(node)),
+        selectedFontSizeMode: common((node) => node.font_size_mode || "auto"),
         focusMode: Boolean(focusMode && selectedId),
         layoutMode,
         zoom,
@@ -1406,14 +1443,14 @@ _PAGE = r"""<!doctype html>
         mapTitle: documentState.title,
         canUndo: Boolean(undoStack.length), canRedo: Boolean(redoStack.length),
         canPaste: Boolean(copiedBranch || navigator.clipboard?.readText), dirty,
-        canMoveBranchLeft: selectedRootChild && nodeSide(selectedNode) !== "left",
-        canMoveBranchRight: selectedRootChild && nodeSide(selectedNode) !== "right",
+        canMoveBranchLeft: nodes.length === 1 && selectedRootChild && nodeSide(selectedNode) !== "left",
+        canMoveBranchRight: nodes.length === 1 && selectedRootChild && nodeSide(selectedNode) !== "right",
       }, window.location.origin);
     }
     function updateSelectionPresentation() {
       const focusedNodes = focusNodeIds();
       nodesLayer.querySelectorAll(".node").forEach((element) => {
-        const selected = element.dataset.id === selectedId;
+        const selected = selectedIds.has(element.dataset.id);
         element.classList.toggle("focused", selected);
         element.classList.toggle("dimmed",
           Boolean(focusedNodes && !focusedNodes.has(element.dataset.id)));
@@ -1424,7 +1461,7 @@ _PAGE = r"""<!doctype html>
     }
     function renderNode(node) {
       const element = document.createElement("article");
-      element.className = `node${node.parent_id === null ? " root" : ""}${node.id === selectedId ? " focused" : ""}`;
+      element.className = `node${node.parent_id === null ? " root" : ""}${selectedIds.has(node.id) ? " focused" : ""}`;
       const focusedBranch = focusNodeIds();
       if (focusedBranch && !focusedBranch.has(node.id)) element.classList.add("dimmed");
       element.dataset.id = node.id;
@@ -1440,7 +1477,7 @@ _PAGE = r"""<!doctype html>
       element.style.minHeight = `${nodeMinHeight(node)}px`;
       element.setAttribute("role", "treeitem");
       element.setAttribute("aria-level", String(nodeDepth(node)));
-      element.setAttribute("aria-selected", String(node.id === selectedId));
+      element.setAttribute("aria-selected", String(selectedIds.has(node.id)));
       element.setAttribute("aria-label", node.text || "Empty mind map node");
       if (childrenOf(node.id).length) {
         element.setAttribute("aria-expanded", String(!collapsed.has(node.id)));
@@ -1525,7 +1562,7 @@ _PAGE = r"""<!doctype html>
       resizeHandle.addEventListener("dblclick", (event) => event.stopPropagation());
       resizeHandle.addEventListener("pointerdown", (event) => {
         if (event.button !== 0 || editingId || spacePan) return;
-        event.preventDefault(); event.stopPropagation(); selectedId = node.id;
+        event.preventDefault(); event.stopPropagation(); selectOnly(node.id);
         updateSelectionPresentation();
         const rightDescendantIds = new Set();
         childrenOf(node.id).filter((child) => nodeSide(child) === "right")
@@ -1553,14 +1590,21 @@ _PAGE = r"""<!doctype html>
       element.append(resizeHandle);
       element.addEventListener("click", (event) => {
         if (event.target.closest("button,textarea,.node-resize-handle")) return;
-        selectedId = node.id; updateSelectionPresentation(); canvas.focus();
+        if (event.shiftKey || event.ctrlKey || event.metaKey) return;
+        selectOnly(node.id); updateSelectionPresentation(); canvas.focus();
       });
-      element.addEventListener("dblclick", (event) => { event.stopPropagation(); selectedId = node.id; beginEdit(); });
+      element.addEventListener("dblclick", (event) => { event.stopPropagation(); selectOnly(node.id); beginEdit(); });
       element.addEventListener("pointerdown", (event) => {
         if (event.button !== 0 || editingId || spacePan
             || event.target.closest("button,textarea")) return;
-        event.stopPropagation(); selectedId = node.id;
-        updateSelectionPresentation();
+        event.stopPropagation();
+        if (event.shiftKey) {
+          selectRange(node.id); updateSelectionPresentation(); canvas.focus(); return;
+        }
+        if (event.ctrlKey || event.metaKey) {
+          toggleSelection(node.id); updateSelectionPresentation(); canvas.focus(); return;
+        }
+        selectOnly(node.id); updateSelectionPresentation();
         drag = { type: "node", id: node.id, x: event.clientX, y: event.clientY,
           startX: node.x, startY: node.y, before: snapshot(), moved: false,
           branchPositions: branchPositions(node.id), dropIntent: null };
@@ -1672,7 +1716,7 @@ _PAGE = r"""<!doctype html>
       });
       candidates.sort((a, b) => Math.hypot(a.x - current.x, a.y - current.y)
         - Math.hypot(b.x - current.x, b.y - current.y));
-      if (candidates[0]) { selectedId = candidates[0].id; render(); focusSelected(); }
+      if (candidates[0]) { selectOnly(candidates[0].id); render(); focusSelected(); }
     }
     async function save(options = {}) {
       const automatic = options.automatic === true;
@@ -1849,8 +1893,15 @@ _PAGE = r"""<!doctype html>
       collapse: toggleCollapseAll, tidy,
       "layout-local": () => setLayoutMode("local"),
       "layout-repack": () => setLayoutMode("repack") };
+    const singleSelectionActions = new Set(["copy", "paste", "child", "sibling", "branch-left",
+      "branch-right", "edit", "link-file", "link-web", "create-document", "remove-link", "focus", "tidy"]);
+    function runAction(name, data) {
+      if (selectedIds.size > 1 && singleSelectionActions.has(name)) return;
+      const action = actions[name];
+      if (action) Promise.resolve(action(data)).catch((error) => setStatus(error.message, true));
+    }
     document.querySelectorAll("[data-action]").forEach((button) => button.addEventListener("click", () => {
-      const action = actions[button.dataset.action]; if (action) Promise.resolve(action()).catch((error) => setStatus(error.message, true));
+      runAction(button.dataset.action);
     }));
     window.addEventListener("message", (event) => {
       if (event.origin !== window.location.origin) return;
@@ -1876,8 +1927,7 @@ _PAGE = r"""<!doctype html>
         return;
       }
       if (data.type !== "electroboy-mind-map-command") return;
-      const action = actions[data.action];
-      if (action) Promise.resolve(action(data)).catch((error) => setStatus(error.message, true));
+      runAction(data.action, data);
     });
     canvas.addEventListener("keydown", (event) => {
       if (editingId) return;
@@ -1890,19 +1940,19 @@ _PAGE = r"""<!doctype html>
       if ((event.ctrlKey || event.metaKey)
           && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
         event.preventDefault();
-        moveRootBranch(event.key === "ArrowLeft" ? "left" : "right");
+        if (selectedIds.size === 1) moveRootBranch(event.key === "ArrowLeft" ? "left" : "right");
         return;
       }
-      if (event.key === "Tab" && selectedId) { event.preventDefault(); addNode("child"); }
+      if (event.key === "Tab" && selectedId) { event.preventDefault(); if (selectedIds.size === 1) addNode("child"); }
       else if (event.key === "Enter" && event.shiftKey) { event.preventDefault(); addNode("root"); }
-      else if (event.key === "Enter" && selectedId) { event.preventDefault(); addNode("sibling"); }
+      else if (event.key === "Enter" && selectedId) { event.preventDefault(); if (selectedIds.size === 1) addNode("sibling"); }
       else if (event.key === "F2" && selectedId) { event.preventDefault(); beginEdit(); }
       else if (["Delete", "Backspace"].includes(event.key) && selectedId) {
         event.preventDefault();
         deleteSelected().catch((error) => setStatus(error.message, true));
       }
       else if (event.key === "Escape") {
-        selectedId = null; editingId = null; focusMode = false; render();
+        selectOnly(null); editingId = null; focusMode = false; render();
       }
       else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
         event.preventDefault(); selectDirectional(event.key);
@@ -1923,7 +1973,7 @@ _PAGE = r"""<!doctype html>
         event.preventDefault(); drag = { type: "pan", x: event.clientX,
         y: event.clientY, startX: pan.x, startY: pan.y }; canvas.setPointerCapture(event.pointerId); }
       else if (event.button === 0 && event.target === canvas) {
-        selectedId = null; focusMode = false; render(); canvas.focus();
+        selectOnly(null); focusMode = false; render(); canvas.focus();
       }
     });
     canvas.addEventListener("click", () => {
@@ -1940,7 +1990,7 @@ _PAGE = r"""<!doctype html>
         font_size: ROOT_NODE_FONT_SIZE, font_size_mode: "auto",
         width: DEFAULT_NODE_WIDTH,
         min_height: DEFAULT_NODE_MIN_HEIGHT, links: [] };
-      documentState.nodes.push(node); selectedId = node.id; editingId = node.id; markDirty(); render();
+      documentState.nodes.push(node); selectOnly(node.id); editingId = node.id; markDirty(); render();
     });
     function suppressMiddleMouseDefault(event) {
       if (event.button !== 1) return;
@@ -1961,7 +2011,7 @@ _PAGE = r"""<!doctype html>
       capture: true, passive: false,
     });
     canvas.addEventListener("copy", (event) => {
-      if (editingId || !selectedId || event.target.closest("textarea")) return;
+      if (editingId || selectedIds.size !== 1 || event.target.closest("textarea")) return;
       copySelectedBranch(event.clipboardData);
       event.preventDefault();
     });
@@ -1970,7 +2020,7 @@ _PAGE = r"""<!doctype html>
         event.preventDefault();
         return;
       }
-      if (editingId || event.target.closest("textarea")) return;
+      if (editingId || selectedIds.size > 1 || event.target.closest("textarea")) return;
       if (pasteClipboardText(event.clipboardData?.getData("text/plain"))) {
         event.preventDefault();
       }
