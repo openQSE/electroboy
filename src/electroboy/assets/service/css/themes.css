@@ -17,7 +17,7 @@ html[data-color-scheme]:not([data-color-scheme="electroboy-dark"]) body {
 }
 
 .color-scheme-control select {
-  width: 166px;
+  width: 200px;
   max-width: 100%;
   min-height: 30px;
   font: inherit;
@@ -25,5 +25,4 @@ html[data-color-scheme]:not([data-color-scheme="electroboy-dark"]) body {
 
 @media (max-width: 760px) {
   .workflow-toolbar { flex-wrap: wrap; }
-  .color-scheme-control select { width: 140px; }
 }

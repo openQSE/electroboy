@@ -141,6 +141,8 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(index.count(f'id="{control}"'), 1)
         for control in ("showSplash", "colorSchemeSelect", "terminalFontValue"):
             self.assertIn(f'id="{control}"', toolbar)
+        self.assertIn('for="colorSchemeSelect">Style</label>', toolbar)
+        self.assertIn('width: 200px;', read_service_text_asset("css/themes.css"))
         self.assertLess(toolbar.index('id="showSplash"'), toolbar.index('id="colorSchemeSelect"'))
         self.assertLess(toolbar.index('id="colorSchemeSelect"'), toolbar.index('id="terminalFontValue"'))
         self.assertLess(sidebar.index('class="sidebar-agent-controls"'), sidebar.index('id="stageActionPanel"'))
