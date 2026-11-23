@@ -20,6 +20,7 @@ let processing = new Set();
 let inputSequence = 0;
 let lastBrowserInputSequence = 0;
 let neovimStateTimer = null;
+let colorSchemeQueue = Promise.resolve();
 
 async function activate(context) {
   await applyManagedWorkbenchSettings();
@@ -148,6 +149,11 @@ async function pollCommands() {
         await openLocation(command.location || {});
       } else if (command.command === "probe_neovim") {
         await probeNeovimCommand(String(command.key || ""));
+      } else if (command.command === "set_color_scheme") {
+        colorSchemeQueue = colorSchemeQueue.catch(() => {}).then(
+          () => applyColorScheme(command.theme || {}),
+        );
+        await colorSchemeQueue;
       } else {
         throw new Error(`unsupported bridge command: ${command.command}`);
       }
@@ -158,6 +164,129 @@ async function pollCommands() {
       processing.delete(requestId);
     }
   }
+}
+
+async function applyColorScheme(theme) {
+  const workbench = vscode.workspace.getConfiguration("workbench");
+  const editor = vscode.workspace.getConfiguration("editor");
+  const target = vscode.ConfigurationTarget.Global;
+  const p = theme.colors;
+  if (!p) {
+    await workbench.update("colorCustomizations", undefined, target);
+    await editor.update("tokenColorCustomizations", undefined, target);
+    await editor.update("semanticTokenColorCustomizations", undefined, target);
+    await workbench.update("colorTheme", "ElectroBoy", target);
+    return;
+  }
+  await workbench.update("colorTheme", theme.mode === "light" ? "Default Light Modern" : "ElectroBoy", target);
+  const slots = {
+    bg: [
+      "editor.background", "terminal.background", "sideBar.background", "input.background",
+      "panel.background", "settings.textInputBackground", "settings.numberInputBackground",
+      "checkbox.background", "minimap.background", "peekViewEditor.background",
+      "settings.checkboxBackground", "tab.activeBackground", "welcomePage.background",
+    ],
+    panel: [
+      "activityBar.background", "titleBar.activeBackground", "titleBar.inactiveBackground",
+      "statusBar.background", "editorGroupHeader.tabsBackground",
+      "editorGroupHeader.noTabsBackground", "tab.inactiveBackground", "menu.background",
+      "editorWidget.background", "editorHoverWidget.background", "editorSuggestWidget.background",
+      "quickInput.background", "dropdown.background", "notifications.background",
+      "peekViewResult.background", "statusBar.noFolderBackground", "settings.dropdownBackground",
+    ],
+    raised: [
+      "button.secondaryBackground", "list.hoverBackground", "list.inactiveSelectionBackground",
+      "tab.hoverBackground", "editor.lineHighlightBackground", "breadcrumb.background",
+      "keybindingLabel.background", "button.secondaryHoverBackground", "commandCenter.background",
+      "commandCenter.activeBackground", "editor.hoverHighlightBackground",
+      "menubar.selectionBackground", "notificationCenterHeader.background",
+      "sideBarSectionHeader.background", "statusBarItem.hoverBackground",
+      "toolbar.activeBackground", "toolbar.hoverBackground", "welcomePage.tileBackground",
+      "welcomePage.tileHoverBackground",
+    ],
+    text: [
+      "foreground", "editor.foreground", "terminal.foreground", "sideBar.foreground",
+      "activityBar.foreground", "titleBar.activeForeground", "statusBar.foreground",
+      "input.foreground", "dropdown.foreground", "menu.foreground", "tab.activeForeground",
+      "tab.inactiveForeground", "button.secondaryForeground", "icon.foreground",
+      "editorLineNumber.activeForeground", "commandCenter.foreground",
+      "keybindingLabel.foreground", "notifications.foreground", "panelTitle.activeForeground",
+      "quickInput.foreground", "settings.headerForeground",
+    ],
+    muted: [
+      "descriptionForeground", "disabledForeground", "editorLineNumber.foreground",
+      "input.placeholderForeground", "activityBar.inactiveForeground",
+      "titleBar.inactiveForeground", "panelTitle.inactiveForeground",
+    ],
+    border: [
+      "activityBar.border", "sideBar.border", "panel.border", "editorGroup.border", "input.border",
+      "dropdown.border", "menu.border", "editorWidget.border", "editorHoverWidget.border",
+      "editorSuggestWidget.border", "contrastBorder", "checkbox.border", "commandCenter.border",
+      "keybindingLabel.border", "notificationCenter.border", "notifications.border",
+      "pickerGroup.border", "settings.checkboxBorder", "settings.dropdownBorder", "tab.border",
+      "titleBar.border", "tree.indentGuidesStroke", "widget.border",
+    ],
+    accent: [
+      "focusBorder", "editorCursor.foreground", "textLink.foreground", "button.background",
+      "activityBarBadge.background", "badge.background", "list.activeSelectionBackground",
+      "tab.activeBorderTop", "button.hoverBackground", "editorSuggestWidget.selectedBackground",
+      "inputOption.activeBackground", "inputOption.activeBorder", "list.focusBackground",
+      "menu.selectionBackground", "panelTitle.activeBorder", "peekView.border",
+      "pickerGroup.foreground", "progressBar.background", "quickInputList.focusBackground",
+      "settings.modifiedItemIndicator", "statusBarItem.remoteBackground",
+      "terminal.tab.activeBorder", "textLink.activeForeground",
+    ],
+    onAccent: [
+      "button.foreground", "activityBarBadge.foreground", "badge.foreground",
+      "list.activeSelectionForeground", "editorSuggestWidget.selectedForeground",
+      "list.focusForeground", "menu.selectionForeground", "quickInputList.focusForeground",
+      "statusBarItem.remoteForeground",
+    ],
+    error: [
+      "editorError.foreground", "errorForeground", "terminal.ansiRed", "terminal.ansiBrightRed",
+    ],
+    warning: [
+      "editorWarning.foreground", "terminal.ansiYellow", "terminal.ansiBrightYellow",
+      "statusBar.debuggingBackground",
+    ],
+    success: [
+      "terminal.ansiGreen", "terminal.ansiBrightGreen", "gitDecoration.addedResourceForeground",
+    ],
+    info: [
+      "editorInfo.foreground", "terminal.ansiBlue", "terminal.ansiBrightBlue",
+    ],
+    purple: [
+      "terminal.ansiMagenta", "terminal.ansiBrightMagenta",
+    ],
+    cyan: [
+      "terminal.ansiCyan", "terminal.ansiBrightCyan",
+    ],
+  };
+  const colors = {};
+  for (const [role, keys] of Object.entries(slots)) {
+    for (const key of keys) colors[key] = p[role];
+  }
+  for (const key of ["editor.selectionBackground", "editor.inactiveSelectionBackground",
+    "editor.rangeHighlightBackground", "editor.findMatchHighlightBackground"]) {
+    colors[key] = `${p.border}80`;
+  }
+  colors["editor.findMatchBackground"] = `${p.warning}66`;
+  colors["statusBar.debuggingForeground"] = p.bg;
+  colors["scrollbarSlider.background"] = `${p.border}66`;
+  colors["scrollbarSlider.hoverBackground"] = `${p.muted}88`;
+  colors["scrollbarSlider.activeBackground"] = `${p.muted}99`;
+  colors["terminal.selectionBackground"] = `${p.border}80`;
+  colors["terminal.ansiBlack"] = p.inset;
+  colors["terminal.ansiBrightBlack"] = p.muted;
+  colors["terminal.ansiWhite"] = colors["terminal.ansiBrightWhite"] = p.text;
+  await workbench.update("colorCustomizations", colors, target);
+  await editor.update("tokenColorCustomizations", {
+    comments: p.muted, strings: p.success, keywords: p.purple,
+    numbers: p.warning, types: p.info, functions: p.accent, variables: p.text,
+  }, target);
+  await editor.update("semanticTokenColorCustomizations", {
+    rules: { variable: p.text, property: p.text, function: p.accent, type: p.info, class: p.info },
+  }, target);
 }
 
 function pollBrowserInputState() {

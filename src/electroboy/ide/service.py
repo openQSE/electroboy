@@ -291,6 +291,15 @@ class IDEService:
             "location": location.__dict__,
         }
 
+    def set_color_scheme(
+        self, workspace_id: str, theme: dict[str, object]
+    ) -> dict[str, object]:
+        instance = self.manager.status(workspace_id)
+        if instance is None or instance.status is not IDEInstanceStatus.READY:
+            return {"status": "not_running"}
+        request_id = self.bridge.set_color_scheme(instance, theme)
+        return {"status": "queued", "request_id": request_id}
+
     def diagnostics(self, workspace_id: str) -> dict[str, object]:
         instance = self.manager.status(workspace_id)
         profile = self.manager.profile_for(workspace_id)

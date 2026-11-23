@@ -1,0 +1,29 @@
+/* Component colors use semantic tokens with their original colors as fallbacks.
+   Leaving tokens unset for ElectroBoy Dark preserves its existing appearance. */
+html[data-color-scheme]:not([data-color-scheme="electroboy-dark"]) {
+  color-scheme: var(--theme-color-scheme);
+  --theme-accent-soft: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-panel));
+  --theme-error-soft: color-mix(in srgb, var(--theme-error) 18%, var(--theme-panel));
+  --theme-success-soft: color-mix(in srgb, var(--theme-success) 18%, var(--theme-panel));
+  --theme-warning-soft: color-mix(in srgb, var(--theme-warning) 18%, var(--theme-panel));
+  --theme-info-soft: color-mix(in srgb, var(--theme-info) 18%, var(--theme-panel));
+  --theme-purple-soft: color-mix(in srgb, var(--theme-purple) 18%, var(--theme-panel));
+  --theme-cyan-soft: color-mix(in srgb, var(--theme-cyan) 18%, var(--theme-panel));
+}
+
+html[data-color-scheme]:not([data-color-scheme="electroboy-dark"]) body {
+  background-color: var(--theme-bg);
+  color: var(--theme-text);
+}
+
+.color-scheme-control select {
+  width: 166px;
+  max-width: 100%;
+  min-height: 30px;
+  font: inherit;
+}
+
+@media (max-width: 760px) {
+  .workflow-toolbar { flex-wrap: wrap; }
+  .color-scheme-control select { width: 140px; }
+}

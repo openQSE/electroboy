@@ -6,6 +6,7 @@
   const popupFeatures =
     "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes,resizable=yes";
   let loader = null;
+  let renderQueue = Promise.resolve();
 
   const mermaidConfiguration = {
     startOnLoad: false,
@@ -87,17 +88,51 @@
     }
   }
 
-  async function renderMermaidBlocks(root = document) {
+  function renderMermaidBlocks(root = document) {
+    renderQueue = renderQueue.catch(() => {}).then(() => renderDiagrams(root));
+    return renderQueue;
+  }
+
+  async function renderDiagrams(root) {
     const diagrams = diagramsIn(root);
     if (!diagrams.length) {
       return;
+    }
+    const theme = window.ElectroBoyTheme?.get();
+    const themeId = theme?.id || "electroboy-dark";
+    for (const diagram of diagrams) {
+      if (!diagram.querySelector("svg")) {
+        diagram.dataset.electroboyMermaidSource = diagram.textContent;
+      } else if (diagram.dataset.electroboyMermaidSource && diagram.dataset.electroboyMermaidTheme !== themeId) {
+        diagram.textContent = diagram.dataset.electroboyMermaidSource;
+        diagram.removeAttribute("data-processed");
+      }
     }
     const pending = diagrams.filter((diagram) => !diagram.querySelector("svg"));
     if (pending.length) {
       try {
         const mermaid = await loadMermaid();
-        mermaid.initialize(mermaidConfiguration);
+        let config = mermaidConfiguration;
+        if (theme && theme.id !== "electroboy-dark") {
+          const p = theme.colors;
+          config = {
+            ...mermaidConfiguration,
+            themeVariables: {
+              ...mermaidConfiguration.themeVariables,
+              darkMode: theme.mode === "dark", background: p.bg,
+              mainBkg: p.panel, primaryColor: p.panel, primaryTextColor: p.text,
+              primaryBorderColor: p.border, lineColor: p.accent,
+              secondaryColor: p.raised, secondaryTextColor: p.text,
+              tertiaryColor: p.bg, tertiaryTextColor: p.text, textColor: p.text,
+              nodeBorder: p.border, clusterBkg: p.bg, clusterBorder: p.border,
+              edgeLabelBackground: p.bg,
+            },
+          };
+        }
+        mermaid.initialize(config);
         await mermaid.run({ nodes: pending });
+        for (const diagram of pending) diagram.dataset.electroboyMermaidTheme = themeId;
+        window.dispatchEvent(new CustomEvent("electroboy-mermaid-rendered"));
       } catch (error) {
         console.warn("Mermaid render failed", error);
       }
@@ -144,16 +179,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mermaid diagram</title>
+  <link rel="stylesheet" href="${window.location.origin}/assets/service/css/themes.css">
+  <script src="${window.location.origin}/assets/service/js/core/theme.js"><\/script>
+  <script src="${window.location.origin}/assets/service/js/core/mermaid.js"><\/script>
   <style>
 :root {
-  color-scheme: dark;
-  --bg: #10141f;
-  --panel: #151b29;
-  --text: #e7edf7;
-  --muted: #aab8cf;
-  --border: #2a3142;
-  --button: #1d2638;
-  --accent: #66d9e8;
+  color-scheme: var(--theme-color-scheme, dark);
+  --bg: var(--theme-bg, #10141f);
+  --panel: var(--theme-panel, #151b29);
+  --text: var(--theme-text, #e7edf7);
+  --muted: var(--theme-muted, #aab8cf);
+  --border: var(--theme-border, #2a3142);
+  --button: var(--theme-panel, #1d2638);
+  --accent: var(--theme-accent, #66d9e8);
 }
 * {
   box-sizing: border-box;
@@ -201,7 +239,7 @@ body {
 .diagram-controls button {
   min-width: 34px;
   height: 30px;
-  border: 1px solid #364156;
+  border: 1px solid var(--theme-border, #364156);
   border-radius: 6px;
   background: var(--button);
   color: var(--text);
@@ -212,7 +250,7 @@ body {
 }
 .diagram-controls button:hover:not(:disabled) {
   border-color: var(--accent);
-  background: #22314a;
+  background: var(--theme-raised, #22314a);
 }
 .diagram-controls button:disabled {
   cursor: default;
@@ -240,11 +278,11 @@ body {
   z-index: 5;
   height: 44px;
   overflow: hidden;
-  border-bottom: 1px solid rgb(102 217 232 / 24%);
+  border-bottom: 1px solid color-mix(in srgb, var(--theme-accent, #66d9e8) 24%, transparent);
   background: linear-gradient(
     180deg,
-    rgb(21 27 41 / 96%),
-    rgb(16 20 31 / 84%)
+    color-mix(in srgb, var(--theme-panel, #151b29) 96%, transparent),
+    color-mix(in srgb, var(--theme-bg, #10141f) 84%, transparent)
   );
   pointer-events: none;
 }
@@ -267,9 +305,9 @@ body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border: 1px solid #4e637e;
+  border: 1px solid var(--theme-border, #4e637e);
   border-radius: 6px;
-  background: #202b3d;
+  background: var(--theme-raised, #202b3d);
   color: var(--text);
   box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
   font-size: 12px;
@@ -760,6 +798,10 @@ body {
     updateBaseSize();
     applyZoom();
   });
+  window.addEventListener("electroboy-mermaid-rendered", () => {
+    buildSequenceHeader();
+    applyZoom();
+  });
   window.requestAnimationFrame(() => {
     fitAfterLayout();
     window.requestAnimationFrame(fitAfterLayout);
@@ -777,4 +819,8 @@ body {
     prepare: prepareMermaidPopouts,
     render: renderMermaidBlocks,
   };
+  window.ElectroBoyTheme?.subscribe(() => renderMermaidBlocks(document));
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => renderMermaidBlocks(document), { once: true });
+  } else renderMermaidBlocks(document);
 })();

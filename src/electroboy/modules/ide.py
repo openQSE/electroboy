@@ -98,6 +98,16 @@ def _configure(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(payload)
 
 
+def _color_scheme(request: RouteRequest) -> ServiceResponse:
+    try:
+        payload = request.services.ide.set_color_scheme(
+            request.context_id, request.body(),
+        )
+    except Exception as error:
+        return conflict(error)
+    return JsonResponse(payload)
+
+
 def _network_status(request: RouteRequest) -> ServiceResponse:
     try:
         payload = request.services.ide.network_status(request.context_id)
@@ -202,6 +212,7 @@ def _detach_view(request: RouteRequest) -> ServiceResponse:
 
 
 _HANDLERS = {
+    "color_scheme": _color_scheme,
     "runtime": _runtime,
     "install": _install,
     "start": _start,
@@ -230,6 +241,7 @@ def module() -> ServiceModule:
         id="ide",
         label="IDE",
         routes=(
+            route("POST", "/api/ide/color-scheme", "ide", "color_scheme"),
             route("GET", "/api/ide/runtime", "ide", "runtime"),
             route("POST", "/api/ide/install", "ide", "install"),
             route("POST", "/api/ide/start", "ide", "start"),

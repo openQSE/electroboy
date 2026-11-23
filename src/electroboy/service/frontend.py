@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING
@@ -15,6 +16,24 @@ SERVICE_ASSET_DIRECTORY = ("assets", "service")
 SERVICE_STATIC_ROUTE_PREFIX = "/assets/service/"
 CONTRIBUTION_SCRIPT_MARKER = "<!-- __ELECTROBOY_CONTRIBUTION_SCRIPTS__ -->"
 CONTRIBUTION_STYLE_MARKER = "<!-- __ELECTROBOY_CONTRIBUTION_STYLES__ -->"
+THEME_ASSETS = (
+    '<link rel="stylesheet" href="/assets/service/css/themes.css" data-electroboy-theme>\n'
+    '<script src="/assets/service/js/core/theme.js"></script>\n'
+)
+
+
+def with_theme_assets(page: str) -> str:
+    """Load shared appearance preferences before first-party pages are painted."""
+    head = re.search(r"<head\b[^>]*>.*?</head\s*>", page, re.IGNORECASE | re.DOTALL)
+    if head is None or "data-electroboy-theme" in head[0]:
+        return page
+    return re.sub(
+        r"(<head\b[^>]*>)",
+        lambda match: match[0] + "\n" + THEME_ASSETS,
+        page,
+        count=1,
+        flags=re.IGNORECASE,
+    )
 
 
 @dataclass(frozen=True)
@@ -105,7 +124,7 @@ def render_service_index(
         f'<link rel="stylesheet" href="{SERVICE_STATIC_ROUTE_PREFIX}{path}">'
         for path in dict.fromkeys(stylesheets)
     )
-    return (
+    return with_theme_assets(
         template.replace(CONTRIBUTION_STYLE_MARKER, links)
         .replace(CONTRIBUTION_SCRIPT_MARKER, script_tags)
     )
@@ -123,6 +142,8 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
                 "css/shell.css",
                 "css/pane-tools.css",
                 "css/selects.css",
+                "css/themes.css",
+                "js/core/theme.js",
                 "js/core/terminal-behavior.js",
                 "js/core/mermaid.js",
                 "js/core/registry.js",
@@ -230,6 +251,8 @@ def built_in_frontend_bundles() -> tuple[FrontendBundle, ...]:
                 "pane-window.html",
                 "css/pane-tools.css",
                 "css/selects.css",
+                "css/themes.css",
+                "js/core/theme.js",
                 "js/core/terminal-behavior.js",
                 "js/core/mermaid.js",
                 "js/core/pane-layout-drag.js",

@@ -338,6 +338,10 @@ class IDEServices(Protocol):
 
     def install(self) -> dict[str, object]: ...
 
+    def set_color_scheme(
+        self, context_id: str, theme: dict[str, object]
+    ) -> dict[str, object]: ...
+
     def start(self, context_id: str) -> dict[str, object]: ...
 
     def status(self, context_id: str) -> dict[str, object]: ...
@@ -737,6 +741,10 @@ class ServiceRuntimeBackend(Protocol):
     ) -> dict[str, object]: ...
 
     def ide_configuration(self, context_id: str) -> dict[str, object]: ...
+
+    def set_ide_color_scheme(
+        self, context_id: str, theme: dict[str, object]
+    ) -> dict[str, object]: ...
 
     def configure_ide(
         self,
@@ -1283,6 +1291,11 @@ class RuntimeIDEServices:
 
     def install(self) -> dict[str, object]:
         return self.runtime.install_ide_runtime()
+
+    def set_color_scheme(
+        self, context_id: str, theme: dict[str, object]
+    ) -> dict[str, object]:
+        return self.runtime.set_ide_color_scheme(context_id, theme)
 
     def start(self, context_id: str) -> dict[str, object]:
         return self.runtime.start_ide(context_id)

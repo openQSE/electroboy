@@ -119,6 +119,25 @@ class IDEBridgeTests(unittest.TestCase):
         diagnostics = self.bridge.diagnostics(self.instance)
         self.assertEqual(diagnostics["pending_command_count"], 1)
 
+    def test_color_scheme_commands_validate_and_use_authenticated_transport(self) -> None:
+        colors = dict.fromkeys((
+            "bg", "panel", "raised", "inset", "text", "muted", "border",
+            "accent", "onAccent", "error", "success", "warning", "info", "purple", "cyan",
+        ), "#123456")
+        request_id = self.bridge.set_color_scheme(self.instance, {"mode": "light", "colors": colors})
+        command = json.loads((self.registration.directory / "commands.jsonl").read_text())
+        self.assertEqual(command["command"], "set_color_scheme")
+        self.assertEqual(command["theme"], {"mode": "light", "colors": colors})
+        self.assertEqual(command["request_id"], request_id)
+        self.assertEqual(command["auth"], self.registration.secret)
+        for theme in ({"mode": []}, {"mode": "unknown"}, {"mode": "dark", "colors": {}},
+                      {"mode": "dark", "colors": {**colors, "bg": "red; display:none"}}):
+            with self.subTest(theme=theme), self.assertRaises(ValueError):
+                self.bridge.set_color_scheme(self.instance, theme)
+        self.bridge.set_color_scheme(self.instance, {"mode": "dark", "colors": None})
+        commands = (self.registration.directory / "commands.jsonl").read_text().splitlines()
+        self.assertEqual(len(commands), 2)
+
     def test_input_diagnostics_are_sanitized_and_exposed(self) -> None:
         event = self.bridge.record_input_event(
             self.instance,

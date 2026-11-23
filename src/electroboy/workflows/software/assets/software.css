@@ -13,13 +13,13 @@
 }
 
 .stage-completion-dialog.stage-completion-error {
-  border-color: rgba(255, 95, 109, 0.72);
+  border-color: color-mix(in srgb, var(--theme-accent, #ff5f6d) 72%, transparent);
 }
 
 .stage-completion-error .ad-hoc-session-header {
-  background: rgba(143, 24, 40, 0.18);
+  background: color-mix(in srgb, var(--theme-error-soft, #8f1828) 18%, transparent);
 }
 
 .stage-completion-error .stage-completion-title {
-  color: #ffb4bd;
+  color: var(--theme-error, #ffb4bd);
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import threading
 import uuid
@@ -98,6 +99,32 @@ class IDEBridge:
         lock = self._locks[instance.instance_id]
         with lock:
             _append_jsonl(registration.directory / "commands.jsonl", command)
+        return request_id
+
+    def set_color_scheme(self, instance: IDEInstance, theme: dict[str, object]) -> str:
+        mode, colors = theme.get("mode"), theme.get("colors")
+        roles = {
+            "bg", "panel", "raised", "inset", "text", "muted", "border",
+            "accent", "onAccent", "error", "success", "warning", "info",
+            "purple", "cyan",
+        }
+        if mode not in ("light", "dark") or (
+            colors is not None and (
+                not isinstance(colors, dict) or set(colors) != roles
+                or any(not isinstance(value, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", value)
+                       for value in colors.values())
+            )
+        ):
+            raise ValueError("Invalid IDE color scheme.")
+        registration = self._registration(instance)
+        request_id = uuid.uuid4().hex
+        with self._locks[instance.instance_id]:
+            _append_jsonl(registration.directory / "commands.jsonl", {
+                **self._envelope(registration),
+                "request_id": request_id,
+                "command": "set_color_scheme",
+                "theme": {"mode": mode, "colors": colors},
+            })
         return request_id
 
     def diagnostics(self, instance: IDEInstance) -> dict[str, object]:

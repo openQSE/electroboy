@@ -53,16 +53,16 @@ def render_agenda_html(
   <link rel="stylesheet" href="/assets/service/css/selects.css">
   <style>
     :root {{
-      color-scheme: light;
-      --ink: #2f2a25;
-      --muted: #746a60;
-      --line: #ded4c6;
-      --paper: #fffdf8;
-      --wash: #f5efe4;
-      --accent: #356a5d;
-      --accent-soft: #dcebe6;
-      --warning: #9b4d28;
-      --warning-soft: #fff0e4;
+      color-scheme: var(--theme-color-scheme, light);
+      --ink: var(--theme-text, #2f2a25);
+      --muted: var(--theme-muted, #746a60);
+      --line: var(--theme-border, #ded4c6);
+      --paper: var(--theme-panel, #fffdf8);
+      --wash: var(--theme-bg, #f5efe4);
+      --accent: var(--theme-accent, #356a5d);
+      --accent-soft: var(--theme-accent-soft, #dcebe6);
+      --warning: var(--theme-warning, #9b4d28);
+      --warning-soft: var(--theme-warning-soft, #fff0e4);
       --shadow: 0 12px 32px rgba(52, 40, 30, 0.12);
     }}
     * {{ box-sizing: border-box; }}
@@ -86,15 +86,15 @@ def render_agenda_html(
       justify-content: space-between;
       gap: 18px;
       padding: 18px clamp(18px, 4vw, 48px);
-      border-bottom: 1px solid rgba(255,255,255,.18);
-      background: #493a2f;
-      color: #fffaf1;
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-border, #ffffff) 18%, transparent);
+      background: var(--theme-raised, #493a2f);
+      color: var(--theme-text, #fffaf1);
       box-shadow: 0 4px 16px rgba(48, 34, 24, .14);
     }}
     .agenda-heading {{ min-width: 180px; }}
     .agenda-kicker {{
       display: block;
-      color: #d8c8b7;
+      color: var(--theme-text, #d8c8b7);
       font-size: 11px;
       font-weight: 800;
       letter-spacing: .12em;
@@ -113,15 +113,15 @@ def render_agenda_html(
     }}
     .agenda-filter {{ display: grid; gap: 3px; font-size: 11px; font-weight: 750; }}
     .agenda-filter select {{
-      border: 1px solid rgba(255,255,255,.35);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #ffffff) 35%, transparent);
       border-radius: 9px;
-      background: rgba(255,255,255,.09);
-      color: #fffaf1;
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 9%, transparent);
+      color: var(--theme-text, #fffaf1);
       padding: 0 30px 0 11px;
     }}
-    .agenda-filter option {{ color: var(--ink); background: white; }}
+    .agenda-filter option {{ color: var(--ink); background: var(--theme-panel, white); }}
     .agenda-button {{
-      border: 1px solid rgba(255,255,255,.4);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #ffffff) 40%, transparent);
       border-radius: 9px;
       background: transparent;
       color: inherit;
@@ -129,7 +129,7 @@ def render_agenda_html(
       font-weight: 750;
       padding: 0 13px;
     }}
-    .agenda-button:hover, .agenda-button:focus-visible {{ background: rgba(255,255,255,.12); }}
+    .agenda-button:hover, .agenda-button:focus-visible {{ background: color-mix(in srgb, var(--theme-panel, #ffffff) 12%, transparent); }}
     .agenda-content {{
       width: min(1060px, 100%);
       margin: 0 auto;
@@ -151,7 +151,7 @@ def render_agenda_html(
       height: 25px;
       place-items: center;
       border-radius: 999px;
-      background: #e4dacb;
+      background: var(--theme-raised, #e4dacb);
       font-family: Inter, sans-serif;
       font-size: 12px;
     }}
@@ -165,21 +165,21 @@ def render_agenda_html(
       background: var(--paper);
       box-shadow: 0 3px 12px rgba(54, 41, 30, .06);
       --agenda-card-line: var(--line);
-      --agenda-card-soft: rgba(53, 106, 93, .07);
+      --agenda-card-soft: color-mix(in srgb, var(--theme-text, #356a5d) 7%, transparent);
       --agenda-card-label: var(--muted);
       --agenda-card-value: var(--ink);
-      --agenda-review: #b7791f;
-      --agenda-review-soft: #fff4cf;
-      --agenda-review-border: rgba(183, 121, 31, .58);
+      --agenda-review: var(--theme-warning, #b7791f);
+      --agenda-review-soft: var(--theme-warning-soft, #fff4cf);
+      --agenda-review-border: color-mix(in srgb, var(--theme-accent, #b7791f) 58%, transparent);
       --agenda-review-shadow: rgba(183, 121, 31, .24);
-      --agenda-review-glow: rgba(255, 209, 102, .36);
+      --agenda-review-glow: color-mix(in srgb, var(--theme-warning, #ffd166) 36%, transparent);
     }}
-    .agenda-item.proposed, .agenda-item.suggested {{ border-left: 5px solid #8a6db0; }}
+    .agenda-item.proposed, .agenda-item.suggested {{ border-left: 5px solid var(--theme-border, #8a6db0); }}
     .agenda-item.warning {{ border-left: 5px solid var(--warning); }}
     .agenda-item.needs_review,
     .agenda-item.needs-review {{
       grid-template-columns: 132px minmax(0, 1fr);
-      border-color: rgba(183, 121, 31, .34);
+      border-color: color-mix(in srgb, var(--theme-accent, #b7791f) 34%, transparent);
       border-left: 6px solid var(--agenda-review);
       background:
         linear-gradient(135deg, var(--agenda-review-soft), var(--paper) 48%);
@@ -189,8 +189,8 @@ def render_agenda_html(
     }}
     .agenda-item.needs_review .agenda-time,
     .agenda-item.needs-review .agenda-time {{
-      background: rgba(255, 244, 207, .72);
-      color: #8a5510;
+      background: color-mix(in srgb, var(--theme-warning-soft, #fff4cf) 72%, transparent);
+      color: var(--theme-warning, #8a5510);
     }}
     .agenda-time {{
       padding: 18px 14px;
@@ -213,7 +213,7 @@ def render_agenda_html(
     }}
     .agenda-description {{
       margin: 7px 0 0;
-      color: #5e554d;
+      color: var(--theme-text, #5e554d);
       overflow-wrap: anywhere;
       white-space: pre-wrap;
     }}
@@ -256,18 +256,18 @@ def render_agenda_html(
     .agenda-badge, .agenda-person {{
       border-radius: 999px;
       background: var(--accent-soft);
-      color: #29564b;
+      color: var(--theme-text, #29564b);
       font-size: 11px;
       font-weight: 800;
       padding: 4px 9px;
     }}
-    .agenda-badge {{ background: #eee5f7; color: #634b7e; }}
+    .agenda-badge {{ background: var(--theme-purple-soft, #eee5f7); color: var(--theme-muted, #634b7e); }}
     .agenda-review {{
       margin-top: 11px;
-      border: 1px solid rgba(183, 121, 31, .28);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #b7791f) 28%, transparent);
       border-radius: 9px;
       background: var(--agenda-review-soft);
-      color: #72420b;
+      color: var(--theme-warning, #72420b);
       padding: 9px 11px;
       font-size: 13px;
       font-weight: 750;
@@ -278,13 +278,13 @@ def render_agenda_html(
       gap: 10px;
       margin: 2px 0 4px;
       padding: 12px;
-      border: 1px solid rgba(183, 121, 31, .28);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #b7791f) 28%, transparent);
       border-radius: 10px;
       background: var(--agenda-review-soft);
-      color: #72420b;
+      color: var(--theme-warning, #72420b);
     }}
     .agenda-review-panel strong {{
-      color: #5f3507;
+      color: var(--theme-text, #5f3507);
       font-size: 13px;
       text-transform: uppercase;
     }}
@@ -301,14 +301,14 @@ def render_agenda_html(
     }}
     .agenda-review-fields div {{ min-width: 0; }}
     .agenda-review-fields dt {{
-      color: #7c4b0f;
+      color: var(--theme-warning, #7c4b0f);
       font-size: 10px;
       font-weight: 850;
       text-transform: uppercase;
     }}
     .agenda-review-fields dd {{
       margin: 2px 0 0;
-      color: #4a2a06;
+      color: var(--theme-text, #4a2a06);
       font-weight: 760;
       overflow-wrap: anywhere;
     }}
@@ -316,7 +316,7 @@ def render_agenda_html(
       margin-top: 11px;
       border-radius: 9px;
       background: var(--warning-soft);
-      color: #74391f;
+      color: var(--theme-warning, #74391f);
       padding: 9px 11px;
       font-size: 13px;
     }}
@@ -326,29 +326,29 @@ def render_agenda_html(
       gap: 7px 14px;
       margin: 12px 0 0;
       padding-top: 11px;
-      border-top: 1px solid #ece4d9;
+      border-top: 1px solid var(--theme-border, #ece4d9);
     }}
     .agenda-meta {{ min-width: 0; }}
     .agenda-meta dt {{ color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }}
     .agenda-meta dd {{ margin: 2px 0 0; overflow-wrap: anywhere; font-size: 12px; }}
     .item-action {{
       min-height: 32px;
-      border: 1px solid #bcb1a4;
+      border: 1px solid var(--theme-border, #bcb1a4);
       border-radius: 8px;
-      background: white;
+      background: var(--theme-panel, white);
       color: var(--ink);
       cursor: pointer;
       font-size: 12px;
       font-weight: 800;
       padding: 0 11px;
     }}
-    .item-action.primary {{ border-color: var(--accent); background: var(--accent); color: white; }}
-    .item-action.review {{ border-color: #9a5b00; background: #9a5b00; color: white; }}
-    .item-action.danger {{ border-color: #b96245; color: #8a3e27; }}
+    .item-action.primary {{ border-color: var(--accent); background: var(--accent); color: var(--theme-on-accent, white); }}
+    .item-action.review {{ border-color: var(--theme-border, #9a5b00); background: var(--theme-warning-soft, #9a5b00); color: var(--theme-text, white); }}
+    .item-action.danger {{ border-color: var(--theme-border, #b96245); color: var(--theme-error, #8a3e27); }}
     .agenda-empty {{
-      border: 1px dashed #cbbdad;
+      border: 1px dashed var(--theme-border, #cbbdad);
       border-radius: 16px;
-      background: rgba(255,255,255,.5);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 50%, transparent);
       color: var(--muted);
       padding: 54px 24px;
       text-align: center;
@@ -360,7 +360,7 @@ def render_agenda_html(
       display: grid;
       place-items: center;
       padding: 20px;
-      background: rgba(35, 27, 22, .62);
+      background: color-mix(in srgb, var(--theme-bg, #231b16) 62%, transparent);
     }}
     .agenda-modal {{
       width: min(680px, 100%);
@@ -374,40 +374,40 @@ def render_agenda_html(
     .agenda-modal h2 {{ margin: 0; font: 22px Georgia, serif; }}
     .agenda-modal form {{ display: grid; gap: 14px; padding: 20px 22px 24px; }}
     .agenda-modal .item-action.primary {{
-      border-color: #24594e;
-      background: #24594e;
-      color: white;
+      border-color: var(--theme-border, #24594e);
+      background: var(--theme-raised, #24594e);
+      color: var(--theme-text, white);
     }}
     .agenda-modal .item-action.review {{
-      border-color: #9a5b00;
-      background: #9a5b00;
-      color: white;
+      border-color: var(--theme-border, #9a5b00);
+      background: var(--theme-warning-soft, #9a5b00);
+      color: var(--theme-text, white);
     }}
     .editor-field {{ display: grid; gap: 5px; font-size: 13px; font-weight: 750; }}
-    .editor-field input, .editor-field textarea, .editor-field select {{ border: 1px solid #bfb4a8; border-radius: 8px; padding: 9px 10px; background: white; color: var(--ink); }}
-    .editor-error {{ color: #9b321f; min-height: 20px; }}
+    .editor-field input, .editor-field textarea, .editor-field select {{ border: 1px solid var(--theme-border, #bfb4a8); border-radius: 8px; padding: 9px 10px; background: var(--theme-panel, white); color: var(--ink); }}
+    .editor-error {{ color: var(--theme-error, #9b321f); min-height: 20px; }}
     .editor-actions {{ display: flex; justify-content: flex-end; gap: 9px; flex-wrap: wrap; }}
     body.agenda-style-command-center {{
-      --ink: #16202a;
-      --muted: #5f6d79;
-      --line: #cbd7e1;
-      --paper: #fbfdff;
-      --wash: #e7eef4;
-      --accent: #006b7a;
-      --accent-soft: #d8f0f3;
-      --warning: #9b4b20;
-      --warning-soft: #fff0dd;
+      --ink: var(--theme-text, #16202a);
+      --muted: var(--theme-muted, #5f6d79);
+      --line: var(--theme-border, #cbd7e1);
+      --paper: var(--theme-panel, #fbfdff);
+      --wash: var(--theme-bg, #e7eef4);
+      --accent: var(--theme-accent, #006b7a);
+      --accent-soft: var(--theme-accent-soft, #d8f0f3);
+      --warning: var(--theme-warning, #9b4b20);
+      --warning-soft: var(--theme-warning-soft, #fff0dd);
       --shadow: 0 16px 32px rgba(32, 52, 67, .12);
       background: var(--wash);
     }}
     body.agenda-style-command-center .agenda-header {{
-      border-bottom: 1px solid #bdd0dc;
-      background: #16313f;
-      color: #f8fcff;
+      border-bottom: 1px solid var(--theme-border, #bdd0dc);
+      background: var(--theme-panel, #16313f);
+      color: var(--theme-text, #f8fcff);
       box-shadow: 0 10px 28px rgba(21, 49, 63, .18);
     }}
     body.agenda-style-command-center .agenda-kicker {{
-      color: #a9d9e0;
+      color: var(--theme-accent, #a9d9e0);
       letter-spacing: 0;
     }}
     body.agenda-style-command-center h1,
@@ -428,7 +428,7 @@ def render_agenda_html(
       gap: 18px;
       margin-bottom: 28px;
       padding-top: 18px;
-      border-top: 1px solid #cbd7e1;
+      border-top: 1px solid var(--theme-border, #cbd7e1);
     }}
     body.agenda-style-command-center .agenda-section-heading {{
       align-content: start;
@@ -436,15 +436,15 @@ def render_agenda_html(
       display: grid;
       gap: 8px;
       margin: 0;
-      color: #213547;
+      color: var(--theme-text, #213547);
       font-size: 17px;
     }}
     body.agenda-style-command-center .agenda-count {{
       width: fit-content;
-      border: 1px solid #a9cbd2;
+      border: 1px solid var(--theme-border, #a9cbd2);
       border-radius: 6px;
-      background: #d8f0f3;
-      color: #164f5a;
+      background: var(--theme-accent-soft, #d8f0f3);
+      color: var(--theme-accent, #164f5a);
     }}
     body.agenda-style-command-center .agenda-items {{
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -452,16 +452,16 @@ def render_agenda_html(
     }}
     body.agenda-style-command-center .agenda-item {{
       grid-template-columns: 1fr;
-      border-color: #cad7e0;
+      border-color: var(--theme-border, #cad7e0);
       border-radius: 8px;
       background: var(--paper);
       box-shadow: var(--shadow);
     }}
     body.agenda-style-command-center .agenda-time {{
       border-right: 0;
-      border-bottom: 1px solid #e0e9ef;
-      background: #edf5f8;
-      color: #006b7a;
+      border-bottom: 1px solid var(--theme-border, #e0e9ef);
+      background: var(--theme-raised, #edf5f8);
+      color: var(--theme-accent, #006b7a);
       text-align: left;
     }}
     body.agenda-style-command-center .agenda-item-body {{
@@ -487,28 +487,28 @@ def render_agenda_html(
       }}
     }}
     body.agenda-style-timeline-stack {{
-      --ink: #1d2a2b;
-      --muted: #637271;
-      --line: #c6d4d2;
-      --paper: #fbfdfc;
-      --wash: #e9f0ef;
-      --accent: #26706a;
-      --accent-soft: #d7ebe8;
-      --warning: #9b4d28;
-      --warning-soft: #fff0e4;
+      --ink: var(--theme-text, #1d2a2b);
+      --muted: var(--theme-muted, #637271);
+      --line: var(--theme-border, #c6d4d2);
+      --paper: var(--theme-panel, #fbfdfc);
+      --wash: var(--theme-bg, #e9f0ef);
+      --accent: var(--theme-accent, #26706a);
+      --accent-soft: var(--theme-accent-soft, #d7ebe8);
+      --warning: var(--theme-warning, #9b4d28);
+      --warning-soft: var(--theme-warning-soft, #fff0e4);
       --shadow: 0 20px 44px rgba(35, 55, 56, .16);
       background:
-        linear-gradient(90deg, rgba(38, 112, 106, .12) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-soft, #26706a) 12%, transparent) 1px, transparent 1px),
         var(--wash);
       background-size: 44px 100%, auto;
     }}
     body.agenda-style-timeline-stack .agenda-header {{
-      background: #243b3d;
-      color: #f7fffd;
+      background: var(--theme-raised, #243b3d);
+      color: var(--theme-text, #f7fffd);
       box-shadow: 0 10px 30px rgba(29, 42, 43, .2);
     }}
     body.agenda-style-timeline-stack .agenda-kicker {{
-      color: #bdd8d3;
+      color: var(--theme-text, #bdd8d3);
       letter-spacing: 0;
     }}
     body.agenda-style-timeline-stack h1,
@@ -532,11 +532,11 @@ def render_agenda_html(
       left: 12px;
       width: 2px;
       border-radius: 999px;
-      background: linear-gradient(#26706a, rgba(38, 112, 106, .08));
+      background: linear-gradient(var(--theme-accent-soft, #26706a), color-mix(in srgb, var(--theme-accent-soft, #26706a) 8%, transparent));
     }}
     body.agenda-style-timeline-stack .agenda-section-heading {{
       position: relative;
-      color: #243b3d;
+      color: var(--theme-text, #243b3d);
     }}
     body.agenda-style-timeline-stack .agenda-section-heading::before {{
       content: "";
@@ -545,9 +545,9 @@ def render_agenda_html(
       top: .45em;
       width: 12px;
       height: 12px;
-      border: 3px solid #26706a;
+      border: 3px solid var(--theme-border, #26706a);
       border-radius: 50%;
-      background: #f7fffd;
+      background: var(--theme-raised, #f7fffd);
       box-shadow: 0 0 0 6px rgba(38, 112, 106, .12);
     }}
     body.agenda-style-timeline-stack .agenda-items {{
@@ -556,7 +556,7 @@ def render_agenda_html(
       transform-style: preserve-3d;
     }}
     body.agenda-style-timeline-stack .agenda-item {{
-      border-color: #c4d4d0;
+      border-color: var(--theme-border, #c4d4d0);
       border-radius: 8px;
       background: var(--paper);
       box-shadow: var(--shadow);
@@ -583,8 +583,8 @@ def render_agenda_html(
       transform: perspective(1400px) rotateX(0) rotateY(0) translateY(-4px);
     }}
     body.agenda-style-timeline-stack .agenda-time {{
-      background: #edf7f5;
-      color: #26706a;
+      background: var(--theme-raised, #edf7f5);
+      color: var(--theme-accent, #26706a);
     }}
     body.agenda-style-timeline-stack .agenda-kind,
     body.agenda-style-timeline-stack .agenda-meta dt {{
@@ -618,24 +618,24 @@ def render_agenda_html(
       }}
     }}
     body.agenda-style-radar {{
-      --ink: #effff8;
-      --muted: #a4c0b9;
-      --line: rgba(72, 213, 165, .26);
-      --paper: rgba(6, 28, 36, .92);
-      --wash: #061821;
-      --accent: #48d5a5;
-      --accent-soft: rgba(72, 213, 165, .14);
-      --warning: #ffd27d;
-      --warning-soft: rgba(255, 210, 125, .14);
+      --ink: var(--theme-text, #effff8);
+      --muted: var(--theme-muted, #a4c0b9);
+      --line: color-mix(in srgb, var(--theme-accent, #48d5a5) 26%, transparent);
+      --paper: color-mix(in srgb, var(--theme-text, #061c24) 92%, transparent);
+      --wash: var(--theme-bg, #061821);
+      --accent: var(--theme-accent, #48d5a5);
+      --accent-soft: color-mix(in srgb, var(--theme-accent-soft, #48d5a5) 14%, transparent);
+      --warning: var(--theme-warning, #ffd27d);
+      --warning-soft: color-mix(in srgb, var(--theme-warning, #ffd27d) 14%, transparent);
       --shadow: 0 20px 42px rgba(0, 0, 0, .3);
       background:
-        radial-gradient(circle at 20% 18%, rgba(72, 213, 165, .12), transparent 28%),
-        linear-gradient(160deg, #061821, #0a222d 52%, #061821);
+        radial-gradient(circle at 20% 18%, color-mix(in srgb, var(--theme-success-soft, #48d5a5) 12%, transparent), transparent 28%),
+        linear-gradient(160deg, var(--theme-bg, #061821), var(--theme-bg, #0a222d) 52%, var(--theme-bg, #061821));
     }}
     body.agenda-style-radar .agenda-header {{
-      border-bottom: 1px solid rgba(72, 213, 165, .28);
-      background: rgba(4, 20, 28, .94);
-      color: #effff8;
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-accent, #48d5a5) 28%, transparent);
+      background: color-mix(in srgb, var(--theme-inset, #04141c) 94%, transparent);
+      color: var(--theme-text, #effff8);
       box-shadow: 0 12px 32px rgba(0, 0, 0, .32);
     }}
     body.agenda-style-radar .agenda-kicker,
@@ -652,19 +652,19 @@ def render_agenda_html(
       width: min(1240px, 100%);
     }}
     body.agenda-style-radar .agenda-summary {{
-      color: #bdd6d0;
+      color: var(--theme-text, #bdd6d0);
     }}
     body.agenda-style-radar .agenda-section {{
       position: relative;
       margin-bottom: 42px;
     }}
     body.agenda-style-radar .agenda-section-heading {{
-      color: #effff8;
+      color: var(--theme-text, #effff8);
     }}
     body.agenda-style-radar .agenda-count {{
-      border: 1px solid rgba(72, 213, 165, .34);
-      background: rgba(72, 213, 165, .14);
-      color: #a8ffd7;
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #48d5a5) 34%, transparent);
+      background: color-mix(in srgb, var(--theme-success-soft, #48d5a5) 14%, transparent);
+      color: var(--theme-success, #a8ffd7);
     }}
     body.agenda-style-radar .agenda-items {{
       position: relative;
@@ -673,13 +673,13 @@ def render_agenda_html(
       min-height: 360px;
       overflow: hidden;
       padding: 64px 28px 28px;
-      border: 1px solid rgba(72, 213, 165, .22);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #48d5a5) 22%, transparent);
       border-radius: 8px;
       background:
-        radial-gradient(circle at center, transparent 0 21%, rgba(72, 213, 165, .18) 21.5% 22%, transparent 22.5% 41%, rgba(72, 213, 165, .16) 41.5% 42%, transparent 42.5% 62%, rgba(72, 213, 165, .14) 62.5% 63%, transparent 63.5%),
-        linear-gradient(rgba(72, 213, 165, .08) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(72, 213, 165, .08) 1px, transparent 1px),
-        rgba(3, 16, 22, .44);
+        radial-gradient(circle at center, transparent 0 21%, color-mix(in srgb, var(--theme-success-soft, #48d5a5) 18%, transparent) 21.5% 22%, transparent 22.5% 41%, color-mix(in srgb, var(--theme-success-soft, #48d5a5) 16%, transparent) 41.5% 42%, transparent 42.5% 62%, color-mix(in srgb, var(--theme-success-soft, #48d5a5) 14%, transparent) 62.5% 63%, transparent 63.5%),
+        linear-gradient(color-mix(in srgb, var(--theme-success-soft, #48d5a5) 8%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--theme-success-soft, #48d5a5) 8%, transparent) 1px, transparent 1px),
+        color-mix(in srgb, var(--theme-inset, #031016) 44%, transparent);
       background-size: auto, 32px 32px, 32px 32px, auto;
     }}
     body.agenda-style-radar .agenda-items::before {{
@@ -689,8 +689,8 @@ def render_agenda_html(
       z-index: 0;
       background: conic-gradient(
         from 0deg,
-        rgba(72, 213, 165, .38),
-        rgba(72, 213, 165, .08) 32deg,
+        color-mix(in srgb, var(--theme-success-soft, #48d5a5) 38%, transparent),
+        color-mix(in srgb, var(--theme-success-soft, #48d5a5) 8%, transparent) 32deg,
         transparent 58deg
       );
       opacity: .55;
@@ -706,7 +706,7 @@ def render_agenda_html(
       width: 14px;
       height: 14px;
       border-radius: 50%;
-      background: #48d5a5;
+      background: var(--theme-success-soft, #48d5a5);
       box-shadow: 0 0 0 8px rgba(72, 213, 165, .12);
       transform: translate(-50%, -50%);
     }}
@@ -714,19 +714,19 @@ def render_agenda_html(
       position: relative;
       z-index: 1;
       grid-template-columns: 1fr;
-      border-color: rgba(72, 213, 165, .28);
+      border-color: color-mix(in srgb, var(--theme-accent, #48d5a5) 28%, transparent);
       border-radius: 8px;
-      background: rgba(6, 28, 36, .9);
+      background: color-mix(in srgb, var(--theme-bg, #061c24) 90%, transparent);
       box-shadow: var(--shadow);
-      --agenda-card-line: rgba(72, 213, 165, .2);
-      --agenda-card-soft: rgba(72, 213, 165, .08);
-      --agenda-card-label: #a8ffd7;
-      --agenda-card-value: #effff8;
-      --agenda-review: #ffd166;
-      --agenda-review-soft: rgba(255, 209, 102, .18);
-      --agenda-review-border: rgba(255, 209, 102, .64);
+      --agenda-card-line: color-mix(in srgb, var(--theme-accent, #48d5a5) 20%, transparent);
+      --agenda-card-soft: color-mix(in srgb, var(--theme-success, #48d5a5) 8%, transparent);
+      --agenda-card-label: var(--theme-success, #a8ffd7);
+      --agenda-card-value: var(--theme-text, #effff8);
+      --agenda-review: var(--theme-warning, #ffd166);
+      --agenda-review-soft: color-mix(in srgb, var(--theme-warning, #ffd166) 18%, transparent);
+      --agenda-review-border: color-mix(in srgb, var(--theme-accent, #ffd166) 64%, transparent);
       --agenda-review-shadow: rgba(255, 209, 102, .28);
-      --agenda-review-glow: rgba(255, 209, 102, .42);
+      --agenda-review-glow: color-mix(in srgb, var(--theme-warning, #ffd166) 42%, transparent);
       animation: agenda-radar-contact 3.4s ease-in-out infinite;
       animation-delay: calc(var(--agenda-index, 0) * 140ms);
     }}
@@ -738,48 +738,48 @@ def render_agenda_html(
     }}
     body.agenda-style-radar .agenda-time {{
       border-right: 0;
-      border-bottom: 1px solid rgba(72, 213, 165, .18);
-      background: rgba(72, 213, 165, .1);
-      color: #a8ffd7;
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-accent, #48d5a5) 18%, transparent);
+      background: color-mix(in srgb, var(--theme-success-soft, #48d5a5) 10%, transparent);
+      color: var(--theme-success, #a8ffd7);
       text-align: left;
     }}
     body.agenda-style-radar .agenda-item h3 {{
-      color: #effff8;
+      color: var(--theme-text, #effff8);
     }}
     body.agenda-style-radar .agenda-kind,
     body.agenda-style-radar .agenda-description,
     body.agenda-style-radar .agenda-meta dt,
     body.agenda-style-radar .agenda-meta dd {{
-      color: #bdd6d0;
+      color: var(--theme-text, #bdd6d0);
     }}
     body.agenda-style-radar .agenda-badge,
     body.agenda-style-radar .agenda-person {{
-      border: 1px solid rgba(72, 213, 165, .24);
-      background: rgba(72, 213, 165, .13);
-      color: #a8ffd7;
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #48d5a5) 24%, transparent);
+      background: color-mix(in srgb, var(--theme-success-soft, #48d5a5) 13%, transparent);
+      color: var(--theme-success, #a8ffd7);
     }}
     body.agenda-style-radar .item-action {{
-      border-color: rgba(72, 213, 165, .32);
+      border-color: color-mix(in srgb, var(--theme-accent, #48d5a5) 32%, transparent);
       border-radius: 6px;
-      background: rgba(3, 16, 22, .7);
-      color: #effff8;
+      background: color-mix(in srgb, var(--theme-inset, #031016) 70%, transparent);
+      color: var(--theme-text, #effff8);
     }}
     body.agenda-style-radar .item-action.primary {{
-      border-color: #48d5a5;
-      background: #48d5a5;
-      color: #06202a;
+      border-color: var(--theme-accent, #48d5a5);
+      background: var(--theme-accent, #48d5a5);
+      color: var(--theme-on-accent, #06202a);
     }}
     body.agenda-style-radar .item-action.review {{
-      border-color: #ffd166;
-      background: #ffd166;
-      color: #211403;
+      border-color: var(--theme-accent, #ffd166);
+      background: var(--theme-warning-soft, #ffd166);
+      color: var(--theme-text, #211403);
     }}
     body.agenda-style-radar .agenda-warning {{
-      border: 1px solid rgba(255, 210, 125, .3);
-      color: #ffe0a0;
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #ffd27d) 30%, transparent);
+      color: var(--theme-warning, #ffe0a0);
     }}
     body.agenda-style-radar .agenda-metadata {{
-      border-top-color: rgba(72, 213, 165, .18);
+      border-top-color: color-mix(in srgb, var(--theme-accent, #48d5a5) 18%, transparent);
     }}
     @keyframes agenda-radar-sweep {{
       to {{ transform: rotate(360deg); }}
@@ -798,29 +798,29 @@ def render_agenda_html(
       }}
     }}
     body.agenda-style-family-orbit {{
-      --ink: #20283a;
-      --muted: #677386;
-      --line: #cad7df;
-      --paper: rgba(255, 255, 255, .94);
-      --wash: #edf4f6;
-      --accent: #237f86;
-      --accent-soft: #d8f0ed;
-      --warning: #a24a2b;
-      --warning-soft: #fff0e7;
+      --ink: var(--theme-text, #20283a);
+      --muted: var(--theme-muted, #677386);
+      --line: var(--theme-border, #cad7df);
+      --paper: color-mix(in srgb, var(--theme-text, #ffffff) 94%, transparent);
+      --wash: var(--theme-bg, #edf4f6);
+      --accent: var(--theme-accent, #237f86);
+      --accent-soft: var(--theme-accent-soft, #d8f0ed);
+      --warning: var(--theme-warning, #a24a2b);
+      --warning-soft: var(--theme-warning-soft, #fff0e7);
       --shadow: 0 18px 38px rgba(30, 50, 70, .14);
       background:
-        radial-gradient(circle at 14% 16%, rgba(35, 127, 134, .14), transparent 28%),
-        radial-gradient(circle at 88% 22%, rgba(215, 92, 120, .14), transparent 26%),
-        #edf4f6;
+        radial-gradient(circle at 14% 16%, color-mix(in srgb, var(--theme-accent-soft, #237f86) 14%, transparent), transparent 28%),
+        radial-gradient(circle at 88% 22%, color-mix(in srgb, var(--theme-error-soft, #d75c78) 14%, transparent), transparent 26%),
+        var(--theme-raised, #edf4f6);
     }}
     body.agenda-style-family-orbit .agenda-header {{
-      border-bottom: 1px solid #c4d3dc;
-      background: #24324a;
-      color: #f8fbff;
+      border-bottom: 1px solid var(--theme-border, #c4d3dc);
+      background: var(--theme-raised, #24324a);
+      color: var(--theme-text, #f8fbff);
       box-shadow: 0 12px 30px rgba(36, 50, 74, .18);
     }}
     body.agenda-style-family-orbit .agenda-kicker {{
-      color: #bfd7dd;
+      color: var(--theme-text, #bfd7dd);
       letter-spacing: 0;
     }}
     body.agenda-style-family-orbit h1,
@@ -836,12 +836,12 @@ def render_agenda_html(
       margin-bottom: 42px;
     }}
     body.agenda-style-family-orbit .agenda-section-heading {{
-      color: #24324a;
+      color: var(--theme-text, #24324a);
     }}
     body.agenda-style-family-orbit .agenda-count {{
-      border: 1px solid #afd2d0;
-      background: #d8f0ed;
-      color: #237f86;
+      border: 1px solid var(--theme-border, #afd2d0);
+      background: var(--theme-raised, #d8f0ed);
+      color: var(--theme-accent, #237f86);
     }}
     body.agenda-style-family-orbit .agenda-items {{
       position: relative;
@@ -850,11 +850,11 @@ def render_agenda_html(
       min-height: 380px;
       overflow: hidden;
       padding: 52px 32px 34px;
-      border: 1px solid rgba(54, 94, 122, .18);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #365e7a) 18%, transparent);
       border-radius: 8px;
       background:
-        radial-gradient(ellipse at center, transparent 0 18%, rgba(35, 127, 134, .18) 18.5% 19%, transparent 19.5% 38%, rgba(215, 92, 120, .15) 38.5% 39%, transparent 39.5% 58%, rgba(69, 106, 164, .14) 58.5% 59%, transparent 59.5%),
-        linear-gradient(135deg, rgba(255, 255, 255, .9), rgba(236, 245, 246, .72));
+        radial-gradient(ellipse at center, transparent 0 18%, color-mix(in srgb, var(--theme-accent-soft, #237f86) 18%, transparent) 18.5% 19%, transparent 19.5% 38%, color-mix(in srgb, var(--theme-error-soft, #d75c78) 15%, transparent) 38.5% 39%, transparent 39.5% 58%, color-mix(in srgb, var(--theme-raised, #456aa4) 14%, transparent) 58.5% 59%, transparent 59.5%),
+        linear-gradient(135deg, color-mix(in srgb, var(--theme-panel, #ffffff) 90%, transparent), color-mix(in srgb, var(--theme-raised, #ecf5f6) 72%, transparent));
     }}
     body.agenda-style-family-orbit .agenda-items::before {{
       content: "";
@@ -863,10 +863,10 @@ def render_agenda_html(
       z-index: 0;
       width: 76px;
       height: 76px;
-      border: 1px solid rgba(35, 127, 134, .28);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #237f86) 28%, transparent);
       border-radius: 50%;
       background:
-        radial-gradient(circle, rgba(35, 127, 134, .2), rgba(35, 127, 134, .05));
+        radial-gradient(circle, color-mix(in srgb, var(--theme-accent-soft, #237f86) 20%, transparent), color-mix(in srgb, var(--theme-accent-soft, #237f86) 5%, transparent));
       box-shadow:
         0 0 0 14px rgba(35, 127, 134, .08),
         0 0 0 32px rgba(215, 92, 120, .06);
@@ -877,7 +877,7 @@ def render_agenda_html(
       position: relative;
       z-index: 1;
       grid-template-columns: 1fr;
-      border-color: rgba(54, 94, 122, .2);
+      border-color: color-mix(in srgb, var(--theme-border, #365e7a) 20%, transparent);
       border-radius: 8px;
       background: var(--paper);
       box-shadow: var(--shadow);
@@ -895,9 +895,9 @@ def render_agenda_html(
     }}
     body.agenda-style-family-orbit .agenda-time {{
       border-right: 0;
-      border-bottom: 1px solid #e2edf1;
-      background: #ecf7f6;
-      color: #237f86;
+      border-bottom: 1px solid var(--theme-border, #e2edf1);
+      background: var(--theme-raised, #ecf7f6);
+      color: var(--theme-accent, #237f86);
       text-align: left;
     }}
     body.agenda-style-family-orbit .agenda-kind,
@@ -907,12 +907,12 @@ def render_agenda_html(
     body.agenda-style-family-orbit .agenda-badge,
     body.agenda-style-family-orbit .agenda-person {{
       border-radius: 6px;
-      background: #e8edf9;
-      color: #405d95;
+      background: var(--theme-raised, #e8edf9);
+      color: var(--theme-muted, #405d95);
     }}
     body.agenda-style-family-orbit .agenda-person {{
-      background: #d8f0ed;
-      color: #237f86;
+      background: var(--theme-raised, #d8f0ed);
+      color: var(--theme-accent, #237f86);
     }}
     body.agenda-style-family-orbit .item-action {{
       border-radius: 6px;
@@ -934,26 +934,26 @@ def render_agenda_html(
       }}
     }}
     body.agenda-style-month-hud {{
-      --ink: #eaf9f7;
-      --muted: #9dbab6;
-      --line: rgba(98, 230, 217, .25);
-      --paper: rgba(7, 24, 31, .9);
-      --wash: #061014;
-      --accent: #62e6d9;
-      --accent-soft: rgba(98, 230, 217, .16);
-      --warning: #ffbf75;
-      --warning-soft: rgba(255, 191, 117, .14);
+      --ink: var(--theme-text, #eaf9f7);
+      --muted: var(--theme-muted, #9dbab6);
+      --line: color-mix(in srgb, var(--theme-accent, #62e6d9) 25%, transparent);
+      --paper: color-mix(in srgb, var(--theme-text, #07181f) 90%, transparent);
+      --wash: var(--theme-bg, #061014);
+      --accent: var(--theme-accent, #62e6d9);
+      --accent-soft: color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 16%, transparent);
+      --warning: var(--theme-warning, #ffbf75);
+      --warning-soft: color-mix(in srgb, var(--theme-warning, #ffbf75) 14%, transparent);
       --shadow: 0 26px 64px rgba(0, 0, 0, .36);
       background:
-        linear-gradient(rgba(98, 230, 217, .045) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(98, 230, 217, .04) 1px, transparent 1px),
-        linear-gradient(160deg, #061014, #071b22 48%, #061014);
+        linear-gradient(color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 4.5%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 4%, transparent) 1px, transparent 1px),
+        linear-gradient(160deg, var(--theme-inset, #061014), var(--theme-bg, #071b22) 48%, var(--theme-inset, #061014));
       background-size: 36px 36px, 36px 36px, auto;
     }}
     body.agenda-style-month-hud .agenda-header {{
-      border-bottom: 1px solid rgba(98, 230, 217, .24);
-      background: rgba(4, 15, 20, .94);
-      color: #eaf9f7;
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 24%, transparent);
+      background: color-mix(in srgb, var(--theme-inset, #040f14) 94%, transparent);
+      color: var(--theme-text, #eaf9f7);
       box-shadow: 0 14px 42px rgba(0, 0, 0, .4);
       backdrop-filter: blur(12px);
     }}
@@ -980,7 +980,7 @@ def render_agenda_html(
     body.agenda-style-month-hud .agenda-summary {{
       position: relative;
       z-index: 4;
-      color: #a9c9c5;
+      color: var(--theme-text, #a9c9c5);
       font-weight: 740;
     }}
     body.agenda-style-month-hud #agendaSections {{
@@ -1002,11 +1002,11 @@ def render_agenda_html(
       isolation: isolate;
       overflow: hidden;
       min-height: max(clamp(650px, calc(100svh - 144px), 980px), var(--month-hud-dynamic-height, 0px));
-      border: 1px solid rgba(98, 230, 217, .22);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 22%, transparent);
       border-radius: 8px;
       background:
-        linear-gradient(180deg, rgba(16, 43, 52, .9), rgba(5, 19, 25, .92)),
-        radial-gradient(circle at 50% 42%, rgba(98, 230, 217, .12), transparent 44%);
+        linear-gradient(180deg, color-mix(in srgb, var(--theme-panel, #102b34) 90%, transparent), color-mix(in srgb, var(--theme-inset, #051319) 92%, transparent)),
+        radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 12%, transparent), transparent 44%);
       box-shadow:
         var(--shadow),
         inset 0 1px 0 rgba(255, 255, 255, .08);
@@ -1023,8 +1023,8 @@ def render_agenda_html(
       inset: 0;
       z-index: 0;
       background:
-        linear-gradient(rgba(255, 255, 255, .04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px);
+        linear-gradient(color-mix(in srgb, var(--theme-panel, #ffffff) 4%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--theme-panel, #ffffff) 3.5%, transparent) 1px, transparent 1px);
       background-size: 100% 18px, 18px 100%;
       opacity: .42;
       pointer-events: none;
@@ -1052,11 +1052,11 @@ def render_agenda_html(
       z-index: 4;
       width: calc(var(--month-hud-active-size) + 84px);
       height: calc(var(--month-hud-active-size) + 84px);
-      border: 1px solid rgba(98, 230, 217, .24);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 24%, transparent);
       border-radius: 50%;
       background:
-        radial-gradient(circle, rgba(98, 230, 217, .14), transparent 52%),
-        conic-gradient(from 12deg, transparent, rgba(98, 230, 217, .14), transparent 22%, rgba(255, 191, 117, .12), transparent 48%, rgba(98, 230, 217, .12), transparent 74%);
+        radial-gradient(circle, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 14%, transparent), transparent 52%),
+        conic-gradient(from 12deg, transparent, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 14%, transparent), transparent 22%, color-mix(in srgb, var(--theme-warning-soft, #ffbf75) 12%, transparent), transparent 48%, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 12%, transparent), transparent 74%);
       box-shadow:
         0 0 0 28px rgba(98, 230, 217, .035),
         0 0 70px rgba(98, 230, 217, .18);
@@ -1088,7 +1088,7 @@ def render_agenda_html(
     }}
     body.agenda-style-month-hud .month-hud-year-ghost {{
       min-width: 58px;
-      color: rgba(169, 201, 197, .45);
+      color: color-mix(in srgb, var(--theme-text, #a9c9c5) 45%, transparent);
       font-size: 13px;
       font-weight: 850;
       text-align: center;
@@ -1097,14 +1097,14 @@ def render_agenda_html(
     body.agenda-style-month-hud .month-hud-year-step,
     body.agenda-style-month-hud .month-hud-year-value,
     body.agenda-style-month-hud .month-hud-year-input {{
-      border: 1px solid rgba(98, 230, 217, .32);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 32%, transparent);
       background:
-        linear-gradient(135deg, rgba(12, 39, 48, .9), rgba(5, 17, 23, .88));
+        linear-gradient(135deg, color-mix(in srgb, var(--theme-panel, #0c2730) 90%, transparent), color-mix(in srgb, var(--theme-inset, #051117) 88%, transparent));
       box-shadow:
         0 18px 38px rgba(0, 0, 0, .28),
         inset 0 1px 0 rgba(255, 255, 255, .08),
         0 0 32px rgba(98, 230, 217, .12);
-      color: #eaf9f7;
+      color: var(--theme-text, #eaf9f7);
       font-family: Inter, ui-sans-serif, system-ui, sans-serif;
       font-weight: 900;
     }}
@@ -1123,7 +1123,7 @@ def render_agenda_html(
       min-width: 120px;
       min-height: 50px;
       border-radius: 8px;
-      color: #8bf7ee;
+      color: var(--theme-accent, #8bf7ee);
       font-size: clamp(26px, 3vw, 44px);
       letter-spacing: 0;
       text-align: center;
@@ -1144,7 +1144,7 @@ def render_agenda_html(
     body.agenda-style-month-hud .month-hud-year-value:hover,
     body.agenda-style-month-hud .month-hud-year-value:focus-visible,
     body.agenda-style-month-hud .month-hud-year-input:focus-visible {{
-      border-color: rgba(98, 230, 217, .58);
+      border-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 58%, transparent);
       box-shadow:
         0 20px 42px rgba(0, 0, 0, .32),
         inset 0 1px 0 rgba(255, 255, 255, .1),
@@ -1173,8 +1173,8 @@ def render_agenda_html(
       width: 320vw;
       height: 2px;
       background:
-        repeating-linear-gradient(90deg, rgba(98, 230, 217, .55) 0 22px, transparent 22px 34px),
-        linear-gradient(90deg, transparent, rgba(98, 230, 217, .58), transparent);
+        repeating-linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 55%, transparent) 0 22px, transparent 22px 34px),
+        linear-gradient(90deg, transparent, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 58%, transparent), transparent);
       box-shadow: 0 0 24px rgba(98, 230, 217, .22);
       opacity: .74;
       transform: translateY(-50%);
@@ -1201,12 +1201,12 @@ def render_agenda_html(
       align-content: center;
       gap: 4px;
       padding: 12px;
-      border: 1px solid rgba(98, 230, 217, .22);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 22%, transparent);
       border-radius: 50%;
       background:
-        radial-gradient(circle at 50% 35%, rgba(98, 230, 217, .16), transparent 60%),
-        rgba(5, 20, 26, .78);
-      color: #dffaf7;
+        radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 16%, transparent), transparent 60%),
+        color-mix(in srgb, var(--theme-inset, #05141a) 78%, transparent);
+      color: var(--theme-text, #dffaf7);
       cursor: pointer;
       opacity: var(--month-opacity, .42);
       box-shadow:
@@ -1235,10 +1235,10 @@ def render_agenda_html(
     }}
     body.agenda-style-month-hud .month-hud-node:hover,
     body.agenda-style-month-hud .month-hud-node:focus-visible {{
-      border-color: rgba(98, 230, 217, .42);
+      border-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 42%, transparent);
       background:
-        radial-gradient(circle at 50% 35%, rgba(98, 230, 217, .24), transparent 62%),
-        rgba(8, 29, 36, .88);
+        radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 24%, transparent), transparent 62%),
+        color-mix(in srgb, var(--theme-bg, #081d24) 88%, transparent);
       outline: 0;
       opacity: .9;
       filter: none;
@@ -1247,11 +1247,11 @@ def render_agenda_html(
       z-index: 9;
       width: var(--month-hud-active-size);
       height: var(--month-hud-active-size);
-      border-color: rgba(98, 230, 217, .62);
+      border-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 62%, transparent);
       border-radius: 50%;
       background:
-        radial-gradient(circle at 50% 38%, rgba(98, 230, 217, .28), transparent 64%),
-        linear-gradient(145deg, rgba(15, 50, 60, .96), rgba(5, 19, 25, .96));
+        radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 28%, transparent), transparent 64%),
+        linear-gradient(145deg, color-mix(in srgb, var(--theme-panel, #0f323c) 96%, transparent), color-mix(in srgb, var(--theme-inset, #051319) 96%, transparent));
       opacity: 1;
       filter: none;
       box-shadow:
@@ -1267,10 +1267,10 @@ def render_agenda_html(
       width: 64%;
       aspect-ratio: 1;
       place-items: center;
-      border: 1px solid rgba(98, 230, 217, .48);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 48%, transparent);
       border-radius: 50%;
       background:
-        radial-gradient(circle, rgba(98, 230, 217, .22), rgba(98, 230, 217, .04) 58%, transparent 59%);
+        radial-gradient(circle, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 22%, transparent), color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 4%, transparent) 58%, transparent 59%);
       box-shadow:
         0 0 0 7px rgba(98, 230, 217, .06),
         0 0 24px rgba(98, 230, 217, .16);
@@ -1290,11 +1290,11 @@ def render_agenda_html(
       border-radius: 50%;
       background: conic-gradient(
         from 0deg,
-        rgba(98, 230, 217, .7),
+        color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 70%, transparent),
         transparent 46deg,
-        rgba(255, 191, 117, .38) 112deg,
+        color-mix(in srgb, var(--theme-warning-soft, #ffbf75) 38%, transparent) 112deg,
         transparent 170deg,
-        rgba(98, 230, 217, .5) 260deg,
+        color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 50%, transparent) 260deg,
         transparent 330deg
       );
       opacity: .72;
@@ -1309,19 +1309,19 @@ def render_agenda_html(
       width: 54%;
       aspect-ratio: 1;
       place-items: center;
-      border: 1px solid rgba(98, 230, 217, .22);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 22%, transparent);
       border-radius: 50%;
-      background: rgba(5, 20, 26, .9);
-      color: #7ff5ea;
+      background: color-mix(in srgb, var(--theme-inset, #05141a) 90%, transparent);
+      color: var(--theme-accent, #7ff5ea);
       font-size: clamp(14px, 1.7vw, 22px);
       font-weight: 850;
     }}
     body.agenda-style-month-hud .month-hud-node.has-events .month-hud-core {{
-      background: rgba(98, 230, 217, .16);
-      color: #f2fffd;
+      background: color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 16%, transparent);
+      color: var(--theme-text, #f2fffd);
     }}
     body.agenda-style-month-hud .month-hud-node.has-warning .month-hud-ring {{
-      border-color: rgba(255, 191, 117, .58);
+      border-color: color-mix(in srgb, var(--theme-accent, #ffbf75) 58%, transparent);
       animation:
         agenda-month-hud-idle 5.8s ease-in-out infinite,
         agenda-month-hud-warning 2.6s ease-in-out infinite;
@@ -1333,7 +1333,7 @@ def render_agenda_html(
       width: 5px;
       height: 5px;
       border-radius: 50%;
-      background: #62e6d9;
+      background: var(--theme-accent-soft, #62e6d9);
       box-shadow: 0 0 8px rgba(98, 230, 217, .8);
       transform: rotate(calc(var(--pip-index, 0) * 38deg)) translateY(calc(var(--month-hud-node-size) * -.31));
       transform-origin: 0 0;
@@ -1344,11 +1344,11 @@ def render_agenda_html(
       transform: rotate(calc(var(--pip-index, 0) * 38deg)) translateY(calc(var(--month-hud-active-size) * -.24));
     }}
     body.agenda-style-month-hud .month-hud-node.has-warning .month-hud-pip {{
-      background: #ffbf75;
+      background: var(--theme-warning-soft, #ffbf75);
       box-shadow: 0 0 8px rgba(255, 191, 117, .85);
     }}
     body.agenda-style-month-hud .month-hud-month {{
-      color: #dffaf7;
+      color: var(--theme-text, #dffaf7);
       font-size: clamp(13px, 1.2vw, 16px);
       font-weight: 850;
       text-transform: uppercase;
@@ -1360,18 +1360,18 @@ def render_agenda_html(
     body.agenda-style-month-hud .month-hud-count {{
       min-width: 34px;
       padding: 3px 8px;
-      border: 1px solid rgba(98, 230, 217, .22);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 22%, transparent);
       border-radius: 999px;
-      background: rgba(98, 230, 217, .09);
-      color: #a9c9c5;
+      background: color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 9%, transparent);
+      color: var(--theme-text, #a9c9c5);
       font-size: 12px;
       font-weight: 780;
       text-align: center;
     }}
     body.agenda-style-month-hud .month-hud-node.selected .month-hud-count {{
-      border-color: rgba(98, 230, 217, .36);
-      background: rgba(98, 230, 217, .14);
-      color: #dffaf7;
+      border-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 36%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 14%, transparent);
+      color: var(--theme-text, #dffaf7);
       font-size: 13px;
     }}
     body.agenda-style-month-hud .month-hud-branches {{
@@ -1411,13 +1411,13 @@ def render_agenda_html(
       width: var(--circuit-length, 0px);
       height: 2px;
       border-radius: 999px;
-      background: linear-gradient(90deg, rgba(98, 230, 217, .88), rgba(98, 230, 217, .14));
+      background: linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 88%, transparent), color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 14%, transparent));
       box-shadow: 0 0 14px rgba(98, 230, 217, .2);
       transform: rotate(var(--circuit-angle, 0deg));
       transform-origin: left center;
     }}
     body.agenda-style-month-hud .month-hud-circuit-segment.is-secondary {{
-      background: linear-gradient(90deg, rgba(98, 230, 217, .62), rgba(255, 191, 117, .18));
+      background: linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 62%, transparent), color-mix(in srgb, var(--theme-warning-soft, #ffbf75) 18%, transparent));
     }}
     body.agenda-style-month-hud .month-hud-circuit-segment.is-secondary::after {{
       content: "";
@@ -1427,7 +1427,7 @@ def render_agenda_html(
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: #62e6d9;
+      background: var(--theme-accent-soft, #62e6d9);
       box-shadow: 0 0 12px rgba(98, 230, 217, .72);
       transform: translateY(-50%);
     }}
@@ -1438,22 +1438,22 @@ def render_agenda_html(
       width: var(--branch-card-width, var(--month-hud-branch-width));
       max-width: calc(100% - 28px);
       grid-template-columns: 1fr;
-      border-color: rgba(98, 230, 217, .25);
+      border-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 25%, transparent);
       border-radius: 8px;
       background:
-        linear-gradient(135deg, rgba(14, 42, 51, .94), rgba(5, 17, 23, .92));
+        linear-gradient(135deg, color-mix(in srgb, var(--theme-panel, #0e2a33) 94%, transparent), color-mix(in srgb, var(--theme-inset, #051117) 92%, transparent));
       box-shadow:
         0 18px 42px rgba(0, 0, 0, .3),
         inset 0 1px 0 rgba(255, 255, 255, .08);
-      --agenda-card-line: rgba(98, 230, 217, .2);
-      --agenda-card-soft: rgba(98, 230, 217, .08);
-      --agenda-card-label: #8bf7ee;
-      --agenda-card-value: #f2fffd;
-      --agenda-review: #ffd166;
-      --agenda-review-soft: rgba(255, 209, 102, .18);
-      --agenda-review-border: rgba(255, 209, 102, .64);
+      --agenda-card-line: color-mix(in srgb, var(--theme-accent, #62e6d9) 20%, transparent);
+      --agenda-card-soft: color-mix(in srgb, var(--theme-accent, #62e6d9) 8%, transparent);
+      --agenda-card-label: var(--theme-accent, #8bf7ee);
+      --agenda-card-value: var(--theme-text, #f2fffd);
+      --agenda-review: var(--theme-warning, #ffd166);
+      --agenda-review-soft: color-mix(in srgb, var(--theme-warning, #ffd166) 18%, transparent);
+      --agenda-review-border: color-mix(in srgb, var(--theme-accent, #ffd166) 64%, transparent);
       --agenda-review-shadow: rgba(255, 209, 102, .28);
-      --agenda-review-glow: rgba(255, 209, 102, .42);
+      --agenda-review-glow: color-mix(in srgb, var(--theme-warning, #ffd166) 42%, transparent);
       transform: translate(-50%, -50%) perspective(1200px) rotateX(1deg);
       transition: box-shadow .18s ease, transform .18s ease;
       pointer-events: auto;
@@ -1470,7 +1470,7 @@ def render_agenda_html(
       cursor: zoom-in;
     }}
     body.agenda-style-month-hud .month-hud-branch.debug-expanded .agenda-item.month-hud-debug-card {{
-      border-color: rgba(255, 191, 117, .46);
+      border-color: color-mix(in srgb, var(--theme-accent, #ffbf75) 46%, transparent);
       box-shadow:
         0 24px 56px rgba(0, 0, 0, .38),
         0 0 42px rgba(255, 191, 117, .14),
@@ -1504,7 +1504,7 @@ def render_agenda_html(
       top: -20px;
       width: 1px;
       height: 20px;
-      background: linear-gradient(180deg, transparent, rgba(255, 191, 117, .74));
+      background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--theme-warning-soft, #ffbf75) 74%, transparent));
       box-shadow: 0 0 14px rgba(255, 191, 117, .34);
       pointer-events: none;
     }}
@@ -1522,14 +1522,14 @@ def render_agenda_html(
       display: grid;
       gap: 6px;
       padding: 10px 11px;
-      border: 1px solid rgba(255, 191, 117, .26);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #ffbf75) 26%, transparent);
       border-radius: 8px;
       background:
-        linear-gradient(135deg, rgba(38, 29, 19, .94), rgba(7, 18, 23, .94));
+        linear-gradient(135deg, color-mix(in srgb, var(--theme-bg, #261d13) 94%, transparent), color-mix(in srgb, var(--theme-inset, #071217) 94%, transparent));
       box-shadow:
         0 14px 32px rgba(0, 0, 0, .32),
         inset 0 1px 0 rgba(255, 255, 255, .08);
-      color: #f7fbfa;
+      color: var(--theme-text, #f7fbfa);
       animation: agenda-month-hud-branch-in .28s ease-out both;
       animation-delay: calc(var(--fact-index, 0) * 42ms);
       pointer-events: auto;
@@ -1540,35 +1540,35 @@ def render_agenda_html(
       justify-content: space-between;
       gap: 8px;
       min-width: 0;
-      color: #ffd39a;
+      color: var(--theme-warning, #ffd39a);
       font-size: 10px;
       font-weight: 850;
       text-transform: uppercase;
     }}
     body.agenda-style-month-hud .month-hud-fact-card h4 {{
       margin: 0;
-      color: #f2fffd;
+      color: var(--theme-text, #f2fffd);
       font-size: 13px;
       line-height: 1.25;
     }}
     body.agenda-style-month-hud .month-hud-fact-members {{
-      color: #a9c9c5;
+      color: var(--theme-text, #a9c9c5);
       font-size: 11px;
       font-weight: 700;
       line-height: 1.3;
     }}
     body.agenda-style-month-hud .month-hud-fact-detail,
     body.agenda-style-month-hud .month-hud-fact-empty {{
-      color: #d5ebe8;
+      color: var(--theme-text, #d5ebe8);
       font-size: 11px;
       font-weight: 650;
       line-height: 1.35;
     }}
     body.agenda-style-month-hud .month-hud-fact-empty {{
-      border: 1px dashed rgba(255, 191, 117, .28);
+      border: 1px dashed color-mix(in srgb, var(--theme-accent, #ffbf75) 28%, transparent);
       border-radius: 8px;
       padding: 10px 11px;
-      background: rgba(7, 18, 23, .78);
+      background: color-mix(in srgb, var(--theme-inset, #071217) 78%, transparent);
     }}
     body.agenda-style-month-hud .month-hud.is-editing-card .month-hud-canvas {{
       opacity: .28;
@@ -1586,8 +1586,8 @@ def render_agenda_html(
       place-items: center;
       padding: clamp(18px, 4vw, 44px);
       background:
-        radial-gradient(circle at center, rgba(98, 230, 217, .16), transparent 34%),
-        rgba(2, 9, 12, .46);
+        radial-gradient(circle at center, color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 16%, transparent), transparent 34%),
+        color-mix(in srgb, var(--theme-inset, #02090c) 46%, transparent);
       opacity: 1;
       transition: opacity .5s ease;
       pointer-events: auto;
@@ -1602,15 +1602,15 @@ def render_agenda_html(
       overflow: auto;
       gap: 16px;
       padding: 20px;
-      border: 1px solid rgba(98, 230, 217, .34);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 34%, transparent);
       border-radius: 8px;
       background:
-        linear-gradient(135deg, #0d303a, #06131a);
+        linear-gradient(135deg, var(--theme-panel, #0d303a), var(--theme-inset, #06131a));
       box-shadow:
         0 42px 92px rgba(0, 0, 0, .48),
         0 0 0 1px rgba(255, 255, 255, .06) inset,
         0 0 86px rgba(98, 230, 217, .18);
-      color: #eaf9f7;
+      color: var(--theme-text, #eaf9f7);
       opacity: 1;
       pointer-events: auto;
       transform: translateY(0) scale(1);
@@ -1636,8 +1636,8 @@ def render_agenda_html(
       place-items: center;
       padding: clamp(18px, 4vw, 44px);
       background:
-        radial-gradient(circle at center, rgba(255, 91, 91, .22), transparent 36%),
-        rgba(20, 3, 7, .5);
+        radial-gradient(circle at center, color-mix(in srgb, var(--theme-error-soft, #ff5b5b) 22%, transparent), transparent 36%),
+        color-mix(in srgb, var(--theme-inset, #140307) 50%, transparent);
       opacity: 0;
       pointer-events: auto;
       transition: opacity .28s ease;
@@ -1653,15 +1653,15 @@ def render_agenda_html(
       width: min(460px, 100%);
       gap: 14px;
       padding: 20px;
-      border: 1px solid rgba(255, 103, 103, .48);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #ff6767) 48%, transparent);
       border-radius: 8px;
       background:
-        linear-gradient(135deg, #42141a, #16070a);
+        linear-gradient(135deg, var(--theme-panel, #42141a), var(--theme-inset, #16070a));
       box-shadow:
         0 42px 92px rgba(0, 0, 0, .5),
         0 0 0 1px rgba(255, 255, 255, .06) inset,
         0 0 86px rgba(255, 91, 91, .18);
-      color: #fff2f2;
+      color: var(--theme-text, #fff2f2);
       opacity: 0;
       transform: translateY(16px) scale(.96);
       transition: opacity .28s ease, transform .32s cubic-bezier(.2, .8, .2, 1);
@@ -1679,20 +1679,20 @@ def render_agenda_html(
       gap: 6px;
     }}
     body.agenda-style-month-hud .month-hud-confirm-kicker {{
-      color: #ffb1a7;
+      color: var(--theme-error, #ffb1a7);
       font-size: 12px;
       font-weight: 850;
       text-transform: uppercase;
     }}
     body.agenda-style-month-hud .month-hud-confirm-dialog h3 {{
       margin: 0;
-      color: #fffafa;
+      color: var(--theme-text, #fffafa);
       font-size: 22px;
       line-height: 1.18;
     }}
     body.agenda-style-month-hud .month-hud-confirm-dialog p {{
       margin: 0;
-      color: #ffd6d2;
+      color: var(--theme-text, #ffd6d2);
       font-size: 14px;
       font-weight: 650;
       line-height: 1.5;
@@ -1701,19 +1701,19 @@ def render_agenda_html(
       display: grid;
       gap: 5px;
       padding-bottom: 12px;
-      border-bottom: 1px solid rgba(98, 230, 217, .18);
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 18%, transparent);
     }}
     body.agenda-style-month-hud .month-hud-review-panel {{
       display: grid;
       gap: 10px;
       padding: 12px;
-      border: 1px solid rgba(255, 209, 102, .36);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #ffd166) 36%, transparent);
       border-radius: 8px;
-      background: rgba(255, 209, 102, .12);
-      color: #ffe0a3;
+      background: color-mix(in srgb, var(--theme-warning-soft, #ffd166) 12%, transparent);
+      color: var(--theme-warning, #ffe0a3);
     }}
     body.agenda-style-month-hud .month-hud-review-panel strong {{
-      color: #ffd166;
+      color: var(--theme-warning, #ffd166);
       font-size: 12px;
       text-transform: uppercase;
     }}
@@ -1726,20 +1726,20 @@ def render_agenda_html(
       grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     }}
     body.agenda-style-month-hud .month-hud-review-panel dt {{
-      color: #ffd166;
+      color: var(--theme-warning, #ffd166);
     }}
     body.agenda-style-month-hud .month-hud-review-panel dd {{
-      color: #fff5d2;
+      color: var(--theme-text, #fff5d2);
     }}
     body.agenda-style-month-hud .month-hud-edit-kicker {{
-      color: #8bf7ee;
+      color: var(--theme-accent, #8bf7ee);
       font-size: 12px;
       font-weight: 850;
       text-transform: uppercase;
     }}
     body.agenda-style-month-hud .month-hud-card-editor h2 {{
       margin: 0;
-      color: #f2fffd;
+      color: var(--theme-text, #f2fffd);
       font-size: 24px;
       line-height: 1.18;
     }}
@@ -1752,7 +1752,7 @@ def render_agenda_html(
       display: grid;
       gap: 5px;
       min-width: 0;
-      color: #a9c9c5;
+      color: var(--theme-text, #a9c9c5);
       font-size: 12px;
       font-weight: 800;
       text-transform: uppercase;
@@ -1766,10 +1766,10 @@ def render_agenda_html(
     body.agenda-style-month-hud .month-hud-edit-field textarea {{
       width: 100%;
       min-width: 0;
-      border: 1px solid rgba(98, 230, 217, .26);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 26%, transparent);
       border-radius: 8px;
-      background: rgba(5, 17, 23, .88);
-      color: #f2fffd;
+      background: color-mix(in srgb, var(--theme-inset, #051117) 88%, transparent);
+      color: var(--theme-text, #f2fffd);
       font: inherit;
       font-size: 14px;
       font-weight: 650;
@@ -1801,7 +1801,7 @@ def render_agenda_html(
       align-items: center;
       gap: 8px;
       min-height: 30px;
-      color: #eaf9f7;
+      color: var(--theme-text, #eaf9f7);
       font-size: 13px;
       font-weight: 700;
       text-transform: none;
@@ -1812,11 +1812,11 @@ def render_agenda_html(
       min-width: 16px;
       height: 16px;
       padding: 0;
-      accent-color: #62e6d9;
+      accent-color: var(--theme-accent, #62e6d9);
     }}
     body.agenda-style-month-hud .month-hud-check-empty {{
       padding: 0 10px 10px;
-      color: #a9c9c5;
+      color: var(--theme-text, #a9c9c5);
       font-size: 13px;
       font-weight: 650;
       text-transform: none;
@@ -1828,8 +1828,8 @@ def render_agenda_html(
     body.agenda-style-month-hud .month-hud-edit-field select:focus-visible,
     body.agenda-style-month-hud .month-hud-check-menu:focus-within,
     body.agenda-style-month-hud .month-hud-edit-field textarea:focus-visible {{
-      border-color: #62e6d9;
-      outline: 2px solid rgba(98, 230, 217, .18);
+      border-color: var(--theme-accent, #62e6d9);
+      outline: 2px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 18%, transparent);
       outline-offset: 1px;
     }}
     body.agenda-style-month-hud .month-hud-edit-actions,
@@ -1843,34 +1843,34 @@ def render_agenda_html(
     body.agenda-style-month-hud .month-hud-edit-actions .item-action,
     body.agenda-style-month-hud .month-hud-confirm-actions .item-action {{
       min-height: 38px;
-      border-color: rgba(98, 230, 217, .32);
+      border-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 32%, transparent);
       border-radius: 6px;
-      background: rgba(7, 24, 31, .82);
-      color: #eaf9f7;
+      background: color-mix(in srgb, var(--theme-bg, #07181f) 82%, transparent);
+      color: var(--theme-text, #eaf9f7);
       padding: 0 16px;
     }}
     body.agenda-style-month-hud .month-hud-edit-actions .item-action.primary,
     body.agenda-style-month-hud .month-hud-confirm-actions .item-action.primary {{
-      border-color: #62e6d9;
-      background: #62e6d9;
-      color: #041115;
+      border-color: var(--theme-accent, #62e6d9);
+      background: var(--theme-accent, #62e6d9);
+      color: var(--theme-on-accent, #041115);
     }}
     body.agenda-style-month-hud .month-hud-edit-actions .item-action.danger,
     body.agenda-style-month-hud .month-hud-confirm-actions .item-action.danger {{
-      border-color: rgba(255, 103, 103, .54);
-      background: rgba(255, 103, 103, .14);
-      color: #ffd4d4;
+      border-color: color-mix(in srgb, var(--theme-accent, #ff6767) 54%, transparent);
+      background: color-mix(in srgb, var(--theme-error-soft, #ff6767) 14%, transparent);
+      color: var(--theme-text, #ffd4d4);
     }}
     body.agenda-style-month-hud .month-hud-confirm-actions .item-action.danger {{
-      border-color: #ff6767;
-      background: #ff6767;
-      color: #21070a;
+      border-color: var(--theme-accent, #ff6767);
+      background: var(--theme-error-soft, #ff6767);
+      color: var(--theme-text, #21070a);
     }}
     body.agenda-style-month-hud .month-hud-branch .agenda-time {{
       border-right: 0;
-      border-bottom: 1px solid rgba(98, 230, 217, .18);
-      background: rgba(98, 230, 217, .09);
-      color: #8bf7ee;
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 18%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 9%, transparent);
+      color: var(--theme-accent, #8bf7ee);
       padding: 10px 12px;
       font-size: 12px;
       text-align: left;
@@ -1879,14 +1879,14 @@ def render_agenda_html(
       padding: 12px 13px 13px;
     }}
     body.agenda-style-month-hud .month-hud-branch .agenda-item h3 {{
-      color: #f2fffd;
+      color: var(--theme-text, #f2fffd);
       font-size: 15px;
     }}
     body.agenda-style-month-hud .month-hud-branch .agenda-kind,
     body.agenda-style-month-hud .month-hud-branch .agenda-description,
     body.agenda-style-month-hud .month-hud-branch .agenda-meta dt,
     body.agenda-style-month-hud .month-hud-branch .agenda-meta dd {{
-      color: #a9c9c5;
+      color: var(--theme-text, #a9c9c5);
     }}
     body.agenda-style-month-hud .month-hud-branch .agenda-description {{
       display: block;
@@ -1896,32 +1896,32 @@ def render_agenda_html(
     }}
     body.agenda-style-month-hud .month-hud-branch .agenda-badge,
     body.agenda-style-month-hud .month-hud-branch .agenda-person {{
-      border: 1px solid rgba(98, 230, 217, .24);
-      background: rgba(98, 230, 217, .13);
-      color: #b6fff8;
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 24%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 13%, transparent);
+      color: var(--theme-accent, #b6fff8);
     }}
     body.agenda-style-month-hud .month-hud-branch .agenda-warning {{
-      border: 1px solid rgba(255, 191, 117, .34);
-      color: #ffd5a1;
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #ffbf75) 34%, transparent);
+      color: var(--theme-warning, #ffd5a1);
     }}
     body.agenda-style-month-hud .month-hud-branch .agenda-metadata {{
-      border-top-color: rgba(98, 230, 217, .18);
+      border-top-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 18%, transparent);
     }}
     body.agenda-style-month-hud .month-hud-branch .item-action {{
-      border-color: rgba(98, 230, 217, .32);
+      border-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 32%, transparent);
       border-radius: 6px;
-      background: rgba(7, 24, 31, .74);
-      color: #eaf9f7;
+      background: color-mix(in srgb, var(--theme-bg, #07181f) 74%, transparent);
+      color: var(--theme-text, #eaf9f7);
     }}
     body.agenda-style-month-hud .month-hud-branch .item-action.primary {{
-      border-color: #62e6d9;
-      background: #2cc8b8;
-      color: #051115;
+      border-color: var(--theme-accent, #62e6d9);
+      background: var(--theme-accent, #2cc8b8);
+      color: var(--theme-on-accent, #051115);
     }}
     body.agenda-style-month-hud .month-hud-branch .item-action.review {{
-      border-color: #ffd166;
-      background: #ffd166;
-      color: #211403;
+      border-color: var(--theme-accent, #ffd166);
+      background: var(--theme-warning-soft, #ffd166);
+      color: var(--theme-text, #211403);
     }}
     body.agenda-style-month-hud .month-hud-empty {{
       position: absolute;
@@ -1930,33 +1930,33 @@ def render_agenda_html(
       z-index: 8;
       width: min(320px, calc(100% - 34px));
       padding: 18px 20px;
-      border: 1px dashed rgba(98, 230, 217, .28);
+      border: 1px dashed color-mix(in srgb, var(--theme-accent, #62e6d9) 28%, transparent);
       border-radius: 8px;
-      background: rgba(98, 230, 217, .06);
-      color: #a9c9c5;
+      background: color-mix(in srgb, var(--theme-accent-soft, #62e6d9) 6%, transparent);
+      color: var(--theme-text, #a9c9c5);
       font-weight: 720;
       text-align: center;
       transform: translate(-50%, -50%);
       pointer-events: none;
     }}
     body.agenda-style-month-hud .agenda-empty {{
-      border-color: rgba(98, 230, 217, .28);
-      background: rgba(7, 24, 31, .78);
-      color: #a9c9c5;
+      border-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 28%, transparent);
+      background: color-mix(in srgb, var(--theme-bg, #07181f) 78%, transparent);
+      color: var(--theme-text, #a9c9c5);
     }}
     body.agenda-style-month-hud .agenda-modal {{
-      border: 1px solid rgba(98, 230, 217, .26);
-      background: #07171d;
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #62e6d9) 26%, transparent);
+      background: var(--theme-bg, #07171d);
     }}
     body.agenda-style-month-hud .agenda-modal header {{
-      border-bottom-color: rgba(98, 230, 217, .2);
+      border-bottom-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 20%, transparent);
     }}
     body.agenda-style-month-hud .editor-field input,
     body.agenda-style-month-hud .editor-field textarea,
     body.agenda-style-month-hud .editor-field select {{
-      border-color: rgba(98, 230, 217, .28);
-      background: rgba(5, 17, 23, .96);
-      color: #eaf9f7;
+      border-color: color-mix(in srgb, var(--theme-accent, #62e6d9) 28%, transparent);
+      background: color-mix(in srgb, var(--theme-inset, #051117) 96%, transparent);
+      color: var(--theme-text, #eaf9f7);
     }}
     @keyframes agenda-month-hud-idle {{
       0%, 100% {{
@@ -2028,26 +2028,26 @@ def render_agenda_html(
       }}
     }}
     body.agenda-style-hud {{
-      --ink: #eefcf8;
-      --muted: #9fb4ae;
-      --line: rgba(116, 229, 212, .24);
-      --paper: rgba(8, 23, 28, .9);
-      --wash: #081116;
-      --accent: #35dec8;
-      --accent-soft: rgba(53, 222, 200, .16);
-      --warning: #ffbd7a;
-      --warning-soft: rgba(255, 189, 122, .14);
+      --ink: var(--theme-text, #eefcf8);
+      --muted: var(--theme-muted, #9fb4ae);
+      --line: color-mix(in srgb, var(--theme-accent, #74e5d4) 24%, transparent);
+      --paper: color-mix(in srgb, var(--theme-text, #08171c) 90%, transparent);
+      --wash: var(--theme-bg, #081116);
+      --accent: var(--theme-accent, #35dec8);
+      --accent-soft: color-mix(in srgb, var(--theme-accent-soft, #35dec8) 16%, transparent);
+      --warning: var(--theme-warning, #ffbd7a);
+      --warning-soft: color-mix(in srgb, var(--theme-warning, #ffbd7a) 14%, transparent);
       --shadow: 0 26px 58px rgba(0, 0, 0, .32);
       background:
-        linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px),
-        #081116;
+        linear-gradient(color-mix(in srgb, var(--theme-panel, #ffffff) 3.5%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--theme-panel, #ffffff) 3.5%, transparent) 1px, transparent 1px),
+        var(--theme-inset, #081116);
       background-size: 32px 32px, 32px 32px, auto;
     }}
     body.agenda-style-hud .agenda-header {{
-      border-bottom: 1px solid rgba(116, 229, 212, .28);
-      background: rgba(5, 17, 22, .94);
-      color: #eefcf8;
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-accent, #74e5d4) 28%, transparent);
+      background: color-mix(in srgb, var(--theme-inset, #051116) 94%, transparent);
+      color: var(--theme-text, #eefcf8);
       box-shadow: 0 14px 42px rgba(0, 0, 0, .42);
       backdrop-filter: blur(12px);
     }}
@@ -2066,41 +2066,41 @@ def render_agenda_html(
       padding-top: 34px;
     }}
     body.agenda-style-hud .agenda-summary {{
-      color: #b8cbc6;
+      color: var(--theme-text, #b8cbc6);
     }}
     body.agenda-style-hud .agenda-section {{
       perspective: 1200px;
     }}
     body.agenda-style-hud .agenda-section-heading {{
-      color: #eefcf8;
+      color: var(--theme-text, #eefcf8);
       font-family: Inter, ui-sans-serif, system-ui, sans-serif;
       font-size: 18px;
       font-weight: 850;
     }}
     body.agenda-style-hud .agenda-count {{
-      border: 1px solid rgba(116, 229, 212, .32);
-      background: rgba(53, 222, 200, .14);
-      color: #7af1dd;
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #74e5d4) 32%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #35dec8) 14%, transparent);
+      color: var(--theme-accent, #7af1dd);
     }}
     body.agenda-style-hud .agenda-item {{
       position: relative;
       grid-template-columns: 128px minmax(0, 1fr);
-      border-color: rgba(116, 229, 212, .25);
+      border-color: color-mix(in srgb, var(--theme-accent, #74e5d4) 25%, transparent);
       border-radius: 8px;
       background:
-        linear-gradient(135deg, rgba(15, 39, 46, .96), rgba(6, 17, 22, .92));
+        linear-gradient(135deg, color-mix(in srgb, var(--theme-panel, #0f272e) 96%, transparent), color-mix(in srgb, var(--theme-inset, #061116) 92%, transparent));
       box-shadow:
         0 18px 42px rgba(0, 0, 0, .3),
         inset 0 1px 0 rgba(255, 255, 255, .08);
-      --agenda-card-line: rgba(116, 229, 212, .2);
-      --agenda-card-soft: rgba(53, 222, 200, .08);
-      --agenda-card-label: #7af1dd;
-      --agenda-card-value: #f4fffb;
-      --agenda-review: #ffd166;
-      --agenda-review-soft: rgba(255, 209, 102, .18);
-      --agenda-review-border: rgba(255, 209, 102, .64);
+      --agenda-card-line: color-mix(in srgb, var(--theme-accent, #74e5d4) 20%, transparent);
+      --agenda-card-soft: color-mix(in srgb, var(--theme-accent, #35dec8) 8%, transparent);
+      --agenda-card-label: var(--theme-accent, #7af1dd);
+      --agenda-card-value: var(--theme-text, #f4fffb);
+      --agenda-review: var(--theme-warning, #ffd166);
+      --agenda-review-soft: color-mix(in srgb, var(--theme-warning, #ffd166) 18%, transparent);
+      --agenda-review-border: color-mix(in srgb, var(--theme-accent, #ffd166) 64%, transparent);
       --agenda-review-shadow: rgba(255, 209, 102, .28);
-      --agenda-review-glow: rgba(255, 209, 102, .42);
+      --agenda-review-glow: color-mix(in srgb, var(--theme-warning, #ffd166) 42%, transparent);
       transform: rotateX(.8deg);
     }}
     body.agenda-style-hud .agenda-item::before {{
@@ -2109,78 +2109,78 @@ def render_agenda_html(
       inset: 0;
       border-radius: inherit;
       background:
-        linear-gradient(90deg, rgba(53, 222, 200, .18), transparent 34%),
-        linear-gradient(rgba(255, 255, 255, .05) 1px, transparent 1px);
+        linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-soft, #35dec8) 18%, transparent), transparent 34%),
+        linear-gradient(color-mix(in srgb, var(--theme-panel, #ffffff) 5%, transparent) 1px, transparent 1px);
       background-size: auto, 100% 18px;
       pointer-events: none;
     }}
     body.agenda-style-hud .agenda-time {{
       position: relative;
       z-index: 1;
-      border-right-color: rgba(116, 229, 212, .22);
-      background: rgba(53, 222, 200, .08);
-      color: #7af1dd;
+      border-right-color: color-mix(in srgb, var(--theme-accent, #74e5d4) 22%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #35dec8) 8%, transparent);
+      color: var(--theme-accent, #7af1dd);
     }}
     body.agenda-style-hud .agenda-item-body {{
       position: relative;
       z-index: 1;
     }}
     body.agenda-style-hud .agenda-item h3 {{
-      color: #f4fffb;
+      color: var(--theme-text, #f4fffb);
     }}
     body.agenda-style-hud .agenda-kind,
     body.agenda-style-hud .agenda-description,
     body.agenda-style-hud .agenda-meta dt,
     body.agenda-style-hud .agenda-meta dd {{
-      color: #b8cbc6;
+      color: var(--theme-text, #b8cbc6);
     }}
     body.agenda-style-hud .agenda-badge,
     body.agenda-style-hud .agenda-person {{
-      border: 1px solid rgba(116, 229, 212, .24);
-      background: rgba(53, 222, 200, .14);
-      color: #a8fff0;
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #74e5d4) 24%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #35dec8) 14%, transparent);
+      color: var(--theme-accent, #a8fff0);
     }}
     body.agenda-style-hud .agenda-warning {{
-      border: 1px solid rgba(255, 189, 122, .34);
-      color: #ffd5a6;
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #ffbd7a) 34%, transparent);
+      color: var(--theme-warning, #ffd5a6);
     }}
     body.agenda-style-hud .agenda-metadata {{
-      border-top-color: rgba(116, 229, 212, .18);
+      border-top-color: color-mix(in srgb, var(--theme-accent, #74e5d4) 18%, transparent);
     }}
     body.agenda-style-hud .item-action {{
-      border-color: rgba(116, 229, 212, .32);
+      border-color: color-mix(in srgb, var(--theme-accent, #74e5d4) 32%, transparent);
       border-radius: 6px;
-      background: rgba(7, 20, 25, .72);
-      color: #eefcf8;
+      background: color-mix(in srgb, var(--theme-inset, #071419) 72%, transparent);
+      color: var(--theme-text, #eefcf8);
     }}
     body.agenda-style-hud .item-action.primary {{
-      border-color: #35dec8;
-      background: #1aa996;
-      color: #061316;
+      border-color: var(--theme-accent, #35dec8);
+      background: var(--theme-accent, #1aa996);
+      color: var(--theme-on-accent, #061316);
     }}
     body.agenda-style-hud .item-action.review {{
-      border-color: #ffd166;
-      background: #ffd166;
-      color: #211403;
+      border-color: var(--theme-accent, #ffd166);
+      background: var(--theme-warning-soft, #ffd166);
+      color: var(--theme-text, #211403);
     }}
     body.agenda-style-hud .agenda-empty {{
-      border-color: rgba(116, 229, 212, .32);
-      background: rgba(7, 20, 25, .72);
-      color: #b8cbc6;
+      border-color: color-mix(in srgb, var(--theme-accent, #74e5d4) 32%, transparent);
+      background: color-mix(in srgb, var(--theme-inset, #071419) 72%, transparent);
+      color: var(--theme-text, #b8cbc6);
     }}
     body.agenda-style-hud .agenda-modal {{
-      border: 1px solid rgba(116, 229, 212, .26);
-      background: #0b1a20;
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #74e5d4) 26%, transparent);
+      background: var(--theme-bg, #0b1a20);
     }}
     body.agenda-style-hud .agenda-modal header {{
-      border-bottom-color: rgba(116, 229, 212, .2);
+      border-bottom-color: color-mix(in srgb, var(--theme-accent, #74e5d4) 20%, transparent);
     }}
     body.agenda-style-hud .editor-field input,
     body.agenda-style-hud .editor-field textarea,
     body.agenda-style-hud .editor-field select {{
-      border-color: rgba(116, 229, 212, .28);
-      background: rgba(5, 17, 22, .96);
-      color: #eefcf8;
+      border-color: color-mix(in srgb, var(--theme-accent, #74e5d4) 28%, transparent);
+      background: color-mix(in srgb, var(--theme-inset, #051116) 96%, transparent);
+      color: var(--theme-text, #eefcf8);
     }}
     body .agenda-item.needs_review,
     body .agenda-item.needs-review {{
@@ -2210,7 +2210,7 @@ def render_agenda_html(
       border-color: var(--agenda-review-border);
       border-left: 6px solid var(--agenda-review);
       background:
-        linear-gradient(135deg, var(--agenda-review-soft), rgba(5, 17, 23, .92) 54%);
+        linear-gradient(135deg, var(--agenda-review-soft), color-mix(in srgb, var(--theme-inset, #051117) 92%, transparent) 54%);
       box-shadow:
         0 18px 42px var(--agenda-review-shadow),
         0 0 0 1px var(--agenda-review-border),

@@ -63,6 +63,12 @@ Document panes in the browser UI can export the rendered Markdown source as
 Markdown, DOCX, or PDF. The export button opens the browser save picker when
 available and falls back to a normal download otherwise.
 
+Use **Colors**, beside **Splash** on the top bar, to choose an application-wide
+color scheme. Seven schemes include the original ElectroBoy Dark, ElectroBoy
+Light, Dracula, Nord, Gruvbox Dark, Solarized Light, and Catppuccin Mocha. The
+selection is remembered by the browser and updates open panes and windows.
+See [Color schemes](docs/color-schemes.md) for coverage and extension guidance.
+
 Each opened or created project owns a durable ElectroBoy workspace. A browser
 tab holds an exclusive lease on that workspace, while agents continue running
 after the tab detaches. Use `Project -> Workspace` to attach a detached

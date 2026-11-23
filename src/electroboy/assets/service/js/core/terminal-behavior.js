@@ -483,6 +483,7 @@
   }
 
   function install(terminal, options = {}) {
+    window.ElectroBoyTheme?.bindTerminal(terminal);
     if (!terminal) {
       return;
     }

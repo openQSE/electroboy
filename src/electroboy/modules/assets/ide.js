@@ -43,6 +43,8 @@
     let zoomPercent = 100;
     let inputSequence = 0;
     let inputTelemetryCleanup = null;
+    let appliedTheme = "";
+    let themeRequest = Promise.resolve();
     const telemetry = options.telemetry || null;
 
     try {
@@ -56,6 +58,25 @@
     } catch (_error) {
       // Zoom remains available when browser storage is unavailable.
     }
+
+    async function applyColorScheme() {
+      if (disposed || !workspaceId || !window.ElectroBoyTheme) return;
+      const theme = window.ElectroBoyTheme.ideTheme();
+      const key = JSON.stringify([workspaceId, currentStatus?.instance?.instance_id, theme]);
+      if (key === appliedTheme) return;
+      try {
+        const result = await request("/api/ide/color-scheme", {
+          method: "POST", body: JSON.stringify(theme),
+        });
+        if (result.status === "queued") appliedTheme = key;
+      } catch (error) {
+        report("color-scheme-failed", { message: String(error.message || error) });
+      }
+    }
+    function queueColorScheme() {
+      themeRequest = themeRequest.then(applyColorScheme, applyColorScheme);
+    }
+    const unsubscribeTheme = window.ElectroBoyTheme?.subscribe(queueColorScheme);
 
     function report(stage, details = {}) {
       if (!telemetry) return;
@@ -1054,6 +1075,7 @@
     retry.addEventListener("click", start);
     stop.addEventListener("click", stopIDE);
     frame.addEventListener("load", () => {
+      queueColorScheme();
       report("frame-loaded", {
         frame_path: new URL(frame.src, window.location.origin).pathname,
       });
@@ -1079,6 +1101,7 @@
     function dispose() {
       if (disposed) return;
       disposed = true;
+      unsubscribeTheme?.();
       if (heartbeat) window.clearInterval(heartbeat);
       inputTelemetryCleanup?.();
       inputTelemetryCleanup = null;

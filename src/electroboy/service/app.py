@@ -37,6 +37,7 @@ from .frontend import (
     read_service_text_asset,
     render_service_index,
     service_asset_content_type,
+    with_theme_assets,
 )
 from .frontend_debug import append_frontend_debug_payload
 from .http import (
@@ -958,6 +959,13 @@ class ServiceState:
         with self.lock:
             self._context_locked(context_id)
         return self.ide_service.record_input_event(context_id, payload)
+
+    def set_ide_color_scheme(
+        self, context_id: str, theme: dict[str, object]
+    ) -> dict[str, object]:
+        with self.lock:
+            self._context_locked(context_id)
+        return self.ide_service.set_color_scheme(context_id, theme)
 
     def ide_configuration(self, context_id: str) -> dict[str, object]:
         with self.lock:
@@ -3327,7 +3335,10 @@ def _handler_for(
                 return
             if relative_path.endswith((".html", ".js", ".css")):
                 text = data.decode("utf-8")
-                data = _apply_service_asset_replacements(text).encode("utf-8")
+                text = _apply_service_asset_replacements(text)
+                if relative_path.endswith(".html"):
+                    text = with_theme_assets(text)
+                data = text.encode("utf-8")
             self._send_headers(
                 HTTPStatus.OK,
                 service_asset_content_type(relative_path),
@@ -3636,6 +3647,8 @@ def _handler_for(
             content_type: str,
             status: HTTPStatus = HTTPStatus.OK,
         ) -> None:
+            if content_type.startswith("text/html"):
+                text = with_theme_assets(text)
             data = text.encode("utf-8")
             self._send_headers(status, content_type, len(data))
             self.wfile.write(data)

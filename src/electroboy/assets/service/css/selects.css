@@ -1,21 +1,21 @@
 select {
-  --electroboy-select-picker-bg: #ffffff;
-  --electroboy-select-picker-border: #9fb4c8;
-  --electroboy-select-picker-hover: #e4f0f8;
-  --electroboy-select-picker-selected: #cfe8e5;
-  --electroboy-select-picker-text: #1b1f2a;
+  --electroboy-select-picker-bg: var(--theme-panel, #ffffff);
+  --electroboy-select-picker-border: var(--theme-border, #9fb4c8);
+  --electroboy-select-picker-hover: var(--theme-accent-soft, #e4f0f8);
+  --electroboy-select-picker-selected: var(--theme-accent-soft, #cfe8e5);
+  --electroboy-select-picker-text: var(--theme-text, #1b1f2a);
 }
 
 .pane-service-page select,
 .pane-layout-toolbar select,
 .pane-tool-section-body select,
 .ide-setting-field select {
-  --electroboy-select-picker-bg: #151b29;
-  --electroboy-select-picker-border: #364156;
-  --electroboy-select-picker-hover: #22314a;
-  --electroboy-select-picker-selected: #1f6f8b;
-  --electroboy-select-picker-text: #e7edf7;
-  color-scheme: dark;
+  --electroboy-select-picker-bg: var(--theme-panel, #151b29);
+  --electroboy-select-picker-border: var(--theme-border, #364156);
+  --electroboy-select-picker-hover: var(--theme-raised, #22314a);
+  --electroboy-select-picker-selected: var(--theme-accent-soft, #1f6f8b);
+  --electroboy-select-picker-text: var(--theme-text, #e7edf7);
+  color-scheme: var(--theme-color-scheme, dark);
 }
 
 .electroboy-custom-select {
@@ -38,7 +38,7 @@ select {
   background: var(--electroboy-select-picker-bg);
   color: var(--electroboy-select-picker-text);
   box-shadow: 0 14px 34px rgb(15 31 48 / 24%);
-  color-scheme: dark;
+  color-scheme: var(--theme-color-scheme, dark);
 }
 
 .electroboy-select-menu[hidden] {

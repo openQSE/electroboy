@@ -364,18 +364,18 @@ def markdown_document_html(
   <title>{html.escape(title)}</title>
   <style>
     :root {{
-      color-scheme: dark;
-      --doc-bg: #10141f;
-      --doc-surface: #10141f;
-      --doc-text: #e7edf7;
-      --doc-heading: #ffffff;
-      --doc-link: #66d9e8;
-      --doc-muted: #aab8cf;
-      --doc-border: #2a3142;
-      --doc-code-bg: #151b29;
-      --doc-code-text: #e7edf7;
-      --doc-table-head: #151b29;
-      --doc-accent: #8bd8ca;
+      color-scheme: var(--theme-color-scheme, dark);
+      --doc-bg: var(--theme-bg, #10141f);
+      --doc-surface: var(--theme-bg, #10141f);
+      --doc-text: var(--theme-text, #e7edf7);
+      --doc-heading: var(--theme-text, #ffffff);
+      --doc-link: var(--theme-accent, #66d9e8);
+      --doc-muted: var(--theme-muted, #aab8cf);
+      --doc-border: var(--theme-border, #2a3142);
+      --doc-code-bg: var(--theme-panel, #151b29);
+      --doc-code-text: var(--theme-text, #e7edf7);
+      --doc-table-head: var(--theme-raised, #151b29);
+      --doc-accent: var(--theme-accent, #8bd8ca);
       --doc-font-size: {document_font_size:.2f}px;
     }}
     html {{
@@ -848,18 +848,18 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
   <link rel="stylesheet" href="/assets/service/css/selects.css">
   <style>
     :root {{
-      color-scheme: dark;
-      --bg: #10141f;
-      --panel: #151b29;
-      --panel-soft: #1d2638;
-      --text: #e7edf7;
-      --muted: #aab8cf;
-      --border: #2a3142;
-      --accent: #66d9e8;
-      --accent-strong: #1f6f8b;
-      --dirty: #ffd43b;
-      --ok: #8ce99a;
-      --error: #ff8787;
+      color-scheme: var(--theme-color-scheme, dark);
+      --bg: var(--theme-bg, #10141f);
+      --panel: var(--theme-panel, #151b29);
+      --panel-soft: var(--theme-panel, #1d2638);
+      --text: var(--theme-text, #e7edf7);
+      --muted: var(--theme-muted, #aab8cf);
+      --border: var(--theme-border, #2a3142);
+      --accent: var(--theme-accent, #66d9e8);
+      --accent-strong: var(--theme-accent, #1f6f8b);
+      --dirty: var(--theme-warning, #ffd43b);
+      --ok: var(--theme-success, #8ce99a);
+      --error: var(--theme-error, #ff8787);
       --editor-font-size: {editor_font_size}px;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
         "Segoe UI", sans-serif;
@@ -945,7 +945,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     button,
     .editor-actions select {{
       min-height: 34px;
-      border: 1px solid #364156;
+      border: 1px solid var(--theme-border, #364156);
       border-radius: 6px;
       background: var(--panel-soft);
       color: var(--text);
@@ -964,7 +964,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     button.primary {{
       border-color: var(--accent-strong);
       background: var(--accent-strong);
-      color: #ffffff;
+      color: var(--theme-on-accent, #ffffff);
     }}
 
     button:disabled {{
@@ -1005,7 +1005,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       z-index: 2;
       min-height: 0;
       border-radius: 999px;
-      background: rgba(15, 20, 32, 0.9);
+      background: color-mix(in srgb, var(--theme-bg, #0f1420) 90%, transparent);
       color: var(--muted);
       padding: 4px 10px;
       box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
@@ -1089,9 +1089,9 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     select,
     textarea {{
       width: 100%;
-      border: 1px solid #364156;
+      border: 1px solid var(--theme-border, #364156);
       border-radius: 6px;
-      background: #0f1420;
+      background: var(--theme-bg, #0f1420);
       color: var(--text);
       font: inherit;
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -1111,9 +1111,9 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     }}
 
     .generated-fields {{
-      border: 1px dashed #364156;
+      border: 1px dashed var(--theme-border, #364156);
       border-radius: 7px;
-      background: #101725;
+      background: var(--theme-bg, #101725);
       color: var(--muted);
     }}
 
@@ -1142,7 +1142,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     .generated-field code {{
       overflow: hidden;
       border-radius: 4px;
-      background: #0f1420;
+      background: var(--theme-bg, #0f1420);
       color: var(--text);
       padding: 4px 6px;
       text-overflow: ellipsis;
@@ -1192,16 +1192,16 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
       gap: 6px;
       align-items: center;
       border-bottom: 1px solid var(--border);
-      background: #121827;
+      background: var(--theme-bg, #121827);
       padding: 8px;
     }}
 
     .rich-toolbar select,
     .rich-toolbar button {{
       min-height: 30px;
-      border: 1px solid #354058;
+      border: 1px solid var(--theme-border, #354058);
       border-radius: 5px;
-      background: #171f31;
+      background: var(--theme-panel, #171f31);
       color: var(--text);
       font-size: 12px;
       padding: 0 9px;
@@ -1213,14 +1213,14 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
 
     .rich-toolbar button.active {{
       border-color: var(--accent);
-      color: #ffffff;
-      background: #1f3b4b;
+      color: var(--theme-text, #ffffff);
+      background: var(--theme-raised, #1f3b4b);
     }}
 
     .rich-editor-surface {{
       min-height: 0;
       overflow: auto;
-      background: #0f1420;
+      background: var(--theme-bg, #0f1420);
     }}
 
     .rich-editor-surface .tiptap {{
@@ -1237,7 +1237,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     .rich-editor-surface .tiptap h1,
     .rich-editor-surface .tiptap h2,
     .rich-editor-surface .tiptap h3 {{
-      color: #ffffff;
+      color: var(--theme-text, #ffffff);
       line-height: 1.2;
     }}
 
@@ -1266,7 +1266,7 @@ def _artifact_editor_page(edit_data: dict[str, object]) -> str:
     }}
 
     .rich-editor-surface .tiptap th {{
-      background: #151b29;
+      background: var(--theme-panel, #151b29);
     }}
 
     body.rich-markdown-mode .markdown-editor textarea.rich-source-fallback[hidden] {{
@@ -2584,7 +2584,7 @@ def external_link_html(url: str) -> tuple[str, HTTPStatus]:
   <title>External Link</title>
   <style>
     :root {{
-      color-scheme: dark;
+      color-scheme: var(--theme-color-scheme, dark);
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont,
         "Segoe UI", sans-serif;
     }}
@@ -2596,20 +2596,20 @@ def external_link_html(url: str) -> tuple[str, HTTPStatus]:
       margin: 0;
       display: grid;
       place-items: center;
-      background: #111722;
-      color: #e8edf7;
+      background: var(--theme-bg, #111722);
+      color: var(--theme-text, #e8edf7);
     }}
     main {{
       width: min(560px, calc(100vw - 32px));
-      border: 1px solid #2f3a4f;
+      border: 1px solid var(--theme-border, #2f3a4f);
       border-radius: 8px;
-      background: #151d2b;
+      background: var(--theme-panel, #151d2b);
       padding: 28px;
       box-shadow: 0 18px 48px rgba(0, 0, 0, .28);
     }}
     .label {{
       margin: 0 0 8px;
-      color: #98a6bd;
+      color: var(--theme-muted, #98a6bd);
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0;
@@ -2624,7 +2624,7 @@ def external_link_html(url: str) -> tuple[str, HTTPStatus]:
     .url {{
       margin: 16px 0 22px;
       overflow-wrap: anywhere;
-      color: #b9c4d7;
+      color: var(--theme-text, #b9c4d7);
       font: 13px/1.5 "SFMono-Regular", Consolas, "Liberation Mono",
         Menlo, monospace;
     }}
@@ -2639,10 +2639,10 @@ def external_link_html(url: str) -> tuple[str, HTTPStatus]:
       min-height: 36px;
       align-items: center;
       justify-content: center;
-      border: 1px solid #5b8def;
+      border: 1px solid var(--theme-accent, #5b8def);
       border-radius: 6px;
-      background: #2f68d8;
-      color: #ffffff;
+      background: var(--theme-accent, #2f68d8);
+      color: var(--theme-on-accent, #ffffff);
       font-size: 14px;
       font-weight: 650;
       padding: 7px 14px;
@@ -2650,7 +2650,7 @@ def external_link_html(url: str) -> tuple[str, HTTPStatus]:
     }}
     .hint {{
       margin: 0;
-      color: #8d9ab1;
+      color: var(--theme-muted, #8d9ab1);
       font-size: 13px;
     }}
   </style>

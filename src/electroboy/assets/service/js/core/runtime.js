@@ -4685,7 +4685,7 @@
         fontSize: effectivePaneFontSize(pane),
         scrollback: 10000,
         termName: "xterm-256color",
-        theme: {
+        theme: window.ElectroBoyTheme?.terminalTheme() || {
           background: "#10141f",
           foreground: "#e7edf7",
           cursor: "#e7edf7",

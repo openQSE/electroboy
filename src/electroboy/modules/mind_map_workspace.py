@@ -34,17 +34,17 @@ def render_mind_map_html(
   <title>{title}</title>
   <style>
     :root {{
-      color-scheme: light;
-      --ink: #252525;
-      --muted: #686868;
-      --line: #d3d3d3;
-      --paper: #fbfbfb;
-      --wash: #f1f1f1;
-      --accent: #2563eb;
-      --accent-soft: rgba(37, 99, 235, 0.12);
-      --source: #0f766e;
-      --observation: #7c3aed;
-      --fact: #c2410c;
+      color-scheme: var(--theme-color-scheme, light);
+      --ink: var(--theme-text, #252525);
+      --muted: var(--theme-muted, #686868);
+      --line: var(--theme-border, #d3d3d3);
+      --paper: var(--theme-panel, #fbfbfb);
+      --wash: var(--theme-bg, #f1f1f1);
+      --accent: var(--theme-accent, #2563eb);
+      --accent-soft: color-mix(in srgb, var(--theme-accent-soft, #2563eb) 12%, transparent);
+      --source: var(--theme-accent, #0f766e);
+      --observation: var(--theme-purple, #7c3aed);
+      --fact: var(--theme-warning, #c2410c);
       --shadow: 0 16px 44px rgba(0, 0, 0, 0.15);
       --node-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
     }}
@@ -83,7 +83,7 @@ def render_mind_map_html(
       padding: 10px 12px;
       border: 1px solid rgba(0, 0, 0, 0.08);
       border-radius: 8px;
-      background: rgba(255, 255, 255, 0.86);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 86%, transparent);
       box-shadow: var(--shadow);
       backdrop-filter: blur(12px);
     }}
@@ -105,9 +105,9 @@ def render_mind_map_html(
     .mind-map-control {{
       min-height: 34px;
       padding: 7px 10px;
-      border: 1px solid rgba(37, 99, 235, 0.25);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #2563eb) 25%, transparent);
       border-radius: 8px;
-      background: rgba(255, 255, 255, 0.88);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 88%, transparent);
       color: var(--ink);
       box-shadow: var(--node-shadow);
       cursor: pointer;
@@ -117,13 +117,13 @@ def render_mind_map_html(
       backdrop-filter: blur(12px);
     }}
     .mind-map-control:hover {{
-      border-color: rgba(37, 99, 235, 0.45);
-      background: #ffffff;
+      border-color: color-mix(in srgb, var(--theme-accent, #2563eb) 45%, transparent);
+      background: var(--theme-panel, #ffffff);
     }}
     .mind-map-control[aria-pressed="true"] {{
       border-color: var(--accent);
       background: var(--accent);
-      color: #ffffff;
+      color: var(--theme-on-accent, #ffffff);
     }}
     .mind-map-legend {{
       position: fixed;
@@ -136,7 +136,7 @@ def render_mind_map_html(
       padding: 12px;
       border: 1px solid rgba(0, 0, 0, 0.12);
       border-radius: 8px;
-      background: rgba(255, 255, 255, 0.9);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 90%, transparent);
       box-shadow: var(--shadow);
       backdrop-filter: blur(12px);
     }}
@@ -219,7 +219,7 @@ def render_mind_map_html(
       border: 1px solid var(--line);
       border-left: 4px solid var(--accent);
       border-radius: 8px;
-      background: rgba(255, 255, 255, 0.95);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 95%, transparent);
       box-shadow: var(--node-shadow);
       cursor: grab;
       text-align: left;
@@ -230,8 +230,8 @@ def render_mind_map_html(
     .mind-map-node:hover,
     .mind-map-node.is-expanded {{
       transform: translateY(-2px);
-      border-color: rgba(37, 99, 235, 0.45);
-      background: #ffffff;
+      border-color: color-mix(in srgb, var(--theme-accent, #2563eb) 45%, transparent);
+      background: var(--theme-panel, #ffffff);
     }}
     .mind-map-node:active,
     .mind-map-node.is-dragging {{
@@ -248,7 +248,7 @@ def render_mind_map_html(
     .mind-map-node[data-kind="provider_event"] {{ border-left-color: var(--observation); }}
     .mind-map-node[data-kind="fact"] {{ border-left-color: var(--fact); }}
     .mind-map-node.needs-review {{
-      border-color: rgba(37, 99, 235, 0.48);
+      border-color: color-mix(in srgb, var(--theme-accent, #2563eb) 48%, transparent);
       box-shadow:
         0 18px 38px rgba(37, 99, 235, 0.16),
         0 0 0 1px rgba(37, 99, 235, 0.12);
@@ -293,9 +293,9 @@ def render_mind_map_html(
     .mind-map-node__field {{
       min-width: 0;
       padding: 7px 8px;
-      border: 1px solid rgba(37, 99, 235, 0.14);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #2563eb) 14%, transparent);
       border-radius: 7px;
-      background: rgba(37, 99, 235, 0.06);
+      background: color-mix(in srgb, var(--theme-accent-soft, #2563eb) 6%, transparent);
     }}
     .mind-map-node__field span {{
       display: block;
@@ -316,10 +316,10 @@ def render_mind_map_html(
     .mind-map-node__review {{
       margin-top: 10px;
       padding: 8px 9px;
-      border: 1px solid rgba(37, 99, 235, 0.2);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #2563eb) 20%, transparent);
       border-radius: 8px;
-      background: rgba(37, 99, 235, 0.08);
-      color: #1d4f8d;
+      background: color-mix(in srgb, var(--theme-accent-soft, #2563eb) 8%, transparent);
+      color: var(--theme-accent, #1d4f8d);
       font-size: 12px;
       font-weight: 750;
       line-height: 1.35;
@@ -377,9 +377,9 @@ def render_mind_map_html(
     .mind-map-action {{
       min-height: 30px;
       padding: 0 11px;
-      border: 1px solid rgba(37, 99, 235, 0.22);
+      border: 1px solid color-mix(in srgb, var(--theme-accent, #2563eb) 22%, transparent);
       border-radius: 6px;
-      background: rgba(37, 99, 235, 0.08);
+      background: color-mix(in srgb, var(--theme-accent-soft, #2563eb) 8%, transparent);
       color: var(--accent);
       cursor: pointer;
       font: inherit;
@@ -387,8 +387,8 @@ def render_mind_map_html(
       font-weight: 800;
     }}
     .mind-map-action:hover {{
-      border-color: rgba(37, 99, 235, 0.42);
-      background: rgba(37, 99, 235, 0.14);
+      border-color: color-mix(in srgb, var(--theme-accent, #2563eb) 42%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #2563eb) 14%, transparent);
     }}
     .mind-map-action:disabled {{
       cursor: progress;
@@ -417,7 +417,7 @@ def render_mind_map_html(
     }}
     .mind-map-edge {{
       fill: none;
-      stroke: rgba(37, 99, 235, 0.34);
+      stroke: color-mix(in srgb, var(--theme-accent, #2563eb) 34%, transparent);
       stroke-width: 2.5;
       cursor: pointer;
       pointer-events: stroke;
@@ -437,25 +437,25 @@ def render_mind_map_html(
     }}
     .mind-map-style-hud,
     .mind-map-style-month-hud {{
-      --ink: #d9fbff;
-      --muted: #88bac3;
-      --line: rgba(75, 213, 238, 0.34);
-      --paper: #071216;
-      --wash: #03090c;
-      --accent: #2dd4bf;
-      --accent-soft: rgba(45, 212, 191, 0.16);
-      --source: #22d3ee;
-      --observation: #a78bfa;
-      --fact: #fb923c;
+      --ink: var(--theme-text, #d9fbff);
+      --muted: var(--theme-muted, #88bac3);
+      --line: color-mix(in srgb, var(--theme-accent, #4bd5ee) 34%, transparent);
+      --paper: var(--theme-panel, #071216);
+      --wash: var(--theme-bg, #03090c);
+      --accent: var(--theme-accent, #2dd4bf);
+      --accent-soft: color-mix(in srgb, var(--theme-accent-soft, #2dd4bf) 16%, transparent);
+      --source: var(--theme-accent, #22d3ee);
+      --observation: var(--theme-purple, #a78bfa);
+      --fact: var(--theme-warning, #fb923c);
       --shadow: 0 0 36px rgba(45, 212, 191, 0.16);
       --node-shadow: 0 0 28px rgba(34, 211, 238, 0.18);
     }}
     .mind-map-style-hud .mind-map-shell,
     .mind-map-style-month-hud .mind-map-shell {{
       background:
-        radial-gradient(circle at 24% 18%, rgba(45, 212, 191, 0.12), transparent 30%),
-        linear-gradient(rgba(45, 212, 191, 0.08) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(45, 212, 191, 0.08) 1px, transparent 1px),
+        radial-gradient(circle at 24% 18%, color-mix(in srgb, var(--theme-accent-soft, #2dd4bf) 12%, transparent), transparent 30%),
+        linear-gradient(color-mix(in srgb, var(--theme-accent-soft, #2dd4bf) 8%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--theme-accent-soft, #2dd4bf) 8%, transparent) 1px, transparent 1px),
         var(--wash);
       background-size: auto, 42px 42px, 42px 42px, auto;
     }}
@@ -465,73 +465,73 @@ def render_mind_map_html(
     .mind-map-style-month-hud .mind-map-control,
     .mind-map-style-hud .mind-map-node,
     .mind-map-style-month-hud .mind-map-node {{
-      background: rgba(4, 18, 24, 0.88);
+      background: color-mix(in srgb, var(--theme-inset, #041218) 88%, transparent);
       border-color: var(--line);
       box-shadow: var(--node-shadow);
     }}
     .mind-map-style-hud .mind-map-legend,
     .mind-map-style-month-hud .mind-map-legend {{
       border-color: var(--line);
-      background: rgba(4, 18, 24, 0.9);
+      background: color-mix(in srgb, var(--theme-inset, #041218) 90%, transparent);
       box-shadow: var(--node-shadow);
     }}
     .mind-map-style-hud .mind-map-edge,
     .mind-map-style-month-hud .mind-map-edge {{
-      stroke: rgba(45, 212, 191, 0.42);
+      stroke: color-mix(in srgb, var(--theme-accent, #2dd4bf) 42%, transparent);
     }}
     .mind-map-style-hud .mind-map-node__field,
     .mind-map-style-month-hud .mind-map-node__field {{
-      border-color: rgba(45, 212, 191, 0.22);
-      background: rgba(45, 212, 191, 0.08);
+      border-color: color-mix(in srgb, var(--theme-accent, #2dd4bf) 22%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #2dd4bf) 8%, transparent);
     }}
     .mind-map-style-hud .mind-map-node__review,
     .mind-map-style-month-hud .mind-map-node__review {{
-      border-color: rgba(139, 216, 255, 0.34);
-      background: rgba(59, 130, 246, 0.17);
-      color: #d9f2ff;
+      border-color: color-mix(in srgb, var(--theme-accent, #8bd8ff) 34%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #3b82f6) 17%, transparent);
+      color: var(--theme-text, #d9f2ff);
     }}
     .mind-map-style-hud .mind-map-action,
     .mind-map-style-month-hud .mind-map-action,
     .mind-map-style-hud .mind-map-control,
     .mind-map-style-month-hud .mind-map-control {{
-      border-color: rgba(45, 212, 191, 0.34);
-      background: rgba(45, 212, 191, 0.12);
-      color: #d9fbff;
+      border-color: color-mix(in srgb, var(--theme-accent, #2dd4bf) 34%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #2dd4bf) 12%, transparent);
+      color: var(--theme-text, #d9fbff);
       box-shadow: 0 0 18px rgba(45, 212, 191, 0.12);
     }}
     .mind-map-style-hud .mind-map-action:hover,
     .mind-map-style-month-hud .mind-map-action:hover,
     .mind-map-style-hud .mind-map-control:hover,
     .mind-map-style-month-hud .mind-map-control:hover {{
-      border-color: rgba(45, 212, 191, 0.58);
-      background: rgba(45, 212, 191, 0.2);
+      border-color: color-mix(in srgb, var(--theme-accent, #2dd4bf) 58%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #2dd4bf) 20%, transparent);
     }}
     .mind-map-style-command-center {{
-      --ink: #202020;
-      --muted: #626262;
-      --wash: #ececec;
-      --accent: #111827;
-      --source: #155e75;
-      --observation: #7c2d12;
-      --fact: #365314;
+      --ink: var(--theme-text, #202020);
+      --muted: var(--theme-muted, #626262);
+      --wash: var(--theme-bg, #ececec);
+      --accent: var(--theme-accent, #111827);
+      --source: var(--theme-accent, #155e75);
+      --observation: var(--theme-error, #7c2d12);
+      --fact: var(--theme-success, #365314);
     }}
     .mind-map-style-timeline-stack {{
-      --accent: #9333ea;
-      --source: #0f766e;
-      --observation: #9333ea;
-      --fact: #be123c;
+      --accent: var(--theme-accent, #9333ea);
+      --source: var(--theme-accent, #0f766e);
+      --observation: var(--theme-purple, #9333ea);
+      --fact: var(--theme-error, #be123c);
     }}
     .mind-map-style-radar {{
-      --accent: #059669;
-      --source: #047857;
-      --observation: #0e7490;
-      --fact: #b45309;
+      --accent: var(--theme-accent, #059669);
+      --source: var(--theme-success, #047857);
+      --observation: var(--theme-accent, #0e7490);
+      --fact: var(--theme-warning, #b45309);
     }}
     .mind-map-style-family-orbit {{
-      --accent: #4f46e5;
-      --source: #4338ca;
-      --observation: #be185d;
-      --fact: #ca8a04;
+      --accent: var(--theme-accent, #4f46e5);
+      --source: var(--theme-accent, #4338ca);
+      --observation: var(--theme-purple, #be185d);
+      --fact: var(--theme-warning, #ca8a04);
     }}
   </style>
 </head>

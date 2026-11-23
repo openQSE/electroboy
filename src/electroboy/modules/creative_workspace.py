@@ -784,13 +784,13 @@ def render_corkboard_html(
   <title>{html.escape(str(payload["title"]))}</title>
   <style>
     :root {{
-      color-scheme: dark;
-      --cork: #a86d38;
-      --cork-dark: #5f4128;
-      --ink: #263247;
-      --muted: #6b7280;
-      --pin: #d1495b;
-      --insert: #66d9e8;
+      color-scheme: var(--theme-color-scheme, dark);
+      --cork: var(--theme-panel, #a86d38);
+      --cork-dark: var(--theme-inset, #5f4128);
+      --ink: var(--theme-text, #263247);
+      --muted: var(--theme-muted, #6b7280);
+      --pin: var(--theme-error, #d1495b);
+      --insert: var(--theme-accent, #66d9e8);
       --shadow: rgba(15, 20, 32, 0.32);
     }}
 
@@ -805,13 +805,13 @@ def render_corkboard_html(
       margin: 0;
       background-color: var(--cork);
       background:
-        radial-gradient(ellipse at 18% 24%, rgba(89, 50, 22, 0.48) 0 2px, transparent 3px),
-        radial-gradient(ellipse at 73% 38%, rgba(68, 39, 18, 0.38) 0 2px, transparent 4px),
-        radial-gradient(ellipse at 41% 72%, rgba(219, 157, 88, 0.34) 0 2px, transparent 3px),
-        radial-gradient(ellipse at 84% 82%, rgba(92, 52, 22, 0.32) 0 1px, transparent 3px),
-        radial-gradient(ellipse at 31% 48%, rgba(236, 183, 112, 0.20) 0 1px, transparent 3px),
-        repeating-linear-gradient(27deg, rgba(61, 36, 18, 0.10) 0 1px, transparent 1px 9px),
-        repeating-linear-gradient(112deg, rgba(236, 183, 112, 0.08) 0 1px, transparent 1px 11px),
+        radial-gradient(ellipse at 18% 24%, color-mix(in srgb, var(--theme-warning-soft, #593216) 48%, transparent) 0 2px, transparent 3px),
+        radial-gradient(ellipse at 73% 38%, color-mix(in srgb, var(--theme-panel, #442712) 38%, transparent) 0 2px, transparent 4px),
+        radial-gradient(ellipse at 41% 72%, color-mix(in srgb, var(--theme-warning-soft, #db9d58) 34%, transparent) 0 2px, transparent 3px),
+        radial-gradient(ellipse at 84% 82%, color-mix(in srgb, var(--theme-warning-soft, #5c3416) 32%, transparent) 0 1px, transparent 3px),
+        radial-gradient(ellipse at 31% 48%, color-mix(in srgb, var(--theme-warning-soft, #ecb770) 20%, transparent) 0 1px, transparent 3px),
+        repeating-linear-gradient(27deg, color-mix(in srgb, var(--theme-panel, #3d2412) 10%, transparent) 0 1px, transparent 1px 9px),
+        repeating-linear-gradient(112deg, color-mix(in srgb, var(--theme-warning-soft, #ecb770) 8%, transparent) 0 1px, transparent 1px 11px),
         var(--cork);
       background-size:
         46px 38px,
@@ -850,13 +850,13 @@ def render_corkboard_html(
       justify-content: space-between;
       gap: 16px;
       min-height: 62px;
-      border-bottom: 1px solid rgba(52, 34, 22, 0.34);
-      background: rgba(52, 34, 22, 0.18);
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-border, #342216) 34%, transparent);
+      background: color-mix(in srgb, var(--theme-panel, #342216) 18%, transparent);
       padding: 10px 18px;
     }}
 
     .board-eyebrow {{
-      color: rgba(255, 248, 228, 0.84);
+      color: color-mix(in srgb, var(--theme-text, #fff8e4) 84%, transparent);
       font-size: 11px;
       font-weight: 800;
       letter-spacing: 0.08em;
@@ -869,7 +869,7 @@ def render_corkboard_html(
       border: 1px solid transparent;
       border-radius: 4px;
       background: transparent;
-      color: #fff9e8;
+      color: var(--theme-text, #fff9e8);
       font-family: Georgia, "Times New Roman", serif;
       font-size: 22px;
       font-weight: 700;
@@ -880,8 +880,8 @@ def render_corkboard_html(
 
     .board-title:not([readonly]):hover,
     .board-title:not([readonly]):focus {{
-      border-color: rgba(255, 249, 232, 0.42);
-      background: rgba(255, 249, 232, 0.10);
+      border-color: color-mix(in srgb, var(--theme-border, #fff9e8) 42%, transparent);
+      background: color-mix(in srgb, var(--theme-raised, #fff9e8) 10%, transparent);
     }}
 
     .toolbar-actions {{
@@ -894,10 +894,10 @@ def render_corkboard_html(
 
     .toolbar-button {{
       min-height: 32px;
-      border: 1px solid rgba(255, 249, 232, 0.42);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #fff9e8) 42%, transparent);
       border-radius: 999px;
-      background: rgba(255, 249, 232, 0.18);
-      color: #fff9e8;
+      background: color-mix(in srgb, var(--theme-raised, #fff9e8) 18%, transparent);
+      color: var(--theme-text, #fff9e8);
       cursor: pointer;
       font: inherit;
       font-size: 12px;
@@ -972,9 +972,9 @@ def render_corkboard_html(
     .save-the-cat-row {{
       position: absolute;
       min-width: 100%;
-      border: 2px solid rgba(255, 249, 232, 0.78);
+      border: 2px solid color-mix(in srgb, var(--theme-border, #fff9e8) 78%, transparent);
       border-radius: 8px;
-      background: rgba(56, 61, 69, 0.48);
+      background: color-mix(in srgb, var(--theme-raised, #383d45) 48%, transparent);
       box-shadow: 0 14px 32px rgba(15, 20, 32, 0.16) inset;
     }}
 
@@ -986,7 +986,7 @@ def render_corkboard_html(
       display: flex;
       align-items: center;
       justify-content: center;
-      color: rgba(255, 249, 232, 0.9);
+      color: color-mix(in srgb, var(--theme-text, #fff9e8) 90%, transparent);
       font-size: 15px;
       font-weight: 900;
       letter-spacing: 0.14em;
@@ -999,7 +999,7 @@ def render_corkboard_html(
     .save-the-cat-finale {{
       position: absolute;
       overflow: hidden;
-      color: rgba(255, 249, 232, 0.88);
+      color: color-mix(in srgb, var(--theme-text, #fff9e8) 88%, transparent);
       font-size: 12px;
       font-weight: 900;
       letter-spacing: 0.1em;
@@ -1014,12 +1014,12 @@ def render_corkboard_html(
     .save-the-cat-finale {{
       top: 13px;
       padding-bottom: 4px;
-      border-bottom: 1px solid rgba(255, 249, 232, 0.58);
+      border-bottom: 1px solid color-mix(in srgb, var(--theme-border, #fff9e8) 58%, transparent);
     }}
 
     .corkboard-connector {{
       fill: none;
-      stroke: var(--connector-color, #ead8b0);
+      stroke: var(--connector-color, var(--theme-warning, #ead8b0));
       stroke-linecap: round;
       stroke-width: var(--connector-thickness, 3px);
       filter: drop-shadow(0 2px 2px rgba(48, 28, 22, 0.48));
@@ -1035,7 +1035,7 @@ def render_corkboard_html(
 
     .connector-draft {{
       fill: none;
-      stroke: #66d9e8;
+      stroke: var(--theme-accent, #66d9e8);
       stroke-dasharray: 7 5;
       stroke-linecap: round;
       stroke-width: 3px;
@@ -1043,7 +1043,7 @@ def render_corkboard_html(
     }}
 
     .connector-cut-line {{
-      stroke: #ff5f6d;
+      stroke: var(--theme-error, #ff5f6d);
       stroke-dasharray: 8 5;
       stroke-linecap: round;
       stroke-width: 4px;
@@ -1060,8 +1060,8 @@ def render_corkboard_html(
       width: 240px;
       min-height: 140px;
       border-radius: 4px;
-      background: #fff6cf;
-      color: #596176;
+      background: var(--theme-warning-soft, #fff6cf);
+      color: var(--theme-muted, #596176);
       box-shadow: 0 18px 36px var(--shadow);
       padding: 22px;
       transform: rotate(-2deg);
@@ -1074,8 +1074,12 @@ def render_corkboard_html(
     }}
 
     .index-card {{
+      /* Authored paper colors keep their own contrasting ink. */
+      --ink: #263247;
+      --muted: #6b7280;
+      color: var(--ink);
       min-height: var(--card-min-height, 200px);
-      border: 1px solid rgba(38, 50, 71, 0.14);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #263247) 14%, transparent);
       border-radius: 5px;
       background:
         linear-gradient(var(--paper), var(--paper)),
@@ -1083,7 +1087,7 @@ def render_corkboard_html(
           to bottom,
           transparent 0,
           transparent 25px,
-          rgba(63, 77, 103, 0.16) 26px
+          color-mix(in srgb, var(--theme-raised, #3f4d67) 16%, transparent) 26px
         );
       box-shadow:
         0 18px 34px var(--shadow),
@@ -1104,7 +1108,7 @@ def render_corkboard_html(
     }}
 
     .index-card.structural-gap {{
-      border: 3px dashed #e0545e;
+      border: 3px dashed var(--theme-accent, #e0545e);
       box-shadow:
         0 0 0 4px rgba(224, 84, 94, 0.2),
         0 18px 38px rgba(122, 24, 36, 0.42),
@@ -1173,7 +1177,7 @@ def render_corkboard_html(
 
     .board.freeform .index-card.connector-hover,
     .board.freeform .index-card.connector-target {{
-      outline: 5px solid #66d9e8;
+      outline: 5px solid var(--theme-accent, #66d9e8);
       outline-offset: 7px;
     }}
 
@@ -1228,7 +1232,7 @@ def render_corkboard_html(
       height: 16px;
       border-radius: 999px;
       background:
-        radial-gradient(circle at 35% 32%, rgba(255, 255, 255, 0.75), transparent 0 22%),
+        radial-gradient(circle at 35% 32%, color-mix(in srgb, var(--theme-panel, #ffffff) 75%, transparent), transparent 0 22%),
         var(--pin);
       box-shadow: 0 4px 8px rgba(48, 28, 22, 0.35);
       transform: translateX(-50%);
@@ -1242,7 +1246,7 @@ def render_corkboard_html(
       right: 16px;
       height: 16px;
       border-radius: 2px;
-      background: rgba(255, 255, 255, 0.26);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 26%, transparent);
       mix-blend-mode: multiply;
       transform: rotate(-1deg);
       pointer-events: none;
@@ -1293,9 +1297,9 @@ def render_corkboard_html(
 
     .card-open {{
       min-height: 24px;
-      border: 1px solid rgba(38, 50, 71, 0.18);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #263247) 18%, transparent);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.55);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 55%, transparent);
       box-shadow: 0 1px 2px rgba(38, 50, 71, 0.14);
       color: var(--ink);
       cursor: pointer;
@@ -1312,13 +1316,13 @@ def render_corkboard_html(
 
     .card-open:hover,
     .card-open:focus-visible {{
-      border-color: rgba(31, 111, 139, 0.55);
-      background: rgba(102, 217, 232, 0.28);
+      border-color: color-mix(in srgb, var(--theme-border, #1f6f8b) 55%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #66d9e8) 28%, transparent);
       box-shadow: 0 2px 7px rgba(31, 111, 139, 0.22);
     }}
 
     .card-open:active {{
-      background: rgba(31, 111, 139, 0.32);
+      background: color-mix(in srgb, var(--theme-accent-soft, #1f6f8b) 32%, transparent);
       box-shadow: inset 0 2px 4px rgba(38, 50, 71, 0.24);
       transform: translateY(1px);
     }}
@@ -1328,21 +1332,21 @@ def render_corkboard_html(
       place-items: center;
       width: 26px;
       height: 26px;
-      border: 1px solid rgba(38, 50, 71, 0.18);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #263247) 18%, transparent);
       border-radius: 4px;
-      background: rgba(255, 255, 255, 0.46);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 46%, transparent);
       color: var(--ink);
       cursor: pointer;
       padding: 0;
     }}
 
     .card-group-action:hover {{
-      background: rgba(255, 255, 255, 0.72);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 72%, transparent);
     }}
 
     .card-group-action.active {{
-      border-color: rgba(42, 87, 148, 0.38);
-      background: rgba(216, 230, 255, 0.74);
+      border-color: color-mix(in srgb, var(--theme-accent, #2a5794) 38%, transparent);
+      background: color-mix(in srgb, var(--theme-accent-soft, #d8e6ff) 74%, transparent);
     }}
 
     .card-group-icon {{
@@ -1367,16 +1371,16 @@ def render_corkboard_html(
       place-items: center;
       width: 26px;
       height: 26px;
-      border: 1px solid rgba(38, 50, 71, 0.18);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #263247) 18%, transparent);
       border-radius: 4px;
-      background: rgba(255, 255, 255, 0.46);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 46%, transparent);
       color: var(--ink);
       cursor: pointer;
       padding: 0;
     }}
 
     .card-color:hover {{
-      background: rgba(255, 255, 255, 0.72);
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 72%, transparent);
     }}
 
     .card-color-icon {{
@@ -1384,7 +1388,7 @@ def render_corkboard_html(
       height: 14px;
       border: 2px solid currentcolor;
       border-radius: 999px 999px 999px 2px;
-      background: var(--selected-paper, #fff6cf);
+      background: var(--selected-paper, var(--theme-warning-soft, #fff6cf));
       box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.62) inset;
       transform: rotate(-45deg);
     }}
@@ -1397,9 +1401,9 @@ def render_corkboard_html(
       display: none;
       grid-template-columns: repeat(4, 24px);
       gap: 6px;
-      border: 1px solid rgba(38, 50, 71, 0.18);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #263247) 18%, transparent);
       border-radius: 8px;
-      background: rgba(255, 249, 232, 0.96);
+      background: color-mix(in srgb, var(--theme-raised, #fff9e8) 96%, transparent);
       box-shadow: 0 16px 32px rgba(15, 20, 32, 0.28);
       padding: 8px;
     }}
@@ -1411,7 +1415,7 @@ def render_corkboard_html(
     .card-swatch {{
       width: 24px;
       height: 24px;
-      border: 1px solid rgba(38, 50, 71, 0.2);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #263247) 20%, transparent);
       border-radius: 999px;
       background: var(--swatch);
       cursor: pointer;
@@ -1429,18 +1433,18 @@ def render_corkboard_html(
       place-items: center;
       width: 26px;
       height: 26px;
-      border: 1px solid rgba(38, 50, 71, 0.18);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #263247) 18%, transparent);
       border-radius: 4px;
-      background: rgba(255, 255, 255, 0.42);
-      color: #6f3f45;
+      background: color-mix(in srgb, var(--theme-panel, #ffffff) 42%, transparent);
+      color: var(--theme-text, #6f3f45);
       cursor: pointer;
       padding: 0;
     }}
 
     .card-delete:hover:not(:disabled) {{
-      border-color: rgba(140, 48, 58, 0.48);
-      background: rgba(255, 238, 234, 0.78);
-      color: #9b2634;
+      border-color: color-mix(in srgb, var(--theme-border, #8c303a) 48%, transparent);
+      background: color-mix(in srgb, var(--theme-raised, #ffeeea) 78%, transparent);
+      color: var(--theme-error, #9b2634);
     }}
 
     .card-delete:disabled {{
@@ -1479,21 +1483,29 @@ def render_corkboard_html(
       content: "";
     }}
 
+    html[data-color-scheme]:not([data-color-scheme="electroboy-dark"]) .card-open,
+    html[data-color-scheme]:not([data-color-scheme="electroboy-dark"]) .card-group-action,
+    html[data-color-scheme]:not([data-color-scheme="electroboy-dark"]) .card-color,
+    html[data-color-scheme]:not([data-color-scheme="electroboy-dark"]) .card-delete {{
+      background: var(--theme-panel);
+      color: var(--theme-text);
+    }}
+
     .corkboard-confirm-dialog {{
       width: min(460px, calc(100vw - 40px));
       padding: 0;
       overflow: hidden;
-      border: 1px solid #a62938;
+      border: 1px solid var(--theme-accent, #a62938);
       border-radius: 8px;
-      background: #fff1f2;
-      color: #49141b;
+      background: var(--theme-raised, #fff1f2);
+      color: var(--theme-text, #49141b);
       box-shadow:
         0 24px 64px rgb(116 16 30 / 46%),
         0 0 0 1px rgb(166 41 56 / 24%);
     }}
 
     .corkboard-confirm-dialog::backdrop {{
-      background: rgb(66 8 17 / 56%);
+      background: color-mix(in srgb, var(--theme-panel, #420811) 56%, transparent);
       backdrop-filter: blur(2px);
     }}
 
@@ -1510,13 +1522,13 @@ def render_corkboard_html(
     }}
 
     .corkboard-confirm-dialog header {{
-      border-bottom: 1px solid #d99099;
-      background: #f7d6da;
+      border-bottom: 1px solid var(--theme-border, #d99099);
+      background: var(--theme-error-soft, #f7d6da);
     }}
 
     .corkboard-confirm-dialog h2 {{
       margin: 0;
-      color: #7d1d2a;
+      color: var(--theme-error, #7d1d2a);
       font-size: 16px;
       font-weight: 650;
     }}
@@ -1525,7 +1537,7 @@ def render_corkboard_html(
       display: grid;
       gap: 12px;
       padding: 18px;
-      background: #fff5f6;
+      background: var(--theme-raised, #fff5f6);
     }}
 
     .corkboard-confirm-dialog p {{
@@ -1536,10 +1548,10 @@ def render_corkboard_html(
     .corkboard-confirm-dialog code {{
       min-width: 0;
       overflow: hidden;
-      border: 1px solid #e3a7ae;
+      border: 1px solid var(--theme-border, #e3a7ae);
       border-radius: 5px;
-      background: #fce3e6;
-      color: #72202b;
+      background: var(--theme-error-soft, #fce3e6);
+      color: var(--theme-error, #72202b);
       font-size: 12px;
       padding: 9px 10px;
       text-overflow: ellipsis;
@@ -1549,27 +1561,27 @@ def render_corkboard_html(
     .corkboard-confirm-dialog footer {{
       justify-content: flex-end;
       gap: 8px;
-      border-top: 1px solid #d99099;
-      background: #f4cdd2;
+      border-top: 1px solid var(--theme-border, #d99099);
+      background: var(--theme-error-soft, #f4cdd2);
       padding-block: 12px;
     }}
 
     .corkboard-confirm-dialog button {{
       min-width: 86px;
       height: 34px;
-      border: 1px solid #bb6b75;
+      border: 1px solid var(--theme-border, #bb6b75);
       border-radius: 4px;
-      background: #fff7f8;
-      color: #5e1a23;
+      background: var(--theme-raised, #fff7f8);
+      color: var(--theme-error, #5e1a23);
       cursor: pointer;
       font: inherit;
       padding: 0 14px;
     }}
 
     .corkboard-confirm-dialog .confirm {{
-      border-color: #9e2635;
-      background: #a62938;
-      color: #ffffff;
+      border-color: var(--theme-error, #9e2635);
+      background: var(--theme-error-soft, #a62938);
+      color: var(--theme-text, #ffffff);
     }}
 
     .corkboard-confirm-dialog button:hover,
@@ -1588,7 +1600,7 @@ def render_corkboard_html(
           to bottom,
           transparent 0,
           transparent calc(var(--card-note-line-height, 32.5px) - 1px),
-          rgba(63, 77, 103, 0.18) var(--card-note-line-height, 32.5px)
+          color-mix(in srgb, var(--theme-raised, #3f4d67) 18%, transparent) var(--card-note-line-height, 32.5px)
         );
       color: var(--ink);
       font: inherit;
@@ -1627,10 +1639,10 @@ def render_corkboard_html(
       display: grid;
       gap: 10px;
       width: 220px;
-      border: 1px solid rgba(255, 249, 232, 0.34);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #fff9e8) 34%, transparent);
       border-radius: 8px;
-      background: rgba(15, 20, 32, 0.86);
-      color: #d8e3f4;
+      background: color-mix(in srgb, var(--theme-bg, #0f1420) 86%, transparent);
+      color: var(--theme-text, #d8e3f4);
       box-shadow: 0 10px 24px rgba(15, 20, 32, 0.26);
       padding: 8px 10px;
     }}
@@ -1673,10 +1685,10 @@ def render_corkboard_html(
     .board-zoom-button {{
       width: 28px;
       height: 28px;
-      border: 1px solid rgba(216, 227, 244, 0.34);
+      border: 1px solid color-mix(in srgb, var(--theme-border, #d8e3f4) 34%, transparent);
       border-radius: 5px;
-      background: rgba(216, 227, 244, 0.10);
-      color: #d8e3f4;
+      background: color-mix(in srgb, var(--theme-accent-soft, #d8e3f4) 10%, transparent);
+      color: var(--theme-text, #d8e3f4);
       cursor: pointer;
       font: inherit;
       font-size: 18px;

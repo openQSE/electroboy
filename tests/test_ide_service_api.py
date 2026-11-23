@@ -50,6 +50,10 @@ class FakeIDEService:
         self.calls.append(("open", (workspace_id, location)))
         return {"status": "opened", "location": location.__dict__}
 
+    def set_color_scheme(self, workspace_id, theme):
+        self.calls.append(("color_scheme", (workspace_id, theme)))
+        return {"status": "queued", "request_id": "theme-request"}
+
     def diagnostics(self, workspace_id):
         self.calls.append(("diagnostics", workspace_id))
         return {"instance": None, "provider_output": []}
@@ -255,6 +259,13 @@ class IDEServiceAPITests(unittest.TestCase):
         self.assertEqual(started.status, 200)
         self.assertEqual(attached.status, 200)
         self.assertEqual(payload["status"], "attached")
+
+    def test_color_scheme_route_uses_workspace_ide_capability(self) -> None:
+        theme = {"mode": "dark", "colors": None}
+        status, payload = self.request("POST", "/api/ide/color-scheme", theme)
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "queued")
+        self.assertEqual(self.ide.calls[-1], ("color_scheme", (self.workspace_id, theme)))
 
     def test_open_location_is_provider_neutral(self) -> None:
         status, payload = self.request(

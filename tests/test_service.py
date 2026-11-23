@@ -139,8 +139,10 @@ class ServiceTests(unittest.TestCase):
             self.assertIn(f'id="{control}"', sidebar)
             self.assertNotIn(f'id="{control}"', toolbar)
             self.assertEqual(index.count(f'id="{control}"'), 1)
-        for control in ("showSplash", "terminalFontValue"):
+        for control in ("showSplash", "colorSchemeSelect", "terminalFontValue"):
             self.assertIn(f'id="{control}"', toolbar)
+        self.assertLess(toolbar.index('id="showSplash"'), toolbar.index('id="colorSchemeSelect"'))
+        self.assertLess(toolbar.index('id="colorSchemeSelect"'), toolbar.index('id="terminalFontValue"'))
         self.assertLess(sidebar.index('class="sidebar-agent-controls"'), sidebar.index('id="stageActionPanel"'))
         self.assertIn('id="agentBackend"', index)
         selector = index.split('<select id="agentBackend"', 1)[1].split('</select>', 1)[0]
@@ -1049,7 +1051,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn(".creative-folder-color-button:active", creative_css)
         self.assertIn(".creative-folder-color-picker {", creative_css)
         self.assertIn(
-            "background: var(--creative-folder-color, #1f3f5f);",
+            "background: var(--creative-folder-color, var(--theme-accent-soft, #1f3f5f));",
             creative_css,
         )
         delete_start = creative.index("async function deleteCreativeEntry(path, type)")
@@ -2592,7 +2594,7 @@ class ServiceTests(unittest.TestCase):
             ".pane-layout-toolbar {\n      position: relative;\n      z-index: 20;",
             styles,
         )
-        self.assertIn("border: 3px solid #9bd6cf;", styles)
+        self.assertIn("border: 3px solid var(--theme-border, #9bd6cf);", styles)
         self.assertIn("pointer-events: none;", styles)
         self.assertIn(".artifact-preview-frame.loading {\n      opacity: 1;", styles)
 
@@ -3511,7 +3513,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('/assets/service/js/core/select-menu.js', page)
         self.assertIn('class="pane-service-page"', page)
         self.assertIn(".electroboy-select-menu", select_styles)
-        self.assertIn("color-scheme: dark", select_styles)
+        self.assertIn("color-scheme: var(--theme-color-scheme, dark)", select_styles)
         self.assertIn('/assets/service/js/core/split-resize.js', page)
         self.assertIn('/assets/service/js/core/stateful-dom.js', page)
         self.assertLess(
@@ -3929,8 +3931,8 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('{ id: "artifact", label: "File" }', PANE_WINDOW_HTML)
         self.assertIn('id="interruptAgent" class="input-interrupt"', PANE_WINDOW_HTML)
         self.assertIn('id="linkAgentFile" class="input-link"', PANE_WINDOW_HTML)
-        self.assertIn("background: #3a1d1a;", PANE_WINDOW_HTML)
-        self.assertIn("background: #12303b;", PANE_WINDOW_HTML)
+        self.assertIn("background: var(--theme-panel, #3a1d1a);", PANE_WINDOW_HTML)
+        self.assertIn("background: var(--theme-panel, #12303b);", PANE_WINDOW_HTML)
         self.assertIn("grid-template-rows: repeat(4, 42px);", PANE_WINDOW_HTML)
         self.assertIn(".input-actions button {\n      height: 42px;", PANE_WINDOW_HTML)
         self.assertIn("align-content: start;\n      min-height: 0;", PANE_WINDOW_HTML)
@@ -4452,10 +4454,10 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("<title>Guide</title>", page)
         self.assertIn('<h1 id="guide">Guide</h1>', page)
         self.assertIn('<h2 id="overview">Overview</h2>', page)
-        self.assertIn("--doc-bg: #10141f;", page)
-        self.assertIn("--doc-text: #e7edf7;", page)
+        self.assertIn("--doc-bg: var(--theme-bg, #10141f);", page)
+        self.assertIn("--doc-text: var(--theme-text, #e7edf7);", page)
         self.assertIn("article, article :where", page)
-        self.assertIn("--doc-surface: #10141f;", page)
+        self.assertIn("--doc-surface: var(--theme-bg, #10141f);", page)
 
     def test_document_target_renderer_seeds_blank_existing_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -7744,7 +7746,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn("host.postMessage(data, window.location.origin)", tools)
         self.assertIn(".agenda-tool-style-field", styles)
         self.assertIn(".agenda-pane .pane-tools-shelf", styles)
-        self.assertIn('--agenda-tool-shelf-bg: #f8f3e9;', styles)
+        self.assertIn('--agenda-tool-shelf-bg: var(--theme-raised, #f8f3e9);', styles)
         self.assertIn(
             '.agenda-pane[data-agenda-style="command-center"]',
             styles,
@@ -7835,7 +7837,7 @@ class ServiceTests(unittest.TestCase):
         self.assertIn('id="dayView"', page)
         self.assertIn("body.calendar-day-open .calendar-shell", page)
         self.assertIn("body.calendar-style-month-hud .calendar-close", page)
-        self.assertIn("background: rgba(7, 24, 31, .78);", page)
+        self.assertIn("background: color-mix(in srgb, var(--theme-bg, #07181f) 78%, transparent);", page)
         self.assertIn('aria-label="Previous month">‹</button>', page)
         self.assertIn('aria-label="Next month">›</button>', page)
         self.assertIn("function renderMonth", page)

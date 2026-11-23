@@ -67,7 +67,7 @@ class IDEProfileTests(unittest.TestCase):
             )
             self.assertEqual(
                 registered["electroboy.electroboy-bridge"]["version"],
-                "1.5.1",
+                "1.5.2",
             )
             self.assertTrue(
                 (
