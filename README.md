@@ -69,6 +69,20 @@ Light, Dracula, Nord, Gruvbox Dark, Solarized Light, and Catppuccin Mocha. The
 selection is remembered by the browser and updates open panes and windows.
 See [Color schemes](docs/color-schemes.md) for coverage and extension guidance.
 
+Mermaid diagrams use the pinned Mermaid 12.3.0 renderer with ElectroBoy's existing
+classic styling. Flowcharts use the bundled ELK layout by default; mind maps
+retain their own supported layout. This applies to document panes, course
+content, and diagram popouts. No extra package or diagram configuration is
+needed. A diagram can select the previous Dagre layout by putting this YAML
+header inside its `mermaid` fence:
+
+```yaml
+---
+config:
+  layout: dagre
+---
+```
+
 Each opened or created project owns a durable ElectroBoy workspace. A browser
 tab holds an exclusive lease on that workspace, while agents continue running
 after the tab detaches. Use `Project -> Workspace` to attach a detached
