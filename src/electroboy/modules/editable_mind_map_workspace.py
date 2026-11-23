@@ -664,6 +664,7 @@ _PAGE = r"""<!doctype html>
       const node = { id: nextId(), text: "New idea", parent_id: parentId,
         order: childrenOf(parentId).length, x: position.x, y: position.y,
         side, color: initialNodeColor(parentId), font_size: initialNodeFontSize(kind, selected),
+        text_align: nodeById(parentId)?.text_align || "left",
         font_size_mode: "auto",
         width: DEFAULT_NODE_WIDTH, min_height: DEFAULT_NODE_MIN_HEIGHT, links: [] };
       if (kind === "child") collapsed.delete(parentId);
@@ -815,6 +816,7 @@ _PAGE = r"""<!doctype html>
         order: childrenOf(parentId).length,
         x: position.x, y: position.y, side,
         color: initialNodeColor(parentId),
+        text_align: parent?.text_align || "left",
         font_size: parent
           ? Math.max(MINIMUM_NODE_FONT_SIZE,
             nodeFontSize(parent) - NODE_GENERATION_FONT_STEP)

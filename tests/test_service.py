@@ -7614,6 +7614,43 @@ class ServiceTests(unittest.TestCase):
         )
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_mind_map_new_nodes_inherit_parent_alignment(self) -> None:
+        page, _ = render_editable_mind_map_html({
+            "path": "/tmp/test.mindmap.json", "revision": "1",
+            "document": empty_mind_map(),
+        }, context_id="test", connection_id="test")
+        script = r'''
+const assert = require("assert");
+const source = require("fs").readFileSync(0, "utf8");
+const add = source.slice(source.indexOf("    function addNode(kind)"), source.indexOf("    function descendants("));
+const markdown = source.slice(source.indexOf("    function newMarkdownNode("), source.indexOf("    function appendMarkdownTree("));
+eval(`(() => {
+  let documentState = {nodes: [{id:"p", parent_id:null, text_align:"center"}]};
+  let selectedId = "p", editingId, collapsed = new Set();
+  const nodeById = id => documentState.nodes.find(n => n.id === id);
+  const childrenOf = id => documentState.nodes.filter(n => n.parent_id === id);
+  const checkpoint = () => {}, nextId = () => String(documentState.nodes.length);
+  const initialChildSide = () => "right", nodeSide = () => "right";
+  const nextPosition = () => ({x:0,y:0}), renderedNodeHeight = () => 1;
+  const initialNodeColor = () => "default", initialNodeFontSize = () => 16;
+  const nodeFontSize = () => 16, selectOnly = id => { selectedId = id; };
+  const markDirty = () => {}, render = () => {}, setStatus = () => {};
+  const NODE_VERTICAL_SPACING = 1, MINIMUM_NODE_FONT_SIZE = 10;
+  const NODE_GENERATION_FONT_STEP = 1, ROOT_NODE_FONT_SIZE = 16;
+  const DEFAULT_NODE_WIDTH = 260, DEFAULT_NODE_MIN_HEIGHT = 58;
+  ${add}\n${markdown}
+  addNode("child"); assert.equal(documentState.nodes[1].text_align, "center");
+  documentState.nodes[1].text_align = "right";
+  addNode("sibling"); assert.equal(documentState.nodes[2].text_align, "center");
+  addNode("root"); assert.equal(documentState.nodes[3].text_align, "left");
+  assert.equal(newMarkdownNode({text:"x"}, "p", "right", {x:0,y:0}).text_align, "center");
+})()`);
+'''
+        result = subprocess.run([shutil.which("node"), "-e", script], input=page,
+                                text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
     def test_mind_map_multiple_selection_operations(self) -> None:
         page, _ = render_editable_mind_map_html({
             "path": "/tmp/test.mindmap.json", "revision": "1",
