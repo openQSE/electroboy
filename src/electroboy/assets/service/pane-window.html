@@ -4456,12 +4456,17 @@
         return;
       }
       const mapPath = String(data.mapPath || "").trim();
-      if (!mapPath || mapPath === artifactMindMapPath) {
+      if (!mapPath) {
+        return;
+      }
+      const mapTitle = mapPath.replace(/\\/g, "/").split("/").pop()
+        .replace(/\.mindmap\.json$/i, "") || "Mind Map";
+      if (mapPath === artifactMindMapPath && mapTitle === artifactMindMapTitle) {
         return;
       }
       artifactKind = "mind-map";
       artifactMindMapPath = mapPath;
-      artifactMindMapTitle = String(data.mapTitle || data.title || mapPath);
+      artifactMindMapTitle = mapTitle;
       if (data.style) {
         artifactMindMapStyle = String(data.style);
       }
