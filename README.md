@@ -99,6 +99,12 @@ Agent dropdown. Use the dropdown's `Rename` button to edit the selected
 session's name later. ElectroBoy only resumes a UUID whose Codex metadata
 identifies the active project as its working directory.
 
+Session discovery uses the selected Codex executable to resolve its storage
+location, including wrappers that set their own `CODEX_HOME`. ElectroBoy saves
+the executable path with the conversation UUID and session name so the resume
+list survives service restarts. Switching executables retains the other
+account's history and lists sessions from the selected executable's storage.
+
 The service reads these environment variables when command-line options are not
 provided:
 

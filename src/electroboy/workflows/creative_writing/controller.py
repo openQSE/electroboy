@@ -433,6 +433,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 project_root,
                 scope=scope_name,
                 scope_key=scope_key,
+                executable=self.services.sessions.executable(project_root),
             )
             if self.services.sessions.backend == "codex"
             else self.services.sessions.provider_history(
@@ -604,6 +605,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         provider_session = None
         provider_catalog_entry: dict[str, object] | None = None
         known_provider_paths: frozenset[Path] = frozenset()
+        executable = self.services.sessions.executable(project_root)
         if requested_provider_session_id:
             provider_session = resumable_creative_session(
                 self.services.files.state_root,
@@ -611,6 +613,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 project_root,
                 scope_key=scope_key,
                 allow_unscoped_codex=True,
+                executable=executable,
             )
             if provider_session is None:
                 raise AgentSessionError(
@@ -629,7 +632,9 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 title=requested_name or None,
             )
         else:
-            known_provider_paths = codex_session_paths()
+            known_provider_paths = codex_session_paths(
+                executable=executable, root=project_root
+            )
 
         metadata: dict[str, object] = {
             "provider": "codex",
@@ -700,8 +705,10 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             def registered(provider: CodexSessionSummary) -> None:
                 provider_id = provider.session_id
                 if provider_id:
-                    session.metadata["provider_session_id"] = provider_id
-                    session.metadata["resumed_session"] = False
+                    with self.services.contexts.lock:
+                        session.metadata["provider_session_id"] = provider_id
+                        session.metadata["resumed_session"] = False
+                        self.services.sessions.record(context, session)
 
             start_creative_session_tracking(
                 self.services.files.state_root,
@@ -716,5 +723,8 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 target_path=str((target or {}).get("path") or ""),
                 title=requested_name or None,
                 on_registered=registered,
+                executable=str(
+                    session.metadata.get("provider_executable") or executable
+                ),
             )
         return session, True

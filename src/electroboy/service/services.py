@@ -165,6 +165,8 @@ class SessionServices(Protocol):
 
     def backend_payload(self) -> dict[str, object]: ...
 
+    def executable(self, root: Path) -> str: ...
+
     def switch_backend(
         self, backend: str, *, confirmed: bool, revision: int
     ) -> dict[str, object]: ...
@@ -1009,6 +1011,9 @@ class RuntimeSessionServices:
 
     def backend_payload(self) -> dict[str, object]:
         return self.runtime.agent_backend.payload()
+
+    def executable(self, root: Path) -> str:
+        return self.runtime.agent_backend.executable(root)
 
     def switch_backend(
         self, backend: str, *, confirmed: bool, revision: int

@@ -73,6 +73,8 @@ def ad_hoc_agent_prompt(rules_path: str) -> str:
 def ad_hoc_session_history(
     service_root: Path,
     project_root: Path,
+    *,
+    executable: str | None = None,
 ) -> list[dict[str, object]]:
     """Return validated indexed ad-hoc sessions for one project root."""
 
@@ -85,8 +87,10 @@ def ad_hoc_session_history(
             if _entry_project_root(entry) != resolved_root:
                 retained.append(entry)
                 continue
-            session = _indexed_session(entry, resolved_root)
+            session = _indexed_session(entry, resolved_root, executable=executable)
             if session is None:
+                # Switching executables must not erase another account's history.
+                retained.append(entry)
                 continue
             project_entries.append(
                 _history_entry(
@@ -184,6 +188,8 @@ def resumable_ad_hoc_session(
     service_root: Path,
     provider_session_id: str,
     project_root: Path,
+    *,
+    executable: str | None = None,
 ) -> CodexSessionSummary | None:
     """Resolve an indexed UUID, importing an explicit UUID when necessary."""
 
@@ -199,9 +205,15 @@ def resumable_ad_hoc_session(
             ),
             None,
         )
-    session = _indexed_session(indexed, resolved_root) if indexed else None
+    session = (
+        _indexed_session(indexed, resolved_root, executable=executable)
+        if indexed
+        else None
+    )
     if session is None and indexed is None:
-        session = codex_session_by_id(provider_session_id)
+        session = codex_session_by_id(
+            provider_session_id, executable=executable, root=resolved_root
+        )
     if session is None or session.cwd != resolved_root:
         return None
     return session
@@ -216,6 +228,7 @@ def start_ad_hoc_session_tracking(
     on_registered: Callable[[CodexSessionSummary], None] | None = None,
     *,
     title: str | None = None,
+    executable: str | None = None,
 ) -> threading.Thread:
     """Register the one Codex rollout created by a new ad-hoc launch."""
 
@@ -229,6 +242,8 @@ def start_ad_hoc_session_tracking(
             is_active,
             on_registered,
             title,
+            executable,
+            codex_sessions_directory(executable=executable, root=project_root),
         ),
         name=f"electroboy-ad-hoc-index-{electroboy_session_id[:8]}",
         daemon=True,
@@ -245,11 +260,18 @@ def _track_new_ad_hoc_session(
     is_active: Callable[[], bool],
     on_registered: Callable[[CodexSessionSummary], None] | None,
     title: str | None,
+    executable: str | None,
+    directory: Path,
 ) -> None:
     resolved_root = project_root.expanduser().resolve()
     while True:
-        for path in codex_session_paths() - known_paths:
-            session = codex_session_from_path(path)
+        for path in codex_session_paths(directory=directory) - known_paths:
+            session = codex_session_from_path(
+                path, include_messages=False, executable=executable
+            )
+            if session is None or session.cwd != resolved_root:
+                continue
+            session = codex_session_from_path(path, executable=executable)
             if (
                 session is None
                 or session.cwd != resolved_root
@@ -364,6 +386,8 @@ def _entry_project_root(entry: dict[str, object]) -> Path | None:
 def _indexed_session(
     entry: dict[str, object],
     project_root: Path,
+    *,
+    executable: str | None = None,
 ) -> CodexSessionSummary | None:
     session_id = str(entry.get("provider_session_id") or "").strip().lower()
     if not session_id:
@@ -371,14 +395,23 @@ def _indexed_session(
     path_value = str(entry.get("session_path") or "").strip()
     if path_value:
         path = Path(path_value).expanduser().resolve()
-        sessions_root = codex_sessions_directory().expanduser().resolve()
+        sessions_root = codex_sessions_directory(
+            executable=executable, root=project_root
+        ).resolve()
         if not path.is_relative_to(sessions_root):
             return None
-        session = codex_session_from_path(path, include_messages=False)
+        session = codex_session_from_path(
+            path,
+            include_messages=False,
+            executable=str(entry.get("provider_executable") or executable or "")
+            or None,
+        )
     else:
         # Schema version 1 catalogs did not persist rollout paths. Resolve only
         # the UUIDs already present in the catalog; do not discover new history.
-        session = codex_session_by_id(session_id, include_messages=False)
+        session = codex_session_by_id(
+            session_id, include_messages=False, executable=executable, root=project_root
+        )
     if (
         session is None
         or session.session_id.lower() != session_id

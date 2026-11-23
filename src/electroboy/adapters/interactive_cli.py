@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ..config import RuntimeConfig
 from .base import AgentInvocation, AgentResult
-from .codex_sessions import CODEX_SESSION_ID_RE
+from .codex_sessions import CODEX_SESSION_ID_RE, codex_sessions_directory
 from .generic_cli import GenericCliRuntime
 
 
@@ -143,10 +143,7 @@ class CodexInteractiveRuntime(InteractiveCliRuntime):
         return max(candidates, key=lambda item: item[0])[1]
 
     def _codex_sessions_dir(self) -> Path:
-        codex_home = os.environ.get("CODEX_HOME")
-        if codex_home:
-            return Path(codex_home) / "sessions"
-        return Path(os.environ.get("HOME", str(Path.home()))) / ".codex" / "sessions"
+        return codex_sessions_directory(executable=self.config.command, root=self.root)
 
     def _codex_session_metadata(self, path: Path) -> dict[str, str]:
         try:

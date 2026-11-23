@@ -113,6 +113,12 @@ class AgentBackend:
             return binary
         return backend_config(binary, root, interactive=interactive).command
 
+    def executable(self, root: Path) -> str:
+        """Return the selected interactive command without resolving symlinks."""
+        with self.lock:
+            command = self._command(self.binary, root, True)
+        return shutil.which(command) or command
+
     def _available(self, binary: str) -> bool:
         roots = list(self.roots()) or [Path(".")]
         return all(
@@ -137,6 +143,7 @@ class AgentBackend:
             if provider and provider != self.selected:
                 raise AgentSessionError("Agent backend changed; retry the operation.")
             session.metadata["provider"] = self.selected
+            session.metadata["provider_executable"] = self.executable(session.cwd)
             session.environment["ELECTROBOY_AGENT_BACKEND"] = self.selected
             if self.binary != self.selected:
                 # Terminal commands are already built with the project's arguments.

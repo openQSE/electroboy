@@ -38,6 +38,7 @@ def creative_session_history(
     *,
     scope: str,
     scope_key: str,
+    executable: str | None = None,
 ) -> list[dict[str, object]]:
     """Return validated indexed creative sessions for one scope."""
 
@@ -53,8 +54,9 @@ def creative_session_history(
             ):
                 retained.append(entry)
                 continue
-            session = _indexed_session(entry, resolved_root)
+            session = _indexed_session(entry, resolved_root, executable=executable)
             if session is None:
+                retained.append(entry)
                 continue
             scoped_entries.append(
                 _history_entry(
@@ -173,6 +175,7 @@ def resumable_creative_session(
     *,
     scope_key: str,
     allow_unscoped_codex: bool = False,
+    executable: str | None = None,
 ) -> CodexSessionSummary | None:
     """Resolve an indexed UUID, importing an explicit UUID when requested."""
 
@@ -189,9 +192,15 @@ def resumable_creative_session(
             ),
             None,
         )
-    session = _indexed_session(indexed, resolved_root) if indexed else None
+    session = (
+        _indexed_session(indexed, resolved_root, executable=executable)
+        if indexed
+        else None
+    )
     if session is None:
-        session = codex_session_by_id(provider_session_id)
+        session = codex_session_by_id(
+            provider_session_id, executable=executable, root=resolved_root
+        )
     if session is None:
         return None
     if session.cwd != resolved_root and not allow_unscoped_codex:
@@ -213,6 +222,7 @@ def start_creative_session_tracking(
     target_path: str = "",
     title: str | None = None,
     on_registered: Callable[[CodexSessionSummary], None] | None = None,
+    executable: str | None = None,
 ) -> threading.Thread:
     """Register the one Codex rollout created by a new creative launch."""
 
@@ -231,6 +241,8 @@ def start_creative_session_tracking(
             target_path,
             title,
             on_registered,
+            executable,
+            codex_sessions_directory(executable=executable, root=project_root),
         ),
         name=f"electroboy-creative-index-{electroboy_session_id[:8]}",
         daemon=True,
@@ -252,11 +264,18 @@ def _track_new_creative_session(
     target_path: str,
     title: str | None,
     on_registered: Callable[[CodexSessionSummary], None] | None,
+    executable: str | None,
+    directory: Path,
 ) -> None:
     resolved_root = project_root.expanduser().resolve()
     while True:
-        for path in codex_session_paths() - known_paths:
-            session = codex_session_from_path(path)
+        for path in codex_session_paths(directory=directory) - known_paths:
+            session = codex_session_from_path(
+                path, include_messages=False, executable=executable
+            )
+            if session is None or session.cwd != resolved_root:
+                continue
+            session = codex_session_from_path(path, executable=executable)
             if (
                 session is None
                 or session.cwd != resolved_root
@@ -390,6 +409,8 @@ def _entry_project_root(entry: dict[str, object]) -> Path | None:
 def _indexed_session(
     entry: dict[str, object] | None,
     project_root: Path,
+    *,
+    executable: str | None = None,
 ) -> CodexSessionSummary | None:
     if not entry:
         return None
@@ -399,12 +420,21 @@ def _indexed_session(
     path_value = str(entry.get("session_path") or "").strip()
     if path_value:
         path = Path(path_value).expanduser().resolve()
-        sessions_root = codex_sessions_directory().expanduser().resolve()
+        sessions_root = codex_sessions_directory(
+            executable=executable, root=project_root
+        ).resolve()
         if not path.is_relative_to(sessions_root):
             return None
-        session = codex_session_from_path(path, include_messages=False)
+        session = codex_session_from_path(
+            path,
+            include_messages=False,
+            executable=str(entry.get("provider_executable") or executable or "")
+            or None,
+        )
     else:
-        session = codex_session_by_id(session_id, include_messages=False)
+        session = codex_session_by_id(
+            session_id, include_messages=False, executable=executable, root=project_root
+        )
     provider_root_value = str(entry.get("provider_project_root") or "").strip()
     expected_session_root = (
         Path(provider_root_value).expanduser().resolve()

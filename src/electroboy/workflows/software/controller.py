@@ -234,7 +234,11 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 )
             }
             if self.services.sessions.backend == "codex":
-                provider_session = codex_session_by_id(requested_provider_id)
+                provider_session = codex_session_by_id(
+                    requested_provider_id,
+                    executable=self.services.sessions.executable(command_root),
+                    root=command_root,
+                )
                 valid = (
                     requested_provider_id in history_ids
                     and provider_session is not None
@@ -251,6 +255,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
     def _stage_session_metadata(
         self,
         provider_session_id: str | None,
+        context_id: str,
     ) -> tuple[dict[str, object], frozenset[Path]]:
         backend = self.services.sessions.backend
         provider_id = provider_session_id
@@ -262,11 +267,15 @@ class SoftwareWorkflowController(BoundWorkflowController):
         }
         if provider_id:
             metadata["provider_session_id"] = provider_id
-        known_paths = (
-            codex_session_paths()
-            if backend == "codex" and provider_id is None
-            else frozenset()
-        )
+        known_paths: frozenset[Path] = frozenset()
+        if backend == "codex" and provider_id is None:
+            with self.services.contexts.lock:
+                context = self.services.contexts.require(context_id)
+                root = self.services.contexts.command_root(context)
+            if root is None:
+                raise AgentSessionError("activate a project first")
+            executable = self.services.sessions.executable(root)
+            known_paths = codex_session_paths(executable=executable, root=root)
         return metadata, known_paths
 
     def _track_stage_session(
@@ -297,6 +306,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             session.is_active,
             discovered,
             name=f"electroboy-{session.kind}-index-{session.session_id[:8]}",
+            executable=str(session.metadata.get("provider_executable") or "") or None,
         )
 
     def _reserve_project_workspace(
@@ -406,7 +416,11 @@ class SoftwareWorkflowController(BoundWorkflowController):
             "sessions": [
                 session
                 for session in (
-                    ad_hoc_session_history(self.services.files.state_root, command_root)
+                    ad_hoc_session_history(
+                        self.services.files.state_root,
+                        command_root,
+                        executable=self.services.sessions.executable(command_root),
+                    )
                     if self.services.sessions.backend == "codex"
                     else self.services.sessions.provider_history(command_root, "ad-hoc")
                 )
@@ -485,11 +499,13 @@ class SoftwareWorkflowController(BoundWorkflowController):
 
         provider_session = None
         known_provider_paths: frozenset[Path] = frozenset()
+        executable = self.services.sessions.executable(command_root)
         if requested_session_id:
             provider_session = resumable_ad_hoc_session(
                 self.services.files.state_root,
                 requested_session_id,
                 command_root,
+                executable=executable,
             )
             if provider_session is None:
                 raise AgentSessionError(
@@ -502,7 +518,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 title=requested_name or None,
             )
         else:
-            known_provider_paths = codex_session_paths()
+            known_provider_paths = codex_session_paths(
+                executable=executable, root=command_root
+            )
 
         metadata: dict[str, object] = {"provider": "codex"}
         if provider_session is not None:
@@ -563,8 +581,10 @@ class SoftwareWorkflowController(BoundWorkflowController):
             def registered(provider: CodexSessionSummary) -> None:
                 provider_id = provider.session_id
                 if provider_id:
-                    session.metadata["provider_session_id"] = provider_id
-                    session.metadata["resumed_session"] = False
+                    with self.services.contexts.lock:
+                        session.metadata["provider_session_id"] = provider_id
+                        session.metadata["resumed_session"] = False
+                        self.services.sessions.record(context, session)
 
             start_ad_hoc_session_tracking(
                 self.services.files.state_root,
@@ -574,6 +594,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 session.is_active,
                 registered,
                 title=requested_name or None,
+                executable=str(
+                    session.metadata.get("provider_executable") or executable
+                ),
             )
         return session, True
 
@@ -1105,7 +1128,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             )
             if existing is not None:
                 return existing, False
-        metadata, known_paths = self._stage_session_metadata(provider_id)
+        metadata, known_paths = self._stage_session_metadata(provider_id, context_id)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -1201,7 +1224,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             )
             if existing is not None:
                 return existing, False
-        metadata, known_paths = self._stage_session_metadata(provider_id)
+        metadata, known_paths = self._stage_session_metadata(provider_id, context_id)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -1320,7 +1343,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
             )
             if existing is not None:
                 return existing, False
-            metadata, known_paths = self._stage_session_metadata(provider_id)
+            metadata, known_paths = self._stage_session_metadata(
+                provider_id, context_id
+            )
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -1647,7 +1672,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
             )
             if existing is not None:
                 return existing, False
-            metadata, known_paths = self._stage_session_metadata(provider_id)
+            metadata, known_paths = self._stage_session_metadata(
+                provider_id, context_id
+            )
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
