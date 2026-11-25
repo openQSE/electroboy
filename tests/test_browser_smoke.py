@@ -1903,6 +1903,50 @@ setTimeout(() => {
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+@pytest.mark.parametrize("layout_mode", ["local", "repack"])
+def test_browser_mind_map_new_sibling_follows_selected_node(tmp_path: Path, layout_mode: str) -> None:
+    document = empty_mind_map()
+    document["layout_mode"] = layout_mode
+    document["nodes"] = [
+        {"id": "root", "text": "Root", "parent_id": None, "order": 0, "x": 80, "y": 100},
+        *[{"id": f"child-{i}", "text": f"Child {i}", "parent_id": "root", "order": i - 1,
+           "side": "right", "x": 410, "y": 100 + (i - 1) * 100} for i in range(1, 4)],
+    ]
+    page, _ = render_editable_mind_map_html(
+        {"path": "/tmp/siblings.mindmap.json", "revision": "one", "document": normalize_mind_map(document)},
+        context_id="workspace", connection_id="connection",
+    )
+    setup = """<script>
+let saved = null;
+window.fetch = async (_url, options) => {
+  saved = JSON.parse(options.body).document;
+  return {ok:true, json:async () => ({revision:'two', document:saved})};
+};
+</script>"""
+    probe = """<script>
+document.querySelector('[data-id="child-2"]').click();
+const canvas = document.getElementById('canvas');
+canvas.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+const editor = document.querySelector('.node textarea');
+editor.value = 'Inserted';
+editor.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+setTimeout(() => {
+  const children = saved?.nodes.filter(n => n.parent_id === 'root').sort((a,b) => a.order - b.order) || [];
+  const labels = children.map(n => n.text).join(',');
+  const inserted = [...document.querySelectorAll('.node')].find(n => n.querySelector('.node-text')?.textContent === 'Inserted');
+  const oldThird = document.querySelector('[data-id="child-3"]');
+  const result = document.createElement('div'); result.id = 'siblingProbe';
+  result.dataset.result = String(labels === 'Child 1,Child 2,Inserted,Child 3'
+    && parseFloat(inserted.style.top) + inserted.offsetHeight <= parseFloat(oldThird.style.top));
+  document.body.append(result);
+}, 900);
+</script>"""
+    completed = browser_file_dom(page.replace("<head>", "<head>" + setup).replace("</body>", probe + "</body>"), tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="siblingProbe" data-result="true"></div>' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_mind_map_open_picker_from_closed_pane(tmp_path: Path) -> None:
     asset = (Path(__file__).resolve().parents[1] / "src/electroboy/modules/assets/mind-map-pane-tools.js").read_text()
     page = """<!doctype html><html><head><meta charset="utf-8"></head><body>

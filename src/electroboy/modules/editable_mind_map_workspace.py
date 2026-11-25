@@ -666,9 +666,18 @@ _PAGE = r"""<!doctype html>
         font_family: nodeById(parentId)?.font_family || "",
         font_size_mode: "auto",
         width: DEFAULT_NODE_WIDTH, min_height: DEFAULT_NODE_MIN_HEIGHT, links: [] };
+      if (kind === "sibling") {
+        const siblings = childrenOf(parentId);
+        siblings.splice(siblings.findIndex((item) => item.id === selected.id) + 1, 0, node);
+        siblings.forEach((item, index) => { item.order = index; });
+      }
       if (kind === "child") collapsed.delete(parentId);
       documentState.nodes.push(node); selectOnly(node.id); editingId = node.id; markDirty();
       render();
+      if (kind === "sibling" && parentId) {
+        applyLayoutMode(treeRoot(node));
+        render();
+      }
     }
     function descendants(id, result = new Set()) {
       childrenOf(id).forEach((child) => { result.add(child.id); descendants(child.id, result); });

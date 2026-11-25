@@ -7789,6 +7789,7 @@ eval(`(() => {
   const initialNodeColor = () => "default", initialNodeFontSize = () => 16;
   const nodeFontSize = () => 16, selectOnly = id => { selectedId = id; };
   const markDirty = () => {}, render = () => {}, setStatus = () => {};
+  const treeRoot = node => nodeById(node.parent_id) || node, applyLayoutMode = () => {};
   const NODE_VERTICAL_SPACING = 1, MINIMUM_NODE_FONT_SIZE = 10;
   const NODE_GENERATION_FONT_STEP = 1, ROOT_NODE_FONT_SIZE = 16;
   const DEFAULT_NODE_WIDTH = 260, DEFAULT_NODE_MIN_HEIGHT = 58;
