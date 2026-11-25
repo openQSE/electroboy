@@ -1183,7 +1183,7 @@ eval(`${code}
             mind_map_tools,
         )
         self.assertIn(
-            "setEditable: () => controller.setEnabled(true)",
+            "setEditable: (editable, path = \"\") =>",
             mind_map_tools,
         )
         self.assertIn('section(controller, "mind-map-node", "Node")', mind_map_tools)
@@ -3790,6 +3790,9 @@ eval(`${code}
         self.assertIn("onState: applyMindMapToolState", page)
         self.assertIn('mapPath === artifactMindMapPath && mapTitle === artifactMindMapTitle', page)
         self.assertIn('artifactMindMapTitle = mapTitle;', page)
+        self.assertIn('kind === "mind-map" ? mindMapFileTitle(path)', page)
+        self.assertIn('parameters.set("new", "1")', page)
+        self.assertIn('!["document", "mind-map"].includes(contentCatalogPaneKind())', page)
         self.assertIn('.replace(/\\.mindmap\\.json$/i, "")', page)
         self.assertIn('params.get("mind_map_title") || ""', page)
         self.assertIn('id="dockPane"', page)
@@ -3862,12 +3865,12 @@ eval(`${code}
         self.assertIn("updateSelectOptions(", file_switcher_source)
         self.assertIn('label: placeholderLabel || "Choose file"', file_switcher_source)
         self.assertIn(
-            'PANE_KIND === "corkboard" || PANE_KIND === "mind-map"',
+            'placeholderDisabled = PANE_KIND === "corkboard"',
             file_switcher_source,
         )
         self.assertIn("disabled: placeholderDisabled", file_switcher_source)
         self.assertNotIn("replaceChildren", file_switcher_source)
-        self.assertIn('artifactKind === "empty" && contentCatalogPaneKind() !== "document"', page)
+        self.assertIn('artifactKind === "empty" && !["document", "mind-map"].includes(contentCatalogPaneKind())', page)
         self.assertIn("selectContentTarget(files[0]);", page)
         self.assertIn("loadStoredContentTargets(),", page)
         self.assertIn("closed: targetKey", page)
@@ -5727,6 +5730,36 @@ eval(`${code}
             str(project_root.resolve()),
         )
 
+    def test_project_layout_restores_after_deactivation_and_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "project"
+            other_root = Path(tmp) / "other"
+            service_root.mkdir()
+            project_root.mkdir()
+            other_root.mkdir()
+            StateStore(project_root).init_run(run_id="one")
+            StateStore(other_root).init_run(run_id="two")
+            state = ServiceState(service_root)
+            context_id = str(state.create_context(workflow_id="software")["context_id"])
+            state.open_project(context_id, str(project_root))
+            layout = {"type": "leaf", "kind": "mind-map", "content": {
+                "kind": "mind-map", "mindMap": {"path": str(project_root / "map.mindmap.json")},
+            }}
+            state.workspace_registry.save_client_state(context_id, {"pane_layout": layout})
+            state.deactivate_project(context_id)
+            reopened_id = str(state.create_context(workflow_id="software")["context_id"])
+            reopened_now = state.open_project(reopened_id, str(project_root))
+            self.assertEqual(reopened_now["workspace_client_state"]["pane_layout"], layout)
+            state.deactivate_project(reopened_id)
+            restarted = ServiceState(service_root)
+            other_context = str(restarted.create_context(workflow_id="software")["context_id"])
+            other = restarted.open_project(other_context, str(other_root))
+            self.assertFalse(other.get("workspace_client_state", {}).get("pane_layout"))
+            next_context = str(restarted.create_context(workflow_id="software")["context_id"])
+            reopened = restarted.open_project(next_context, str(project_root))
+            self.assertEqual(reopened["workspace_client_state"]["pane_layout"], layout)
+
     def test_service_state_ignores_stale_creative_workspace_on_open(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             service_root = Path(tmp) / "service"
@@ -6257,7 +6290,7 @@ eval(`${code}
             mind_maps = project_root / "mind-maps"
             mind_maps.mkdir()
             (mind_maps / "plot.story").write_text(
-                json.dumps(empty_mind_map("Plot")),
+                json.dumps(empty_mind_map()),
                 encoding="utf-8",
             )
 
@@ -7478,7 +7511,7 @@ eval(`${code}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = ".electroboy/shared/mind-maps/launch.mindmap.json"
-            document = empty_mind_map("Launch plan")
+            document = empty_mind_map()
             document["layout_mode"] = "repack"
             document["nodes"] = [
                 {
@@ -7523,9 +7556,9 @@ eval(`${code}
             self.assertEqual(loaded["document"]["nodes"][0]["font_family"], "Example Serif")
             self.assertEqual(loaded["document"]["nodes"][0]["width"], 260.0)
             self.assertEqual(loaded["document"]["nodes"][0]["min_height"], 58.0)
-            self.assertEqual(list_mind_maps(root)[0]["title"], "Launch plan")
+            self.assertEqual(list_mind_maps(root)[0]["title"], "launch")
             updated = dict(loaded["document"])
-            updated["title"] = "Updated launch plan"
+            updated["layout_mode"] = "local"
             saved = save_mind_map(
                 root,
                 path,
@@ -7550,6 +7583,37 @@ eval(`${code}
         document["layout_mode"] = "invalid"
         with self.assertRaisesRegex(StateError, "layout_mode"):
             normalize_mind_map(document)
+
+    def test_mind_map_ignores_and_removes_legacy_title(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = empty_mind_map()
+            document["title"] = "Old incorrect title"
+            result = save_mind_map(root, "map-name.mindmap.json", document, create=True)
+            self.assertNotIn("title", result["document"])
+            saved = json.loads((root / "map-name.mindmap.json").read_text())
+            self.assertNotIn("title", saved)
+            saved["title"] = "Legacy title"
+            (root / "map-name.mindmap.json").write_text(json.dumps(saved))
+            self.assertNotIn("title", load_mind_map(root, "map-name.mindmap.json")["document"])
+
+    def test_default_mind_map_is_unsaved_until_edited(self) -> None:
+        module = importlib.import_module("electroboy.modules.mind_map")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            contexts = SimpleNamespace(active_project_root=lambda _id: root)
+            request = SimpleNamespace(params={"new": ["1"]},
+                services=SimpleNamespace(contexts=contexts), context_id="test",
+                connection_id="test", lease_token="")
+            response = module._view(request)
+            self.assertIn("Shift+Enter creates an independent node", response.body)
+            self.assertFalse(list(root.rglob("*.mindmap.json")))
+            request.body = lambda: {"document": empty_mind_map(), "automatic": True}
+            first = module._create_document(request).payload
+            second = module._create_document(request).payload
+            self.assertNotEqual(first["path"], second["path"])
+            self.assertTrue(Path(first["path"]).is_file())
+            self.assertNotIn("title", first["document"])
 
     def test_bare_mind_map_artifact_opens_software_project_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -7788,7 +7852,7 @@ eval(`(async () => {
             {
                 "path": "/tmp/launch.mindmap.json",
                 "revision": "revision-one",
-                "document": empty_mind_map("Launch plan"),
+                "document": empty_mind_map(),
             },
             context_id="workspace-one",
             connection_id="connection-one",
@@ -7838,7 +7902,7 @@ eval(`(async () => {
         self.assertIn('"font-size-set": (data) => setNodeFontSize', page)
         self.assertIn('"zoom-set": (data) => adjustZoom(data?.zoom)', page)
         self.assertIn("zoom,", page)
-        self.assertIn("mapTitle: documentState.title", page)
+        self.assertIn("mapTitle: titleFromMindMapPath(path)", page)
         self.assertIn("selectedFontSize:", page)
         self.assertIn("return new Set([selectedId]);", page)
         self.assertIn('className = "node-resize-handle"', page)

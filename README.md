@@ -96,6 +96,14 @@ after the tab detaches. Use `Project -> Workspace` to attach a detached
 workspace. Opening the same project resumes its detached workspace and is
 rejected while another tab has it attached. Workflow plugins may instead
 declare a shared-singleton workspace for authenticated application workflows.
+For project workspaces, ElectroBoy also saves the pane layout by project and
+restores it when the project is opened again after deactivation. Saved layouts
+include the file selected in each pane.
+
+Mind-map names come from their filenames. The default blank map does not create
+a file until it is edited; its first autosave creates a uniquely named map in
+the project's shared mind-map directory. Existing title fields in older map
+files are ignored and removed the next time those files are saved.
 
 The software workflow's `Code` actions include `Start ad-hoc`. Starting an
 ad-hoc agent opens a session chooser with a new-session option, resumable Codex

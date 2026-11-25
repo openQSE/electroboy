@@ -13,6 +13,7 @@ import zipfile
 from functools import lru_cache
 from http import HTTPStatus
 from pathlib import Path
+from uuid import uuid4
 from xml.etree import ElementTree
 
 from electroboy.service.http import (
@@ -142,7 +143,14 @@ def _view(request: RouteRequest) -> HtmlResponse:
     try:
         path = str((request.params.get("path") or [""])[0]).strip()
         provider = str((request.params.get("provider") or [""])[0]).strip()
-        if path:
+        if (request.params.get("new") or [""])[0] == "1":
+            root = request.services.contexts.active_project_root(request.context_id)
+            page, status = render_editable_mind_map_html(
+                {"path": "", "revision": "", "document": empty_mind_map()},
+                context_id=request.context_id, connection_id=request.connection_id,
+                lease_token=request.lease_token, project_root=str(root),
+            )
+        elif path:
             root = request.services.contexts.active_project_root(request.context_id)
             page, status = render_editable_mind_map_html(
                 load_mind_map(root, path),
@@ -200,9 +208,11 @@ def _create_document(request: RouteRequest) -> ServiceResponse:
         root = request.services.contexts.active_project_root(request.context_id)
         body = request.body()
         title = str(body.get("title") or "Untitled mind map").strip()
-        path = str(body.get("path") or default_mind_map_path(title))
+        path = str(body.get("path") or default_mind_map_path(
+            f"{title}-{uuid4().hex[:12]}" if body.get("automatic") else title
+        ))
         document = (
-            body["document"] if "document" in body else empty_mind_map(title)
+            body["document"] if "document" in body else empty_mind_map()
         )
         return JsonResponse(save_mind_map(root, path, document, create=True))
     except Exception as error:

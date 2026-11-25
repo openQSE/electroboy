@@ -158,6 +158,7 @@
     const selectionChannel = `mind-map-${Date.now().toString(36)}-${
       Math.random().toString(36).slice(2, 8)}`;
     let mapPath = "";
+    let frameReady = false;
     let pendingPicker = null;
     let pendingPickerAction = "";
 
@@ -179,9 +180,10 @@
         pendingPicker.focus();
         return;
       }
-      const mode = action === "create-document" ? "document-new" : "link";
+      const mode = action === "open" ? "file-open"
+        : action === "create-document" ? "document-new" : "link";
       const parameters = new URLSearchParams({
-        path: mapDirectory(),
+        path: mapPath ? mapDirectory() : (options.getProjectRoot?.() || "/"),
         mode,
         selection_channel: selectionChannel,
       });
@@ -195,7 +197,7 @@
     }
 
     function post(action, details = {}) {
-      if (["link-file", "create-document"].includes(action) && !details.target) {
+      if (["open", "link-file", "create-document"].includes(action) && !details.target) {
         openPicker(action);
         return;
       }
@@ -375,15 +377,22 @@
         data.type === "electroboy-file-browser-select"
         && data.selection_channel === selectionChannel
         && data.path
+        && event.source === pendingPicker
       ) {
         const action = pendingPickerAction
           || (data.mode === "document-new" ? "create-document" : "link-file");
         pendingPicker = null;
         pendingPickerAction = "";
-        send(action, { target: String(data.path) });
+        if (action === "open" && !frameReady && typeof actions.open === "function") {
+          actions.open(String(data.path));
+        } else {
+          send(action, { target: String(data.path) });
+        }
         return;
       }
       if (data.type !== "electroboy-mind-map-state") return;
+      if (!frame || event.source !== frame.contentWindow) return;
+      frameReady = true;
       mapPath = String(data.mapPath || mapPath);
       onState(data);
       fontEnabled = Boolean(data.selected);
@@ -455,7 +464,12 @@
     window.addEventListener("message", update);
     return {
       dispose: () => window.removeEventListener("message", update),
-      setEditable: () => controller.setEnabled(true),
+      setEditable: (editable, path = "") => {
+        const nextPath = editable ? String(path || mapPath) : "";
+        if (!editable || nextPath !== mapPath) frameReady = false;
+        mapPath = nextPath;
+        controller.setEnabled(true);
+      },
     };
   }
 

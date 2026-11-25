@@ -1158,7 +1158,8 @@
     let artifactMindMapStyle = params.get("mind_map_style") ||
       params.get("style") || "";
     let artifactMindMapPath = params.get("mind_map_path") || "";
-    let artifactMindMapTitle = params.get("mind_map_title") || "";
+    let artifactMindMapTitle = artifactMindMapPath
+      ? mindMapFileTitle(artifactMindMapPath) : params.get("mind_map_title") || "";
     const TERMINAL_FONT_STORAGE_KEY = "electroboy.terminalFontSize";
     const PANE_FONT_OFFSET_STORAGE_PREFIX = "electroboy.paneFontOffset.";
     const AGENT_INPUT_HEIGHT_STORAGE_KEY = "electroboy.paneAgentInputHeight";
@@ -2287,7 +2288,7 @@
       const normalized = {
         kind,
         path,
-        label: contentTargetLabel(target),
+        label: kind === "mind-map" ? mindMapFileTitle(path) : contentTargetLabel(target),
       };
       if (target.provider) {
         normalized.provider = String(target.provider);
@@ -2296,6 +2297,11 @@
         normalized.style = String(target.style);
       }
       return normalized;
+    }
+
+    function mindMapFileTitle(path) {
+      return String(path || "").replace(/\\/g, "/").split("/").pop()
+        .replace(/\.mindmap\.json$/i, "") || "Mind Map";
     }
 
     function mergeContentTargets(targets, additions) {
@@ -2399,7 +2405,7 @@
         return {
           kind: "mind-map",
           path: artifactMindMapPath,
-          label: artifactMindMapTitle || artifactMindMapPath || "Mind Map",
+          label: mindMapFileTitle(artifactMindMapPath),
           provider: artifactMindMapProvider,
           style: artifactMindMapStyle,
         };
@@ -2474,8 +2480,7 @@
 
     function renderFileSwitcher() {
       const placeholderLabel = fileSwitcherPlaceholderLabel();
-      const placeholderDisabled =
-        PANE_KIND === "corkboard" || PANE_KIND === "mind-map";
+      const placeholderDisabled = PANE_KIND === "corkboard";
       const options = [{
         value: "",
         label: placeholderLabel || "Choose file",
@@ -2517,8 +2522,7 @@
       if (
         (
           artifactKind === "document" ||
-          artifactKind === "mind-map" ||
-          (artifactKind === "empty" && contentCatalogPaneKind() !== "document")
+          (artifactKind === "empty" && !["document", "mind-map"].includes(contentCatalogPaneKind()))
         ) &&
         files.length > 0 &&
         !contentSwitcher.value
@@ -2980,7 +2984,7 @@
       if (nextTarget) {
         selectContentTarget(nextTarget);
       } else {
-        resetArtifactTargetState("empty");
+        resetArtifactTargetState(PANE_KIND === "mind-map" ? "mind-map" : "empty");
         syncArtifactUrlState();
         renderFileSwitcher();
         reconnectArtifactStream();
@@ -4342,11 +4346,10 @@
         artifactMindMapProvider = String(mindMap.provider || "");
         artifactMindMapStyle = String(mindMap.style || "");
         artifactMindMapPath = String(mindMap.path || "");
-        artifactMindMapTitle = String(
-          mindMap.label || next.title || artifactMindMapPath || "Mind Map",
-        );
+        artifactMindMapTitle = artifactMindMapPath
+          ? mindMapFileTitle(artifactMindMapPath) : String(mindMap.label || next.title || "Mind Map");
         if (mindMapPaneTools) {
-          mindMapPaneTools.setEditable(Boolean(artifactMindMapPath));
+          mindMapPaneTools.setEditable(Boolean(artifactMindMapPath), artifactMindMapPath);
         }
       }
       rememberContentTarget(currentContentTarget());
@@ -4459,8 +4462,7 @@
       if (!mapPath) {
         return;
       }
-      const mapTitle = mapPath.replace(/\\/g, "/").split("/").pop()
-        .replace(/\.mindmap\.json$/i, "") || "Mind Map";
+      const mapTitle = mindMapFileTitle(mapPath);
       if (mapPath === artifactMindMapPath && mapTitle === artifactMindMapTitle) {
         return;
       }
@@ -4694,6 +4696,8 @@
         }
         if (artifactMindMapPath) {
           parameters.set("path", artifactMindMapPath);
+        } else if (!artifactMindMapProvider) {
+          parameters.set("new", "1");
         }
         parameters.set("embed", "1");
         parameters.set("version", String(artifactVersion));
@@ -5750,11 +5754,19 @@
         controller: paneToolsController,
         frame: artifactFrame,
         onState: applyMindMapToolState,
+        getProjectRoot: () => activeProjectRoot,
         actions: {
           close: closeCurrentContentTarget,
+          open: (path) => {
+            const title = mindMapFileTitle(path);
+            const item = { id: `mind-map-document-${path}`, kind: "mind-map", title,
+              editing: true, mindMap: { path, label: title, editable: true } };
+            applyArtifactItem(item);
+            notifyPaneArtifactChange(item);
+          },
         },
       });
-      mindMapPaneTools.setEditable(Boolean(artifactMindMapPath));
+      mindMapPaneTools.setEditable(Boolean(artifactMindMapPath), artifactMindMapPath);
     }
 
     installWorkflowPresentation();

@@ -1585,7 +1585,7 @@ def test_browser_mind_map_full_mode_overlays_secondary_relationships(
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_editable_mind_map_adds_child_and_zooms(tmp_path: Path) -> None:
-    document = empty_mind_map("Planning")
+    document = empty_mind_map()
     document["nodes"] = [
         {
             "id": "root",
@@ -1737,7 +1737,7 @@ window.setTimeout(() => {
 def test_browser_editable_mind_map_reflows_after_text_size_change(
     tmp_path: Path, layout_action: str
 ) -> None:
-    document = empty_mind_map("Text layout")
+    document = empty_mind_map()
     document["nodes"] = [
         {
             "id": "root",
@@ -1810,7 +1810,7 @@ window.setTimeout(() => {{
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_editable_mind_map_confirms_branch_delete(tmp_path: Path) -> None:
-    document = empty_mind_map("Planning")
+    document = empty_mind_map()
     document["nodes"] = [
         {
             "id": "root",
@@ -1873,8 +1873,87 @@ window.setTimeout(() => {
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_mind_map_open_picker_from_closed_pane(tmp_path: Path) -> None:
+    asset = (Path(__file__).resolve().parents[1] / "src/electroboy/modules/assets/mind-map-pane-tools.js").read_text()
+    page = """<!doctype html><html><head><meta charset="utf-8"></head><body>
+<div id="tools"></div><script>
+let pickerUrl = '', opened = '', sent = null;
+window.open = (url) => { pickerUrl = url; return window; };
+window.postMessage = (message) => { sent = message; };
+window.fetch = async () => ({ok:true, json:async () => ({fonts:[]})});
+</script><script>""" + asset + """</script><script>
+const controller = {addSection: () => {
+  const section = document.createElement('section'); document.getElementById('tools').append(section); return section;
+}, setEnabled: () => {}};
+const tools = window.ElectroBoyMindMapPaneTools.mount({controller, frame:{contentWindow:window},
+  getProjectRoot: () => '/project', actions:{open: path => opened = path}});
+tools.setEditable(false);
+document.querySelector('[data-mind-map-action="open"]').click();
+const params = new URLSearchParams(pickerUrl.split('?')[1]);
+window.dispatchEvent(new MessageEvent('message', {origin:window.location.origin, source:window,
+  data:{type:'electroboy-file-browser-select', selection_channel:params.get('selection_channel'),
+    path:'/project/plan.mindmap.json'}}));
+const result = document.createElement('div'); result.id = 'pickerProbe';
+const initialOpen = params.get('mode') === 'file-open'
+  && params.get('path') === '/project' && opened === '/project/plan.mindmap.json';
+tools.setEditable(false);
+window.dispatchEvent(new MessageEvent('message', {origin:window.location.origin, source:window,
+  data:{type:'electroboy-mind-map-state', selected:false, mapPath:''}}));
+document.querySelector('[data-mind-map-action="open"]').click();
+const second = new URLSearchParams(pickerUrl.split('?')[1]);
+window.dispatchEvent(new MessageEvent('message', {origin:window.location.origin, source:window,
+  data:{type:'electroboy-file-browser-select', selection_channel:second.get('selection_channel'),
+    path:'/project/other.mindmap.json'}}));
+result.dataset.result = String(initialOpen && sent?.action === 'open'
+  && sent?.target === '/project/other.mindmap.json');
+document.body.append(result);
+</script></body></html>"""
+    completed = browser_file_dom(page, tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="pickerProbe" data-result="true"></div>' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_blank_mind_map_creates_file_only_after_edit(tmp_path: Path) -> None:
+    page, _ = render_editable_mind_map_html(
+        {"path": "", "revision": "", "document": empty_mind_map()},
+        context_id="workspace", connection_id="connection",
+    )
+    setup = """<script>
+let requests = [];
+window.fetch = async (url, options) => {
+  const body = JSON.parse(options.body);
+  requests.push({url, body});
+  return {ok:true, json:async () => ({path:'/tmp/untitled-mind-map-123.mindmap.json',
+    revision:'one', document:body.document})};
+};
+</script>"""
+    probe = """<script>
+const wasBlank = document.getElementById('empty').hidden === false && requests.length === 0;
+const canvas = document.getElementById('canvas');
+canvas.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', shiftKey:true, bubbles:true}));
+const editor = document.querySelector('.node textarea');
+editor.value = 'First idea';
+editor.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+setTimeout(() => {
+  const result = document.createElement('div'); result.id = 'blankMapProbe';
+  result.dataset.result = String(wasBlank && requests.length === 1
+    && requests[0].url.includes('/api/mind-map/documents?')
+    && requests[0].body.automatic === true
+    && requests[0].body.document.nodes[0].text === 'First idea'
+    && !('title' in requests[0].body.document)
+    && document.title === 'untitled-mind-map-123 — Mind Map');
+  document.body.append(result);
+}, 900);
+</script>"""
+    completed = browser_file_dom(page.replace("<head>", "<head>" + setup).replace("</body>", probe + "</body>"), tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="blankMapProbe" data-result="true"></div>' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_mind_map_restores_and_saves_layout_mode(tmp_path: Path) -> None:
-    document = empty_mind_map("Layout")
+    document = empty_mind_map()
     document["layout_mode"] = "repack"
     document["nodes"] = [
         {"id": "root", "text": "Root", "parent_id": None, "order": 0, "x": 80, "y": 80},
@@ -1920,7 +1999,7 @@ setTimeout(() => {
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_editable_mind_map_drag_preserves_and_reparents(tmp_path: Path) -> None:
-    document = empty_mind_map("Planning")
+    document = empty_mind_map()
     document["nodes"] = [
         {"id": "root", "text": "Root", "parent_id": None, "order": 0,
          "x": 180, "y": 100, "links": []},

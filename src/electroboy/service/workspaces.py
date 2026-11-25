@@ -180,6 +180,7 @@ class WorkspaceRegistry:
         self.lock: threading.RLock = context_store.lock
         self.lease_seconds = lease_seconds
         self.records: dict[str, WorkspaceRecord] = {}
+        self.project_layouts: dict[str, dict[str, object]] = {}
         self._load()
 
     @property
@@ -192,6 +193,10 @@ class WorkspaceRegistry:
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             return
         entries = payload.get("workspaces", []) if isinstance(payload, dict) else []
+        layouts = payload.get("project_layouts", {}) if isinstance(payload, dict) else {}
+        if isinstance(layouts, dict):
+            self.project_layouts = {key: value for key, value in layouts.items()
+                                    if isinstance(key, str) and isinstance(value, dict)}
         if not isinstance(entries, list):
             return
         with self.lock:
@@ -287,6 +292,7 @@ class WorkspaceRegistry:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "schema_version": 1,
+            "project_layouts": self.project_layouts,
             "workspaces": [
                 self._record_payload(record)
                 for record in self.records.values()
@@ -611,8 +617,19 @@ class WorkspaceRegistry:
             record = self.records.get(workspace_id)
             if record is None:
                 return
+            context = self.context_store.require(workspace_id)
+            key = self._project_layout_key(record)
+            layout = self.project_layouts.get(key)
+            if layout and "client_state" not in context.module("core"):
+                context.module("core")["client_state"] = {"pane_layout": _json_value(layout)}
             record.updated_at = _now()
             self._save_locked()
+
+    @staticmethod
+    def _project_layout_key(record: WorkspaceRecord) -> str:
+        if not record.project_identity or record.attachment_policy != WORKSPACE_POLICY_EXCLUSIVE:
+            return ""
+        return f"{record.workflow_id}\n{record.project_identity}"
 
     def save_client_state(
         self,
@@ -626,6 +643,10 @@ class WorkspaceRegistry:
                 raise ValueError("workspace client state must be an object")
             context.module("core")["client_state"] = normalized
             record = self.require_record(workspace_id)
+            key = self._project_layout_key(record)
+            layout = normalized.get("pane_layout")
+            if key and isinstance(layout, dict):
+                self.project_layouts[key] = layout
             record.updated_at = _now()
             self._save_locked()
             return dict(normalized)

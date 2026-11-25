@@ -8420,7 +8420,7 @@
       projectPanel.hidden = true;
       hideStageMenus();
       recordProjectStatusMessage(`${payload.status}: ${activationRoot || activeProjectRoot}`);
-      updateProjectState(payload);
+      updateProjectState(payload, { workspaceAttach: Boolean(payload.workspace_client_state?.pane_layout) });
       activateProject.disabled = false;
     }
 
@@ -8764,6 +8764,20 @@
           return;
         }
         terminateAgents = true;
+      }
+      window.clearTimeout(workspaceStateSaveTimer);
+      if (contextId && workspaceLeaseToken && !workspaceAllowsSharedConnections()) {
+        try {
+          const saved = await fetch(contextUrl("/api/workspaces/state"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(workspaceClientState()),
+          });
+          if (!saved.ok) throw new Error("workspace layout could not be saved");
+        } catch (error) {
+          appendOutput(`Unable to save workspace layout: ${error}\n`, "error");
+          return;
+        }
       }
       const response = await fetch(contextUrl("/api/project/deactivate"), {
         method: "POST",

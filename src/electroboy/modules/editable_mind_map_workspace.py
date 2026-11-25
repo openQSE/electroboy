@@ -331,7 +331,7 @@ _PAGE = r"""<!doctype html>
     const BRANCH_COLORS = Object.freeze([
       "violet", "blue", "teal", "green", "amber", "rose",
     ]);
-    const stateKey = `electroboy:editable-mind-map:${path}:view`;
+    let stateKey = `electroboy:editable-mind-map:${path}:view`;
 
     function showDialog(options = {}) {
       mindMapDialogTitle.textContent = options.title || "Mind Map";
@@ -1418,7 +1418,7 @@ _PAGE = r"""<!doctype html>
         button.setAttribute("aria-pressed",
           String(button.dataset.action === `layout-${layoutMode}`));
       });
-      document.title = `${dirty ? "*" : ""}${documentState.title} — Mind Map`;
+      document.title = `${dirty ? "*" : ""}${titleFromMindMapPath(path)} — Mind Map`;
       if (dirty && !status.classList.contains("error")) setStatus("Unsaved changes");
       const selectedNode = nodeById(selectedId);
       const nodes = selectedNodes();
@@ -1448,7 +1448,7 @@ _PAGE = r"""<!doctype html>
         layoutMode,
         zoom,
         mapPath: path,
-        mapTitle: documentState.title,
+        mapTitle: titleFromMindMapPath(path),
         canUndo: Boolean(undoStack.length), canRedo: Boolean(redoStack.length),
         canPaste: Boolean(copiedBranch || navigator.clipboard?.readText), dirty,
         canMoveBranchLeft: nodes.length === 1 && selectedRootChild && nodeSide(selectedNode) !== "left",
@@ -1752,12 +1752,18 @@ _PAGE = r"""<!doctype html>
       const savingDocument = JSON.parse(snapshot());
       setStatus(automatic ? "Autosaving…" : "Saving…");
       savePromise = (async () => {
-        const response = await fetch(`/api/mind-map/document?${requestContext}`, {
+        const creating = !path;
+        const response = await fetch(`/api/mind-map/${creating ? "documents" : "document"}?${requestContext}`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path, expected_revision: revision, document: savingDocument }),
+          body: JSON.stringify({ path, expected_revision: revision, document: savingDocument,
+            automatic: creating }),
         });
         const payload = await response.json().catch(() => ({ error: "save failed" }));
         if (!response.ok) { setStatus(payload.error || "Save failed", true); return false; }
+        if (creating) {
+          path = payload.path;
+          stateKey = `electroboy:editable-mind-map:${path}:view`;
+        }
         revision = payload.revision;
         if (changeVersion === savingVersion) {
           documentState = payload.document;
@@ -1776,10 +1782,10 @@ _PAGE = r"""<!doctype html>
         savePromise = null;
       }
     }
-    async function createAt(target, document, title) {
+    async function createAt(target, document) {
       const response = await fetch(`/api/mind-map/documents?${requestContext}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: target, title, document }),
+        body: JSON.stringify({ path: target, document }),
       });
       const payload = await response.json().catch(() => ({ error: "creation failed" }));
       if (!response.ok) throw new Error(payload.error || "creation failed");
@@ -1798,19 +1804,18 @@ _PAGE = r"""<!doctype html>
         }),
       );
       if (!target) return;
-      const title = titleFromMindMapPath(target);
-      const blank = { schema_version: 1, type: "mind-map", title,
+      const blank = { schema_version: 1, type: "mind-map",
         nodes: [], relationships: [] };
-      const payload = await createAt(target, blank, title);
+      const payload = await createAt(target, blank);
       window.location.search = `${requestContext}&path=${encodeURIComponent(payload.path)}`;
     }
-    async function openMap() {
+    async function openMap(data = {}) {
       if (dirty && !await confirmDialog(
         "Discard unsaved changes?",
         "Opening another map will discard the unsaved changes in this pane.",
         "Discard and continue",
       )) return;
-      const target = await chooseFile("file-open", {
+      const target = data.target || await chooseFile("file-open", {
         newExtension: ".mindmap.json",
         path: projectRoot || mapDirectory(),
       });
@@ -1825,7 +1830,7 @@ _PAGE = r"""<!doctype html>
         }),
       );
       if (!target || target === path) return;
-      const payload = await createAt(target, documentState, documentState.title);
+      const payload = await createAt(target, documentState);
       window.location.search = `${requestContext}&path=${encodeURIComponent(payload.path)}`;
     }
     async function addLink(type, requestedTarget = "") {

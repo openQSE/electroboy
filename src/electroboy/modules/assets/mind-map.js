@@ -48,8 +48,7 @@
     const descriptor = typeof source === "string" ? { path: source } : { ...(source || {}) };
     const path = String(descriptor.path || "").trim();
     if (!path) throw new Error("mind map path is required");
-    const label = String(descriptor.title || options.title || runtime.paths.basename(path)
-      .replace(/\.mindmap\.json$/i, "") || "Mind Map").trim();
+    const label = titleFromMindMapPath(path);
     const item = {
       id: `mind-map-document-${path}`,
       kind: "mind-map",
@@ -169,7 +168,7 @@
       runtime,
       {
         path: payload.path || path,
-        title: payload.document?.title || title,
+        title,
       },
       {
         replaceWorkspacePane: true,

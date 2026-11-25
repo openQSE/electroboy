@@ -45,11 +45,10 @@ def resolve_mind_map_path(root: Path, value: str) -> Path:
     return candidate
 
 
-def empty_mind_map(title: str = "Untitled mind map") -> dict[str, object]:
+def empty_mind_map() -> dict[str, object]:
     return {
         "schema_version": MIND_MAP_SCHEMA_VERSION,
         "type": MIND_MAP_TYPE,
-        "title": title.strip() or "Untitled mind map",
         "layout_mode": "local",
         "nodes": [],
         "relationships": [],
@@ -271,8 +270,6 @@ def normalize_mind_map(value: object) -> dict[str, object]:
     return {
         "schema_version": MIND_MAP_SCHEMA_VERSION,
         "type": MIND_MAP_TYPE,
-        "title": str(value.get("title") or "Untitled mind map").strip()
-        or "Untitled mind map",
         "layout_mode": layout_mode,
         "nodes": nodes,
         "relationships": relationships,
@@ -356,16 +353,17 @@ def list_mind_maps(root: Path) -> list[dict[str, str]]:
         if not path.is_file():
             continue
         try:
-            payload = load_mind_map(root, str(path))
+            load_mind_map(root, str(path))
         except StateError:
             continue
-        document = payload["document"]
-        assert isinstance(document, dict)
+        name = path.name
+        if name.lower().endswith(MIND_MAP_SUFFIX):
+            name = name[:-len(MIND_MAP_SUFFIX)]
         maps.append(
             {
                 "path": str(path),
                 "relative_path": path.relative_to(root).as_posix(),
-                "title": str(document["title"]),
+                "title": name,
             }
         )
     return maps
