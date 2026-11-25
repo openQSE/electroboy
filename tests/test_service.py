@@ -134,6 +134,31 @@ from electroboy.state_store import StateError, StateStore  # noqa: E402
 
 class ServiceTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_document_open_picker_starts_at_project_root(self) -> None:
+        page = read_service_text_asset("pane-window.html")
+        script = r'''
+const assert = require("assert");
+const page = require("fs").readFileSync(0, "utf8");
+const code = page.slice(page.indexOf("    function paneDocumentBrowserStartPath("),
+  page.indexOf("    function requestPaneCorkboardDocument("));
+eval(`(async () => {
+  let artifactKind = "document", artifactDocumentPath = "/project/nested/file.md";
+  let activeProjectRoot = "", url = "";
+  const popup = {location:{replace: value => {url = value;}}, close: () => {}};
+  const window = {open: () => popup};
+  const loadProjectPayload = async () => ({active_project_root:"/project"});
+  ${code}
+  await openPaneDocumentFileBrowser("document");
+  assert.equal(new URLSearchParams(url.split("?")[1]).get("path"), "/project");
+  await openPaneDocumentFileBrowser("document-new");
+  assert.equal(new URLSearchParams(url.split("?")[1]).get("path"), "/project/nested");
+})().catch(error => {console.error(error); process.exitCode = 1;});`);
+'''
+        result = subprocess.run([shutil.which("node"), "-e", script], input=page,
+                                text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
     def test_mind_map_font_search_filters_existing_and_new_choices(self) -> None:
         source = read_service_text_asset("js/modules/mind-map-pane-tools.js")
         script = r'''
@@ -3834,7 +3859,7 @@ eval(`${code}
         self.assertIn("function requestPaneCorkboardDocument(mode)", page)
         self.assertIn("function paneDocumentBrowserStartPath(projectRoot)", page)
         self.assertIn(
-            "path: paneDocumentBrowserStartPath(activeProjectRoot)",
+            'path: mode === "document"',
             page,
         )
         self.assertIn('open: () => requestPaneCorkboardDocument("open")', page)

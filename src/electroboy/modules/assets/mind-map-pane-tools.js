@@ -182,18 +182,39 @@
       }
       const mode = action === "open" ? "file-open"
         : action === "create-document" ? "document-new" : "link";
+      const root = String(options.getProjectRoot?.() || "").trim();
       const parameters = new URLSearchParams({
-        path: mapPath ? mapDirectory() : (options.getProjectRoot?.() || "/"),
+        path: action === "open" ? root : (mapPath ? mapDirectory() : (root || "/")),
         mode,
         selection_channel: selectionChannel,
       });
       pendingPicker = window.open(
-        `/file-browser?${parameters.toString()}`,
+        action === "open" && !root ? "" : `/file-browser?${parameters.toString()}`,
         `electroboy-${selectionChannel}`,
         "popup=yes,width=980,height=720,menubar=no,toolbar=no,location=no,"
           + "status=no,scrollbars=yes,resizable=yes",
       );
       pendingPickerAction = pendingPicker ? action : "";
+      if (!pendingPicker) {
+        options.onPickerError?.("File picker was blocked by the browser.");
+        return;
+      }
+      if (action === "open" && !root) {
+        const popup = pendingPicker;
+        Promise.resolve().then(() => options.resolveProjectRoot?.()).then((projectRoot) => {
+          if (!projectRoot) throw new Error("activate a project first");
+          if (popup.closed) {
+            if (pendingPicker === popup) { pendingPicker = null; pendingPickerAction = ""; }
+            return;
+          }
+          parameters.set("path", projectRoot);
+          popup.location.replace(`/file-browser?${parameters.toString()}`);
+        }).catch((error) => {
+          popup.close();
+          if (pendingPicker === popup) { pendingPicker = null; pendingPickerAction = ""; }
+          options.onPickerError?.(error.message || String(error));
+        });
+      }
     }
 
     function post(action, details = {}) {

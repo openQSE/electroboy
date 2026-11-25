@@ -1873,6 +1873,36 @@ window.setTimeout(() => {
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_mind_map_picker_loads_missing_project_root(tmp_path: Path) -> None:
+    asset = (Path(__file__).resolve().parents[1] / "src/electroboy/modules/assets/mind-map-pane-tools.js").read_text()
+    page = """<!doctype html><html><head><meta charset="utf-8"></head><body>
+<div id="tools"></div><script>
+let openedUrl = null, navigatedUrl = '', errors = [];
+const popup = {closed:false, location:{replace: url => navigatedUrl = url}, close: () => {popup.closed = true;}};
+window.open = url => {openedUrl = url; return popup;};
+window.fetch = async () => ({ok:true, json:async () => ({fonts:[]})});
+</script><script>""" + asset + """</script><script>
+const controller = {addSection: () => {
+  const section = document.createElement('section'); document.getElementById('tools').append(section); return section;
+}, setEnabled: () => {}};
+window.ElectroBoyMindMapPaneTools.mount({controller, frame:{contentWindow:window},
+  getProjectRoot: () => '', resolveProjectRoot: async () => '/actual/project',
+  onPickerError: error => errors.push(error)});
+document.querySelector('[data-mind-map-action="open"]').click();
+setTimeout(() => {
+  const params = new URLSearchParams(navigatedUrl.split('?')[1]);
+  const result = document.createElement('div'); result.id = 'projectPickerProbe';
+  result.dataset.result = String(openedUrl === '' && params.get('path') === '/actual/project'
+    && params.get('mode') === 'file-open' && errors.length === 0);
+  document.body.append(result);
+}, 0);
+</script></body></html>"""
+    completed = browser_file_dom(page, tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="projectPickerProbe" data-result="true"></div>' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
 def test_browser_mind_map_open_picker_from_closed_pane(tmp_path: Path) -> None:
     asset = (Path(__file__).resolve().parents[1] / "src/electroboy/modules/assets/mind-map-pane-tools.js").read_text()
     page = """<!doctype html><html><head><meta charset="utf-8"></head><body>
@@ -1904,8 +1934,11 @@ const second = new URLSearchParams(pickerUrl.split('?')[1]);
 window.dispatchEvent(new MessageEvent('message', {origin:window.location.origin, source:window,
   data:{type:'electroboy-file-browser-select', selection_channel:second.get('selection_channel'),
     path:'/project/other.mindmap.json'}}));
-result.dataset.result = String(initialOpen && sent?.action === 'open'
-  && sent?.target === '/project/other.mindmap.json');
+const blankOpened = sent?.action === 'open' && sent?.target === '/project/other.mindmap.json';
+tools.setEditable(true, '/elsewhere/subdir/old.mindmap.json');
+document.querySelector('[data-mind-map-action="open"]').click();
+const third = new URLSearchParams(pickerUrl.split('?')[1]);
+result.dataset.result = String(initialOpen && blankOpened && third.get('path') === '/project');
 document.body.append(result);
 </script></body></html>"""
     completed = browser_file_dom(page, tmp_path)

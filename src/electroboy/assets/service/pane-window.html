@@ -2876,7 +2876,8 @@
           throw new Error("activate a project first");
         }
         const parameters = new URLSearchParams({
-          path: paneDocumentBrowserStartPath(activeProjectRoot),
+          path: mode === "document"
+            ? activeProjectRoot : paneDocumentBrowserStartPath(activeProjectRoot),
           mode,
         });
         popup.location.replace(`/file-browser?${parameters.toString()}`);
@@ -5755,6 +5756,13 @@
         frame: artifactFrame,
         onState: applyMindMapToolState,
         getProjectRoot: () => activeProjectRoot,
+        resolveProjectRoot: async () => {
+          const project = await loadProjectPayload();
+          activeProjectRoot = project.active_project_root || project.activation_root || "";
+          if (!activeProjectRoot) throw new Error("activate a project first");
+          return activeProjectRoot;
+        },
+        onPickerError: (message) => window.alert(message),
         actions: {
           close: closeCurrentContentTarget,
           open: (path) => {
