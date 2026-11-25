@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import threading
@@ -1900,6 +1901,192 @@ setTimeout(() => {
     completed = browser_file_dom(page, tmp_path)
     assert completed.returncode == 0, completed.stderr
     assert '<div id="projectPickerProbe" data-result="true"></div>' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+@pytest.mark.parametrize("layout_mode", ["local", "repack"])
+def test_browser_mind_map_sibling_drop_changes_order(tmp_path: Path, layout_mode: str) -> None:
+    document = empty_mind_map()
+    document["layout_mode"] = layout_mode
+    document["nodes"] = [
+        {"id":"root", "text":"Root", "parent_id":None, "order":0, "x":80, "y":100},
+        *[{"id":f"c{i}", "text":f"Child {i}", "parent_id":"root", "order":i-1,
+           "side":"right", "x":410, "y":(i-1)*100} for i in range(1, 4)],
+    ]
+    page, _ = render_editable_mind_map_html(
+        {"path":"/tmp/reorder.mindmap.json", "revision":"one", "document":normalize_mind_map(document)},
+        context_id="workspace", connection_id="connection",
+    )
+    probe = """<script>
+const canvas = document.getElementById('canvas');
+const get = id => document.querySelector(`[data-id="${id}"]`);
+const order = () => ['c1','c2','c3'].sort((a,b) => Number(get(a).dataset.order) - Number(get(b).dataset.order)).join(',');
+const node = get('c3'), start = node.getBoundingClientRect(), target = get('c1').getBoundingClientRect();
+const x = start.left + start.width/2, y = start.top + start.height/2;
+const tx = target.left + target.width/2, ty = target.top + 4;
+node.dispatchEvent(new PointerEvent('pointerdown', {button:0, pointerId:31, clientX:x, clientY:y, bubbles:true}));
+canvas.dispatchEvent(new PointerEvent('pointermove', {button:0, pointerId:31, clientX:tx, clientY:ty, bubbles:true}));
+canvas.dispatchEvent(new PointerEvent('pointerup', {button:0, pointerId:31, clientX:tx, clientY:ty, bubbles:true}));
+let valid = order() === 'c3,c1,c2';
+canvas.dispatchEvent(new KeyboardEvent('keydown', {key:'z', ctrlKey:true, bubbles:true}));
+valid = valid && order() === 'c1,c2,c3';
+const result = document.createElement('div'); result.id = 'reorderProbe';
+result.dataset.result = String(valid); document.body.append(result);
+</script>"""
+    completed = browser_file_dom(page.replace("</body>", probe + "</body>"), tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="reorderProbe" data-result="true"></div>' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+@pytest.mark.parametrize("layout_mode", ["local", "repack"])
+def test_browser_mind_map_resize_avoids_other_tree(tmp_path: Path, layout_mode: str) -> None:
+    document = empty_mind_map()
+    document["layout_mode"] = layout_mode
+    document["nodes"] = [
+        {"id":"first", "text":"First", "parent_id":None, "order":0, "x":80, "y":100},
+        {"id":"second", "text":"Second", "parent_id":None, "order":1, "x":400, "y":100},
+    ]
+    page, _ = render_editable_mind_map_html(
+        {"path":"/tmp/resize.mindmap.json", "revision":"one", "document":normalize_mind_map(document)},
+        context_id="workspace", connection_id="connection",
+    )
+    probe = """<script>
+const canvas = document.getElementById('canvas');
+const get = id => document.querySelector(`[data-id="${id}"]`);
+const handle = get('first').querySelector('.node-resize-handle');
+const rect = handle.getBoundingClientRect(), x = rect.left + 1, y = rect.top + 1;
+handle.dispatchEvent(new PointerEvent('pointerdown', {button:0, pointerId:21, clientX:x, clientY:y, bubbles:true}));
+canvas.dispatchEvent(new PointerEvent('pointermove', {button:0, pointerId:21, clientX:x+180, clientY:y, bubbles:true}));
+canvas.dispatchEvent(new PointerEvent('pointerup', {button:0, pointerId:21, clientX:x+180, clientY:y, bubbles:true}));
+const a = get('first').getBoundingClientRect(), b = get('second').getBoundingClientRect();
+const result = document.createElement('div'); result.id = 'resizeProbe';
+result.dataset.result = String((a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top)
+  && parseFloat(get('first').style.width) > 260);
+document.body.append(result);
+</script>"""
+    completed = browser_file_dom(page.replace("</body>", probe + "</body>"), tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="resizeProbe" data-result="true"></div>' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+@pytest.mark.parametrize("layout_mode", ["local", "repack"])
+def test_browser_mind_map_structural_drop_is_undoable(tmp_path: Path, layout_mode: str) -> None:
+    document = empty_mind_map()
+    document["layout_mode"] = layout_mode
+    document["nodes"] = [
+        {"id":"root", "text":"Root", "parent_id":None, "order":0, "x":80, "y":100},
+        {"id":"a", "text":"A", "parent_id":"root", "order":0, "side":"right", "x":410, "y":60},
+        {"id":"leaf", "text":"Leaf", "parent_id":"a", "order":0, "side":"right", "x":740, "y":60},
+        {"id":"b", "text":"B", "parent_id":"root", "order":1, "side":"right", "x":410, "y":260},
+    ]
+    page, _ = render_editable_mind_map_html(
+        {"path":"/tmp/drop.mindmap.json", "revision":"one", "document":normalize_mind_map(document)},
+        context_id="workspace", connection_id="connection",
+    )
+    setup = """<script>let saved = null;
+window.fetch = async (_url, options) => { saved = JSON.parse(options.body).document;
+  return {ok:true, json:async () => ({revision:'two', document:saved})}; };
+</script>"""
+    probe = """<script>
+const canvas = document.getElementById('canvas');
+const get = id => document.querySelector(`[data-id="${id}"]`);
+const node = get('a'), start = node.getBoundingClientRect(), target = get('b').getBoundingClientRect();
+const x = start.left + start.width / 2, y = start.top + start.height / 2;
+const tx = target.left + target.width / 2 + 2, ty = target.top + target.height / 2;
+node.dispatchEvent(new PointerEvent('pointerdown', {button:0, pointerId:19, clientX:x, clientY:y, bubbles:true}));
+canvas.dispatchEvent(new PointerEvent('pointermove', {button:0, pointerId:19, clientX:tx, clientY:ty, bubbles:true}));
+canvas.dispatchEvent(new PointerEvent('pointerup', {button:0, pointerId:19, clientX:tx, clientY:ty, bubbles:true}));
+let valid = get('a').dataset.parentId === 'b' && get('leaf').dataset.parentId === 'a';
+const boxes = [...document.querySelectorAll('.node')].map(n => n.getBoundingClientRect());
+valid = valid && boxes.every((a,i) => boxes.slice(i+1).every(b =>
+  a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top));
+canvas.dispatchEvent(new KeyboardEvent('keydown', {key:'z', ctrlKey:true, bubbles:true}));
+valid = valid && get('a').dataset.parentId === 'root';
+canvas.dispatchEvent(new KeyboardEvent('keydown', {key:'y', ctrlKey:true, bubbles:true}));
+valid = valid && get('a').dataset.parentId === 'b';
+setTimeout(() => {
+  const result = document.createElement('div'); result.id = 'dropProbe';
+  result.dataset.result = String(valid && saved?.nodes.find(n => n.id === 'a')?.parent_id === 'b');
+  document.body.append(result);
+}, 900);
+</script>"""
+    completed = browser_file_dom(page.replace("<head>", "<head>" + setup).replace("</body>", probe + "</body>"), tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="dropProbe" data-result="true"></div>' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+@pytest.mark.parametrize("layout_mode", ["local", "repack"])
+def test_browser_mind_map_drag_layout_and_undo(tmp_path: Path, layout_mode: str) -> None:
+    document = empty_mind_map()
+    document["layout_mode"] = layout_mode
+    document["nodes"] = [
+        {"id": "root", "text": "Root", "parent_id": None, "order": 0, "x": 80, "y": 100},
+        {"id": "child", "text": "Child", "parent_id": "root", "order": 0, "side": "right", "x": 410, "y": 100},
+        {"id": "leaf", "text": "Leaf", "parent_id": "child", "order": 0, "side": "right", "x": 740, "y": 100},
+        {"id": "other", "text": "Other", "parent_id": None, "order": 1, "x": 1180, "y": 100},
+    ]
+    page, _ = render_editable_mind_map_html(
+        {"path": "/tmp/drag.mindmap.json", "revision": "one", "document": normalize_mind_map(document)},
+        context_id="workspace", connection_id="connection",
+    )
+    setup = """<script>
+let saved = null;
+window.fetch = async (_url, options) => {
+  saved = JSON.parse(options.body).document;
+  return {ok:true, json:async () => ({revision:'two', document:saved})};
+};
+</script>"""
+    probe = """<script>
+const mode = MODE;
+const canvas = document.getElementById('canvas');
+const get = id => document.querySelector(`[data-id="${id}"]`);
+const pos = id => ({x:parseFloat(get(id).style.left), y:parseFloat(get(id).style.top)});
+function drag(id, dx, dy) {
+  const node = get(id), rect = node.getBoundingClientRect();
+  const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+  node.dispatchEvent(new PointerEvent('pointerdown', {button:0, pointerId:11, clientX:x, clientY:y, bubbles:true}));
+  canvas.dispatchEvent(new PointerEvent('pointermove', {button:0, pointerId:11, clientX:x+dx, clientY:y+dy, bubbles:true}));
+  canvas.dispatchEvent(new PointerEvent('pointerup', {button:0, pointerId:11, clientX:x+dx, clientY:y+dy, bubbles:true}));
+}
+const beforeChild = pos('child'), beforeLeaf = pos('leaf'), beforeOther = pos('other');
+let valid;
+if (mode === 'repack') {
+  drag('leaf', 200, 220);
+  valid = pos('leaf').x === beforeLeaf.x && pos('leaf').y === beforeLeaf.y;
+  const rootBefore = pos('root');
+  drag('root', 300, 0);
+  const movedLeaf = get('leaf').getBoundingClientRect(), other = get('other').getBoundingClientRect();
+  const overlap = movedLeaf.left < other.right && other.left < movedLeaf.right
+    && movedLeaf.top < other.bottom && other.top < movedLeaf.bottom;
+  valid = valid && !overlap && pos('root').x !== rootBefore.x
+    && pos('leaf').x - pos('root').x === beforeLeaf.x - rootBefore.x
+    && pos('other').x === beforeOther.x && pos('other').y === beforeOther.y;
+  canvas.dispatchEvent(new KeyboardEvent('keydown', {key:'z', ctrlKey:true, bubbles:true}));
+  valid = valid && pos('root').x === rootBefore.x && pos('leaf').x === beforeLeaf.x;
+} else {
+  drag('child', 300, 0);
+  const child = get('child').getBoundingClientRect(), leaf = get('leaf').getBoundingClientRect();
+  const other = get('other').getBoundingClientRect();
+  const overlap = (a,b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  valid = !overlap(child, other) && !overlap(leaf, other)
+    && pos('other').x === beforeOther.x && pos('other').y === beforeOther.y
+    && pos('leaf').x - pos('child').x === beforeLeaf.x - beforeChild.x
+    && pos('leaf').y - pos('child').y === beforeLeaf.y - beforeChild.y;
+  canvas.dispatchEvent(new KeyboardEvent('keydown', {key:'z', ctrlKey:true, bubbles:true}));
+  valid = valid && pos('child').x === beforeChild.x && pos('leaf').x === beforeLeaf.x;
+}
+setTimeout(() => {
+  const result = document.createElement('div'); result.id = 'dragModeProbe';
+  result.dataset.result = String(valid && saved?.layout_mode === mode);
+  document.body.append(result);
+}, 900);
+</script>""".replace("MODE", json.dumps(layout_mode))
+    completed = browser_file_dom(page.replace("<head>", "<head>" + setup).replace("</body>", probe + "</body>"), tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="dragModeProbe" data-result="true"></div>' in completed.stdout
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")

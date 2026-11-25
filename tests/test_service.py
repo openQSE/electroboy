@@ -7780,7 +7780,7 @@ const add = source.slice(source.indexOf("    function addNode(kind)"), source.in
 const markdown = source.slice(source.indexOf("    function newMarkdownNode("), source.indexOf("    function appendMarkdownTree("));
 eval(`(() => {
   let documentState = {nodes: [{id:"p", parent_id:null, text_align:"center", font_family:"Example Serif"}]};
-  let selectedId = "p", editingId, collapsed = new Set();
+  let selectedId = "p", editingId, layoutMode = "local", collapsed = new Set();
   const nodeById = id => documentState.nodes.find(n => n.id === id);
   const childrenOf = id => documentState.nodes.filter(n => n.parent_id === id);
   const checkpoint = () => {}, nextId = () => String(documentState.nodes.length);
@@ -7789,7 +7789,7 @@ eval(`(() => {
   const initialNodeColor = () => "default", initialNodeFontSize = () => 16;
   const nodeFontSize = () => 16, selectOnly = id => { selectedId = id; };
   const markDirty = () => {}, render = () => {}, setStatus = () => {};
-  const treeRoot = node => nodeById(node.parent_id) || node, applyLayoutMode = () => {};
+  const treeRoot = node => nodeById(node.parent_id) || node, applyLayoutMode = () => {}, avoidBranchOverlap = () => {};
   const NODE_VERTICAL_SPACING = 1, MINIMUM_NODE_FONT_SIZE = 10;
   const NODE_GENERATION_FONT_STEP = 1, ROOT_NODE_FONT_SIZE = 16;
   const DEFAULT_NODE_WIDTH = 260, DEFAULT_NODE_MIN_HEIGHT = 58;
@@ -7913,7 +7913,7 @@ eval(`(async () => {
         self.assertIn("BRANCH_COLORS = Object.freeze", page)
         self.assertIn("function dropIntentForNode(draggedId, previousIntent", page)
         self.assertIn("function applyNodeDrop(node, intent, before)", page)
-        self.assertIn("function reflowMovedRootBranch(node)", page)
+        self.assertIn("function avoidBranchOverlap(node)", page)
         self.assertIn("function reflowTree(root)", page)
         self.assertIn("function resolveLocalOverlaps(parent)", page)
         self.assertIn("function layoutPositionSnapshot()", page)

@@ -674,10 +674,9 @@ _PAGE = r"""<!doctype html>
       if (kind === "child") collapsed.delete(parentId);
       documentState.nodes.push(node); selectOnly(node.id); editingId = node.id; markDirty();
       render();
-      if (kind === "sibling" && parentId) {
-        applyLayoutMode(treeRoot(node));
-        render();
-      }
+      applyLayoutMode(treeRoot(node));
+      if (layoutMode === "local") avoidBranchOverlap(node);
+      render();
     }
     function descendants(id, result = new Set()) {
       childrenOf(id).forEach((child) => { result.add(child.id); descendants(child.id, result); });
@@ -801,21 +800,17 @@ _PAGE = r"""<!doctype html>
       shiftBranch(pastedRoot.id, position.x, position.y);
       if (parent) {
         collapsed.delete(parent.id);
-        reflowDescendants(pastedRoot, side);
+        if (layoutMode === "repack") reflowDescendants(pastedRoot, side);
       }
       selectOnly(pastedRoot.id);
       editingId = null;
       markDirty();
       render();
-      if (layoutMode === "repack") {
-        queueMicrotask(() => {
-          applyLayoutMode(treeRoot(pastedRoot));
-          render();
-          setStatus(`Pasted ${pastedNodes.length} node(s)`);
-        });
-      } else {
+      queueMicrotask(() => {
+        applyLayoutMode(treeRoot(pastedRoot));
+        render();
         setStatus(`Pasted ${pastedNodes.length} node(s)`);
-      }
+      });
     }
     function newMarkdownNode(item, parentId, side, position) {
       const parent = nodeById(parentId);
@@ -879,16 +874,12 @@ _PAGE = r"""<!doctype html>
       editingId = null;
       markDirty();
       render();
-      if (layoutMode === "repack") {
-        queueMicrotask(() => {
-          const affectedRoots = new Set(roots.map((root) => treeRoot(root)?.id));
-          affectedRoots.forEach((id) => applyLayoutMode(nodeById(id)));
-          render();
-          setStatus(`Pasted ${trees.length} Markdown tree(s)`);
-        });
-      } else {
+      queueMicrotask(() => {
+        const affectedRoots = new Set(roots.map((root) => treeRoot(root)?.id));
+        affectedRoots.forEach((id) => applyLayoutMode(nodeById(id)));
+        render();
         setStatus(`Pasted ${trees.length} Markdown tree(s)`);
-      }
+      });
       return true;
     }
     function pasteClipboardText(value) {
@@ -965,26 +956,25 @@ _PAGE = r"""<!doctype html>
       function branchHeight(node) {
         if (heights.has(node.id)) return heights.get(node.id);
         const children = collapsed.has(node.id) ? [] : childrenOf(node.id);
-        const height = Math.max(renderedNodeHeight(node),
-          groupHeight(children.filter((child) => nodeSide(child) === "left")),
-          groupHeight(children.filter((child) => nodeSide(child) === "right")));
+        const height = Math.max(renderedNodeHeight(node), groupHeight(children));
         heights.set(node.id, height);
         return height;
       }
-      function arrangeChildren(parent, centerY) {
+      function arrangeChildren(parent, centerY, branchSide = null) {
         if (collapsed.has(parent.id)) return;
-        for (const side of ["left", "right"]) {
-          const children = childrenOf(parent.id)
-            .filter((child) => nodeSide(child) === side);
+        for (const side of branchSide ? [branchSide] : ["left", "right"]) {
+          const children = branchSide ? childrenOf(parent.id)
+            : childrenOf(parent.id).filter((child) => nodeSide(child) === side);
           let top = centerY - groupHeight(children) / 2;
           children.forEach((child) => {
             const childHeight = branchHeight(child);
             const childCenter = top + childHeight / 2;
+            child.side = side;
             child.x = side === "left"
               ? parent.x - nodeWidth(child) - NODE_HORIZONTAL_GAP
               : parent.x + nodeWidth(parent) + NODE_HORIZONTAL_GAP;
             child.y = childCenter - renderedNodeHeight(child) / 2;
-            arrangeChildren(child, childCenter);
+            arrangeChildren(child, childCenter, side);
             top += childHeight + NODE_VERTICAL_SPACING;
           });
         }
@@ -994,6 +984,43 @@ _PAGE = r"""<!doctype html>
     function nodeRectangle(node) {
       return { left: node.x, top: node.y, right: node.x + nodeWidth(node),
         bottom: node.y + renderedNodeHeight(node) };
+    }
+    function avoidBranchOverlap(node) {
+      if (!node) return;
+      const branch = descendants(node.id); branch.add(node.id);
+      const hidden = hiddenNodeIds();
+      const moving = documentState.nodes.filter((item) => branch.has(item.id) && !hidden.has(item.id));
+      const fixed = documentState.nodes.filter((item) => !branch.has(item.id) && !hidden.has(item.id));
+      const xIntervals = [], yIntervals = [];
+      for (const movingNode of moving) {
+        const a = nodeRectangle(movingNode);
+        for (const fixedNode of fixed) {
+          const b = nodeRectangle(fixedNode);
+          if (a.top < b.bottom && b.top < a.bottom) {
+            xIntervals.push([b.left - a.right, b.right - a.left]);
+          }
+          if (a.left < b.right && b.left < a.right) {
+            yIntervals.push([b.top - a.bottom, b.bottom - a.top]);
+          }
+        }
+      }
+      function nearestShift(intervals) {
+        intervals.sort((a, b) => a[0] - b[0]);
+        const merged = [];
+        for (const [start, end] of intervals) {
+          const last = merged[merged.length - 1];
+          if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+          else merged.push([start, end]);
+        }
+        const collision = merged.find(([start, end]) => start < 0 && end > 0);
+        if (!collision) return 0;
+        return Math.abs(collision[0]) < Math.abs(collision[1])
+          ? collision[0] : collision[1];
+      }
+      const dx = nearestShift(xIntervals), dy = nearestShift(yIntervals);
+      if (!dx || !dy) return;
+      if (Math.abs(dx) < Math.abs(dy)) shiftBranch(node.id, node.x + dx, node.y);
+      else shiftBranch(node.id, node.x, node.y + dy);
     }
     function localOverlapShift(fixedIds, movingIds) {
       let required = 0;
@@ -1033,22 +1060,22 @@ _PAGE = r"""<!doctype html>
     function applyLayoutMode(root) {
       if (!root) return;
       if (layoutMode === "repack") reflowTree(root);
-      else resolveLocalOverlaps(root);
+      else {
+        resolveLocalOverlaps(root);
+        function settleChildren(parent) {
+          for (const child of childrenOf(parent.id)) {
+            settleChildren(child);
+            avoidBranchOverlap(child);
+          }
+        }
+        settleChildren(root);
+      }
+      avoidBranchOverlap(root);
     }
     function layoutPositionSnapshot() {
       return JSON.stringify(documentState.nodes.map((node) => [
         node.id, node.x, node.y, node.side,
       ]));
-    }
-    function reflowMovedRootBranch(node) {
-      const root = node?.parent_id ? nodeById(node.parent_id) : null;
-      if (!root || root.parent_id !== null) return;
-      const previousSide = nodeSide(node);
-      const side = node.x + nodeWidth(node) / 2
-        < root.x + nodeWidth(root) / 2 ? "left" : "right";
-      node.side = side;
-      reflowDescendants(node, side);
-      if (side !== previousSide) applyLayoutMode(root);
     }
     function moveRootBranch(side) {
       const node = nodeById(selectedId);
@@ -1188,7 +1215,7 @@ _PAGE = r"""<!doctype html>
           ? target.x - nodeWidth(node) - NODE_HORIZONTAL_GAP
           : target.x + nodeWidth(target) + NODE_HORIZONTAL_GAP;
         shiftBranch(node.id, x, target.y + sameSideIndex * NODE_VERTICAL_GAP);
-        reflowDescendants(node, intent.side);
+        if (layoutMode === "repack") reflowDescendants(node, intent.side);
       } else {
         const y = intent.placement === "before"
           ? target.y - nodeMinHeight(node) - SIBLING_DROP_GAP
@@ -1196,7 +1223,7 @@ _PAGE = r"""<!doctype html>
         shiftBranch(node.id, target.x, y);
       }
       const directRoot = node.parent_id ? nodeById(node.parent_id) : null;
-      if (directRoot?.parent_id === null) {
+      if (layoutMode === "repack" && directRoot?.parent_id === null) {
         reflowDescendants(node, nodeSide(node));
       }
       const affectedRoots = new Set([previousRootId, treeRoot(node)?.id]);
@@ -1204,6 +1231,7 @@ _PAGE = r"""<!doctype html>
         const root = nodeById(rootId);
         if (root?.parent_id === null) applyLayoutMode(root);
       });
+      if (layoutMode === "local") avoidBranchOverlap(node);
       return true;
     }
     function hiddenNodeIds() {
@@ -1223,7 +1251,7 @@ _PAGE = r"""<!doctype html>
       if (layoutMode !== "repack") return;
       queueMicrotask(() => {
         const before = layoutPositionSnapshot();
-        childrenOf(null).forEach((root) => reflowTree(root));
+        childrenOf(null).forEach((root) => applyLayoutMode(root));
         if (layoutPositionSnapshot() === before) return;
         markDirty();
         render();
@@ -1281,6 +1309,10 @@ _PAGE = r"""<!doctype html>
             && Math.abs(renderedNodeHeight(node) - previousHeight) <= 1) return;
         const before = layoutPositionSnapshot();
         applyLayoutMode(root);
+        if (layoutMode === "local") {
+          childrenOf(node.id).forEach((child) => avoidBranchOverlap(child));
+          avoidBranchOverlap(node);
+        }
         if (layoutPositionSnapshot() !== before) {
           markDirty();
           render();
@@ -2018,6 +2050,7 @@ _PAGE = r"""<!doctype html>
         width: DEFAULT_NODE_WIDTH,
         min_height: DEFAULT_NODE_MIN_HEIGHT, links: [] };
       documentState.nodes.push(node); selectOnly(node.id); editingId = node.id; markDirty(); render();
+      applyLayoutMode(node); render();
     });
     function suppressMiddleMouseDefault(event) {
       if (event.button !== 1) return;
@@ -2127,13 +2160,28 @@ _PAGE = r"""<!doctype html>
       }
       clearDropTarget();
       if (drag && drag.type === "resize" && drag.moved) {
+        const node = nodeById(drag.id);
+        if (node) {
+          applyLayoutMode(treeRoot(node));
+          if (layoutMode === "local") {
+            childrenOf(node.id).forEach((child) => avoidBranchOverlap(child));
+            avoidBranchOverlap(node);
+          }
+        }
         undoStack.push(drag.before); redoStack = []; markDirty(); render();
       } else if (drag && drag.type === "node" && drag.moved) {
         const node = nodeById(drag.id);
-        const changed = drag.dropIntent
+        let changed = drag.dropIntent
           ? applyNodeDrop(node, drag.dropIntent, drag.before) : true;
-        if (changed && !drag.dropIntent) reflowMovedRootBranch(node);
-        if (changed) {
+        if (changed && !drag.dropIntent) {
+          if (layoutMode === "repack" && node.parent_id) {
+            documentState = JSON.parse(drag.before);
+            changed = false;
+          } else {
+            avoidBranchOverlap(node);
+          }
+        }
+        if (changed && snapshot() !== drag.before) {
           undoStack.push(drag.before); redoStack = [];
           markDirty();
         }
@@ -2161,11 +2209,9 @@ _PAGE = r"""<!doctype html>
       document.body.classList.add("embedded");
     }
     restoreView(); render();
-    if (layoutMode === "repack") {
-      const before = layoutPositionSnapshot();
-      childrenOf(null).forEach((root) => applyLayoutMode(root));
-      if (layoutPositionSnapshot() !== before) { markDirty(); render(); }
-    }
+    const beforeInitialLayout = layoutPositionSnapshot();
+    childrenOf(null).forEach((root) => applyLayoutMode(root));
+    if (layoutPositionSnapshot() !== beforeInitialLayout) { markDirty(); render(); }
     canvas.focus();
   })();
   </script>

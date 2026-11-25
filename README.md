@@ -104,6 +104,11 @@ Mind-map names come from their filenames. The default blank map does not create
 a file until it is edited; its first autosave creates a uniquely named map in
 the project's shared mind-map directory. Existing title fields in older map
 files are ignored and removed the next time those files are saved.
+In Freeform layout, dragging moves a node with its descendants and adjusts the
+branch when necessary to avoid overlapping other nodes. In Repack layout,
+non-root nodes snap back after a free drag; drop them on another node to change
+the tree or sibling order. Root nodes can be moved with their trees in either
+mode. Layout changes and drops can be undone.
 
 The software workflow's `Code` actions include `Start ad-hoc`. Starting an
 ad-hoc agent opens a session chooser with a new-session option, resumable Codex
