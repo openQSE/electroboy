@@ -12,7 +12,7 @@ from electroboy.modules.creative_workspace import render_corkboard_html
 from electroboy.modules.editable_mind_map_workspace import (
     render_editable_mind_map_html,
 )
-from electroboy.modules.mind_map_documents import empty_mind_map
+from electroboy.modules.mind_map_documents import empty_mind_map, normalize_mind_map
 from electroboy.modules.mind_map_workspace import render_mind_map_html
 from electroboy.service import create_server
 from electroboy.service.workflow_config import WorkflowConfig, save_workflow_config
@@ -1870,6 +1870,52 @@ window.setTimeout(() => {
         'data-danger-style="true" data-deleted="true" '
         'data-dialog-closed="true"></div>' in completed.stdout
     )
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_browser_mind_map_restores_and_saves_layout_mode(tmp_path: Path) -> None:
+    document = empty_mind_map("Layout")
+    document["layout_mode"] = "repack"
+    document["nodes"] = [
+        {"id": "root", "text": "Root", "parent_id": None, "order": 0, "x": 80, "y": 80},
+        {"id": "first", "text": "First", "parent_id": "root", "order": 0, "x": 80, "y": 80},
+        {"id": "second", "text": "Second", "parent_id": "root", "order": 1, "x": 80, "y": 80},
+    ]
+    page, _ = render_editable_mind_map_html(
+        {"path": "/tmp/layout.mindmap.json", "revision": "one", "document": normalize_mind_map(document)},
+        context_id="workspace", connection_id="connection",
+    )
+    setup = """<script>
+localStorage.setItem('electroboy:editable-mind-map:/tmp/layout.mindmap.json:view',
+  JSON.stringify({layoutMode:'local'}));
+let savedMode = '';
+window.fetch = async (_url, options) => {
+  const document = JSON.parse(options.body).document;
+  savedMode = document.layout_mode;
+  return {ok:true, json:async () => ({revision:'two', document})};
+};
+</script>"""
+    probe = """<script>
+const opened = window.layoutTest.mode() === 'repack';
+const first = document.querySelector('[data-id="first"]');
+const second = document.querySelector('[data-id="second"]');
+const arranged = first.style.top !== second.style.top;
+window.layoutTest.set('local');
+const changed = window.layoutTest.mode() === 'local';
+window.layoutTest.undo();
+const undone = window.layoutTest.mode() === 'repack';
+window.layoutTest.redo();
+const redone = window.layoutTest.mode() === 'local';
+setTimeout(() => {
+  const result = document.createElement('div'); result.id = 'layoutProbe';
+  result.dataset.result = String(opened && arranged && changed && undone && redone && savedMode === 'local');
+  document.body.append(result);
+}, 900);
+</script>"""
+    page = page.replace("    restoreView(); render();", "    window.layoutTest = {set: setLayoutMode, undo, redo, mode: () => layoutMode};\n    restoreView(); render();")
+    completed = browser_file_dom(page.replace("<head>", "<head>" + setup).replace("</body>", probe + "</body>"), tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="layoutProbe" data-result="true"></div>' in completed.stdout
 
 
 @pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")

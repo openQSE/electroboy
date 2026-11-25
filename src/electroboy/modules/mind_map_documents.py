@@ -50,6 +50,7 @@ def empty_mind_map(title: str = "Untitled mind map") -> dict[str, object]:
         "schema_version": MIND_MAP_SCHEMA_VERSION,
         "type": MIND_MAP_TYPE,
         "title": title.strip() or "Untitled mind map",
+        "layout_mode": "local",
         "nodes": [],
         "relationships": [],
     }
@@ -94,6 +95,9 @@ def normalize_mind_map(value: object) -> dict[str, object]:
     version = value.get("schema_version", MIND_MAP_SCHEMA_VERSION)
     if version != MIND_MAP_SCHEMA_VERSION:
         raise StateError(f"unsupported mind map schema version: {version}")
+    layout_mode = value.get("layout_mode", "local")
+    if layout_mode not in ("local", "repack"):
+        raise StateError("mind map has an invalid layout_mode")
     raw_nodes = value.get("nodes", [])
     if not isinstance(raw_nodes, list):
         raise StateError("mind map nodes must be a list")
@@ -269,6 +273,7 @@ def normalize_mind_map(value: object) -> dict[str, object]:
         "type": MIND_MAP_TYPE,
         "title": str(value.get("title") or "Untitled mind map").strip()
         or "Untitled mind map",
+        "layout_mode": layout_mode,
         "nodes": nodes,
         "relationships": relationships,
     }

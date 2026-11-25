@@ -7479,6 +7479,7 @@ eval(`${code}
             root = Path(directory)
             path = ".electroboy/shared/mind-maps/launch.mindmap.json"
             document = empty_mind_map("Launch plan")
+            document["layout_mode"] = "repack"
             document["nodes"] = [
                 {
                     "id": "root",
@@ -7505,6 +7506,7 @@ eval(`${code}
             loaded = load_mind_map(root, path)
 
             self.assertEqual(loaded, created)
+            self.assertEqual(loaded["document"]["layout_mode"], "repack")
             self.assertEqual(loaded["document"]["nodes"][0]["color"], "teal")
             self.assertEqual(loaded["document"]["nodes"][0]["side"], "left")
             self.assertEqual(loaded["document"]["nodes"][0]["font_size"], 22.5)
@@ -7538,6 +7540,16 @@ eval(`${code}
                     updated,
                     expected_revision=str(loaded["revision"]),
                 )
+
+    def test_mind_map_layout_mode_legacy_and_validation(self) -> None:
+        document = empty_mind_map()
+        del document["layout_mode"]
+        self.assertEqual(normalize_mind_map(document)["layout_mode"], "local")
+        document["layout_mode"] = "repack"
+        self.assertEqual(normalize_mind_map(document)["layout_mode"], "repack")
+        document["layout_mode"] = "invalid"
+        with self.assertRaisesRegex(StateError, "layout_mode"):
+            normalize_mind_map(document)
 
     def test_bare_mind_map_artifact_opens_software_project_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -7817,7 +7829,7 @@ eval(`(async () => {
         self.assertIn("function layoutPositionSnapshot()", page)
         self.assertIn("childrenOf(null).forEach((root) => applyLayoutMode(root));", page)
         self.assertIn("layoutPositionSnapshot() !== beforeLayout", page)
-        self.assertIn('let layoutMode = "local";', page)
+        self.assertIn('let layoutMode = documentState.layout_mode === "repack"', page)
         self.assertNotIn('"layout-freeform": () => setLayoutMode("freeform")', page)
         self.assertIn("const NODE_VERTICAL_SPACING = 20;", page)
         self.assertIn('className: `drop-child-${side}`', page)

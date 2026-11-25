@@ -314,7 +314,7 @@ _PAGE = r"""<!doctype html>
     let spacePan = false;
     let overlayLink = null;
     let pendingFilePicker = null;
-    let layoutMode = "local";
+    let layoutMode = documentState.layout_mode === "repack" ? "repack" : "local";
     const AUTOSAVE_DELAY_MS = 800;
     const ROOT_NODE_FONT_SIZE = 24;
     const NODE_GENERATION_FONT_STEP = 3;
@@ -570,8 +570,7 @@ _PAGE = r"""<!doctype html>
     function saveView() {
       try {
         localStorage.setItem(stateKey, JSON.stringify({ pan, zoom, selectedId, compact,
-          expanded: Array.from(expanded), collapsed: Array.from(collapsed), focusMode,
-          layoutMode }));
+          expanded: Array.from(expanded), collapsed: Array.from(collapsed), focusMode }));
       } catch (_error) { /* View persistence is optional. */ }
     }
     function restoreView() {
@@ -585,9 +584,6 @@ _PAGE = r"""<!doctype html>
         expanded = new Set(Array.isArray(stored.expanded) ? stored.expanded : []);
         collapsed = new Set(Array.isArray(stored.collapsed) ? stored.collapsed : []);
         focusMode = Boolean(stored.focusMode);
-        if (["local", "freeform", "repack"].includes(stored.layoutMode)) {
-          layoutMode = stored.layoutMode === "freeform" ? "local" : stored.layoutMode;
-        }
       } catch (_error) { /* Ignore invalid per-browser view state. */ }
     }
     function snapshot() { return JSON.stringify(documentState); }
@@ -611,6 +607,7 @@ _PAGE = r"""<!doctype html>
     }
     function restoreSnapshot(serialized) {
       documentState = JSON.parse(serialized); editingId = null;
+      layoutMode = documentState.layout_mode === "repack" ? "repack" : "local";
       selectedIds = new Set(Array.from(selectedIds).filter((id) => nodeById(id)));
       if (!nodeById(selectedId)) selectedId = Array.from(selectedIds).pop() || null;
       if (!nodeById(selectionAnchor)) selectionAnchor = selectedId;
@@ -1674,9 +1671,11 @@ _PAGE = r"""<!doctype html>
       if (!["local", "repack"].includes(mode)) return;
       const before = snapshot();
       const beforeLayout = layoutPositionSnapshot();
+      const modeChanged = mode !== layoutMode;
       layoutMode = mode;
+      documentState.layout_mode = mode;
       childrenOf(null).forEach((root) => applyLayoutMode(root));
-      if (layoutPositionSnapshot() !== beforeLayout) {
+      if (modeChanged || layoutPositionSnapshot() !== beforeLayout) {
         undoStack.push(before);
         if (undoStack.length > 200) undoStack.shift();
         redoStack = [];
@@ -2147,7 +2146,13 @@ _PAGE = r"""<!doctype html>
     if (new URLSearchParams(window.location.search).get("embed") === "1") {
       document.body.classList.add("embedded");
     }
-    restoreView(); render(); canvas.focus();
+    restoreView(); render();
+    if (layoutMode === "repack") {
+      const before = layoutPositionSnapshot();
+      childrenOf(null).forEach((root) => applyLayoutMode(root));
+      if (layoutPositionSnapshot() !== before) { markDirty(); render(); }
+    }
+    canvas.focus();
   })();
   </script>
 </body>
