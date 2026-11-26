@@ -1043,6 +1043,15 @@ eval(`${code}
         self.assertIn("for (const entry of entries)", binder)
         self.assertNotIn('["New board",', binder)
         self.assertIn("function showMindMap(runtime, path", creative)
+        mind_map_selection = creative[
+            creative.index("  function selectMindMap(runtime, path"):
+            creative.index("    function applyCreativeWorkspace()")
+        ]
+        self.assertIn("...options,", mind_map_selection)
+        self.assertIn(
+            "replaceActivePane: options.replaceActivePane !== false",
+            mind_map_selection,
+        )
         self.assertIn("const CREATIVE_RESTORABLE_PANE_KINDS = new Set([", creative)
         self.assertIn("function creativeWorkspaceRestoreOptions()", creative)
         self.assertIn("runtimeApi.layout.activeKind()", creative)

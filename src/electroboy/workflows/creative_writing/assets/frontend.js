@@ -913,7 +913,10 @@
       creativeActiveDocumentType: "mind-map",
       creativeActiveFolder: creativeParentPath(path),
     });
-    showMindMap(runtime, path, options);
+    showMindMap(runtime, path, {
+      ...options,
+      replaceActivePane: options.replaceActivePane !== false,
+    });
     renderCreativeTree();
     renderProjectStatus(runtime);
   }
