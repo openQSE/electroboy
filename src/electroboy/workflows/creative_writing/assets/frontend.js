@@ -156,8 +156,8 @@
     runtimeApi.notifications.appendOutput(text, kind);
   }
 
-  function updateProjectState(payload) {
-    runtimeApi.project.update(payload);
+  function updateProjectState(payload, options = {}) {
+    runtimeApi.project.update(payload, options);
     bindRuntime(runtimeApi);
   }
 
@@ -263,7 +263,9 @@
     recordProjectStatusMessage(
       `${payload.status}: ${payload.activation_root || payload.active_project_root || path}`,
     );
-    updateProjectState(payload);
+    updateProjectState(payload, {
+      workspaceAttach: Boolean(payload.workspace_client_state?.pane_layout),
+    });
   }
 
   async function clearRecentProjects() {

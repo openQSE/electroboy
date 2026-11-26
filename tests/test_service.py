@@ -986,6 +986,13 @@ eval(`${code}
         self.assertIn('data-creative-control="recent-projects-menu"', creative)
         self.assertIn("creativeRecentProjectsExpanded = false", creative)
         self.assertIn("async function openRecentProject(project)", creative)
+        recent_open = creative[creative.index("async function openRecentProject(project)"):
+                               creative.index("async function clearRecentProjects()")]
+        self.assertIn(
+            "workspaceAttach: Boolean(payload.workspace_client_state?.pane_layout)",
+            recent_open,
+        )
+        self.assertIn("runtimeApi.project.update(payload, options)", creative)
         self.assertIn("async function clearRecentProjects()", creative)
         self.assertNotIn("return runtimeApi.recent.open(project);", creative)
         self.assertIn('contextUrl("/api/creative/project/open")', creative)
@@ -5783,6 +5790,24 @@ eval(`${code}
             self.assertFalse(other.get("workspace_client_state", {}).get("pane_layout"))
             next_context = str(restarted.create_context(workflow_id="software")["context_id"])
             reopened = restarted.open_project(next_context, str(project_root))
+            self.assertEqual(reopened["workspace_client_state"]["pane_layout"], layout)
+
+    def test_creative_project_layout_restores_after_deactivation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            service_root = Path(tmp) / "service"
+            project_root = Path(tmp) / "story"
+            service_root.mkdir()
+            project_root.mkdir()
+            state = ServiceState(service_root)
+            context_id = str(state.create_context(workflow_id="creative-writing")["context_id"])
+            state.open_creative_project(context_id, str(project_root))
+            layout = {"type": "leaf", "kind": "artifact", "content": {
+                "kind": "document", "target": {"path": "chapters/story.md"},
+            }}
+            state.workspace_registry.save_client_state(context_id, {"pane_layout": layout})
+            state.deactivate_project(context_id)
+            reopened_id = str(state.create_context(workflow_id="creative-writing")["context_id"])
+            reopened = state.open_creative_project(reopened_id, str(project_root))
             self.assertEqual(reopened["workspace_client_state"]["pane_layout"], layout)
 
     def test_service_state_ignores_stale_creative_workspace_on_open(self) -> None:
