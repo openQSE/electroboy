@@ -556,11 +556,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             if existing is not None:
                 existing_binary = str(existing.metadata.get("provider_binary") or "")
                 if existing_binary and existing_binary != selection.binary:
-                    if agent_binary:
-                        raise AgentSessionError("Agent session uses a different executable.")
-                    selection = self.services.sessions.resolve_workspace_selection(
-                        context_id, existing_binary,
-                    )
+                    raise AgentSessionError("Agent session uses a different executable.")
                 existing_provider_id = str(
                     existing.metadata.get("provider_session_id") or ""
                 )
@@ -591,11 +587,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             if existing is not None:
                 existing_binary = str(existing.metadata.get("provider_binary") or "")
                 if existing_binary and existing_binary != selection.binary:
-                    if agent_binary:
-                        raise AgentSessionError("Agent session uses a different executable.")
-                    selection = self.services.sessions.resolve_workspace_selection(
-                        context_id, existing_binary,
-                    )
+                    raise AgentSessionError("Agent session uses a different executable.")
                 if requested_name:
                     with self.services.contexts.lock:
                         context = self.services.contexts.require(context_id)

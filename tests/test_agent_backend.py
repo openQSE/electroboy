@@ -66,6 +66,38 @@ def test_queued_runtime_retains_workspace_selection(tmp_path):
     assert later_factory("code_review", tmp_path).config.adapter == "opencode_exec"
 
 
+def test_launch_retains_selection_when_default_changes_concurrently(tmp_path):
+    from electroboy.service.services import build_service_services
+
+    state = ServiceState(tmp_path)
+    workspace = state.create_context(workflow_id="software")["context_id"]
+    services = build_service_services(state, state.workflow_registry).sessions
+    captured = threading.Event()
+    changed = threading.Event()
+    result = []
+
+    def launch():
+        selected = services.resolve_workspace_selection(workspace)
+        captured.set()
+        assert changed.wait(5)
+        session = AgentSession([sys.executable], tmp_path, kind="ad-hoc")
+        services.prepare(state.contexts[workspace], session, selected)
+        result.append(session.metadata["provider_binary"])
+
+    with patch("shutil.which", side_effect=lambda name: f"/bin/{name}"):
+        services.set_workspace_backend(workspace, "codex-fixture-alpha")
+        worker = threading.Thread(target=launch)
+        worker.start()
+        try:
+            assert captured.wait(5)
+            services.set_workspace_backend(workspace, "opencode")
+        finally:
+            changed.set()
+            worker.join(5)
+    assert not worker.is_alive()
+    assert result == ["codex-fixture-alpha"]
+
+
 def test_explicit_background_cancellation_is_isolated(tmp_path):
     script = tmp_path / "agent.py"
     script.write_text(

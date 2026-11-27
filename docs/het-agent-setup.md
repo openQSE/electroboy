@@ -204,7 +204,7 @@ after its code and relevant validation are complete.
       UI uses the scoped contract.
 - [x] Remove global stop, cancellation epoch, and revision invalidation from
       default changes; retain cancellation for explicit job/session stops.
-- [ ] Verify independent defaults, one-time migration, reopen and restart,
+- [x] Verify independent defaults, one-time migration, reopen and restart,
       migration failure, lease rejection, and concurrent change/launch ordering
       in `tests/test_agent_backend.py`.
 
@@ -218,7 +218,7 @@ after its code and relevant validation are complete.
       defaults for code-learner tutor launches.
 - [x] Verify that Codex and OpenCode agent processes remain running when a
       workspace default changes.
-- [ ] Capture provider and executable once per launch and persist both the
+- [x] Capture provider and executable once per launch and persist both the
       stable selection and resolved executable in agent session metadata.
 - [x] Update session preparation and process guards to use the captured
       selection without checking a mutable service-wide backend revision.
@@ -232,7 +232,7 @@ after its code and relevant validation are complete.
 - [x] Update Codex and OpenCode history lookup to filter by the captured
       selection and retain each record's own executable. Resolve an explicitly
       unresolved selection with user input and persist the validated result.
-- [ ] Remove legacy workspace format branches from launch, history, resume,
+- [x] Remove legacy workspace format branches from launch, history, resume,
       and UI paths; consume only the converted representation.
 - [x] Test mixed live agents, separate workspace defaults, overrides, resume
       after a default change, both providers, unavailable binaries, legacy
@@ -305,7 +305,8 @@ executable, subject to that executable and its history being available.
   rather than guessing an executable. A selected executable is validated before
   saving a default; active sessions and queued jobs retain captured selections.
 - The focused agent, migration, workspace, history, and learner tests passed
-  (86 tests). Stage and requirements coverage passed (82 tests); the three
+  (87 tests). Stage and requirements coverage passed (82 tests), creative
+  coverage passed (71 tests), and the three
   agent UI browser checks passed. Fixture executables exercised concurrent
   Codex-wrapper and OpenCode processes without model calls.
 - The full repository invocation completed with 798 passed, two skipped, and
