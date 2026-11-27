@@ -7,7 +7,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Protocol, TypeVar
 
-from .agent_backend import AgentBackend
+from .agent_backend import AgentBackend, _provider_for_binary
 from .context import BrowserContext, ContextStore
 from .registry import WorkflowRegistry
 from .sessions import AgentSession
@@ -164,6 +164,10 @@ class SessionServices(Protocol):
     def backend(self) -> str: ...
 
     def backend_payload(self) -> dict[str, object]: ...
+
+    def workspace_backend_payload(self, workspace_id: str) -> dict[str, object]: ...
+
+    def set_workspace_backend(self, workspace_id: str, binary: str) -> dict[str, object]: ...
 
     def executable(self, root: Path) -> str: ...
 
@@ -1011,6 +1015,27 @@ class RuntimeSessionServices:
 
     def backend_payload(self) -> dict[str, object]:
         return self.runtime.agent_backend.payload()
+
+    def workspace_backend_payload(self, workspace_id: str) -> dict[str, object]:
+        backend = self.runtime.agent_backend
+        binary = self.runtime.workspace_registry.agent_default(workspace_id, backend.binary)
+        payload = backend.payload()
+        payload["backend"] = binary
+        payload["provider"] = _provider_for_binary(binary)
+        binaries = payload["backends"]
+        availability = payload["availability"]
+        if isinstance(binaries, list) and binary not in binaries:
+            binaries.append(binary)
+        if isinstance(availability, dict) and binary not in availability:
+            availability[binary] = backend._available(binary)
+        return payload
+
+    def set_workspace_backend(self, workspace_id: str, binary: str) -> dict[str, object]:
+        context = self.runtime.context_store.require(workspace_id)
+        root = context.active_project_root or self.runtime.root
+        self.runtime.agent_backend.resolve(binary, root)
+        self.runtime.workspace_registry.set_agent_default(workspace_id, binary)
+        return self.workspace_backend_payload(workspace_id)
 
     def executable(self, root: Path) -> str:
         return self.runtime.agent_backend.executable(root)

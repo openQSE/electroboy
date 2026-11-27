@@ -19,6 +19,42 @@ from electroboy.state_store import StateStore
 
 
 class WorkspaceIsolationTests(unittest.TestCase):
+    def test_workspace_agent_config_is_scoped_and_requires_a_lease(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            server = create_server(Path(tmp), port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                state = server.service_state
+                first = state.create_context(connection_id="first")
+                second = state.create_context(connection_id="second")
+                first_id = first["context_id"]
+                second_id = second["context_id"]
+                url = (
+                    f"/api/workspaces/agent-config?workspace_id={first_id}"
+                    f"&connection_id=first&lease_token={first['lease_token']}"
+                )
+                with mock.patch("shutil.which", return_value="/bin/true"):
+                    status, payload = self._request(server, "POST", url, {"backend": "opencode"})
+                self.assertEqual(status, 200)
+                self.assertEqual(payload["backend"], "opencode")
+                self.assertEqual(
+                    state.workspace_registry.agent_default(second_id, "codex"), "codex"
+                )
+                status, _ = self._request(
+                    server, "POST", "/api/workspaces/agent-config", {"backend": "codex"},
+                )
+                self.assertEqual(status, 409)
+                status, _ = self._request(
+                    server, "POST", f"/api/workspaces/agent-config?workspace_id={first_id}",
+                    {"backend": "codex"},
+                )
+                self.assertEqual(status, 409)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join()
+
     def test_agent_defaults_are_isolated_persisted_and_survive_project_reset(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state = ServiceState(Path(tmp))

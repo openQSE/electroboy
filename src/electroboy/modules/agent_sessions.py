@@ -23,6 +23,25 @@ def _backend_config(request: RouteRequest) -> ServiceResponse:
     return JsonResponse(request.services.sessions.backend_payload())
 
 
+def _workspace_backend_config(request: RouteRequest) -> ServiceResponse:
+    try:
+        if "workspace_id" not in request.params or not request.workspace_id:
+            raise ValueError("workspace id is required")
+        request.services.workspaces.validate(
+            request.workspace_id, request.connection_id, request.lease_token,
+        )
+        if request.method == "POST":
+            body = request.body()
+            return JsonResponse(request.services.sessions.set_workspace_backend(
+                request.workspace_id, str(body.get("backend") or ""),
+            ))
+        return JsonResponse(request.services.sessions.workspace_backend_payload(
+            request.workspace_id,
+        ))
+    except Exception as error:
+        return conflict(error)
+
+
 def _switch_backend(request: RouteRequest) -> ServiceResponse:
     try:
         body = request.body()
@@ -250,6 +269,7 @@ _HANDLERS = {
     "raw": _raw,
     "interrupt": _interrupt,
     "backend_config": _backend_config,
+    "workspace_backend_config": _workspace_backend_config,
     "switch_backend": _switch_backend,
     "terminate": _terminate,
     "resize": _resize,
@@ -265,6 +285,8 @@ def module() -> ServiceModule:
         routes=(
             route("GET", "/api/runtime/config", "agent_sessions", "backend_config"),
             route("POST", "/api/runtime/config", "agent_sessions", "switch_backend"),
+            route("GET", "/api/workspaces/agent-config", "agent_sessions", "workspace_backend_config"),
+            route("POST", "/api/workspaces/agent-config", "agent_sessions", "workspace_backend_config"),
             route("GET", "/api/sessions", "agent_sessions", "list_sessions"),
             route("GET", "/api/session-registry", "agent_sessions", "session_registry"),
             route("POST", "/api/sessions/attach", "agent_sessions", "attach"),
