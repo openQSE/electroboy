@@ -181,8 +181,9 @@ after its code and relevant validation are complete.
 
 ### 1. Workspace selection and migration
 
-- [ ] Add namespaced workspace default storage using the workspace registry,
-      including restore and shared-workspace behavior.
+- [x] Add namespaced workspace default storage using the workspace registry;
+      verify isolation, project reset, restore, and failed-write rollback.
+- [ ] Verify workspace default storage for shared workspaces.
 - [ ] Upgrade older workspaces and their associated session records at open or
       restore, using recorded provider and executable metadata when reliable.
       Persist the current representation and version as one upgrade.
@@ -190,10 +191,13 @@ after its code and relevant validation are complete.
       `codex`, and mark sessions with unknown executables as unresolved.
 - [ ] Make upgrades idempotent, scoped to the workspace and project, and safe
       on failure; keep history and provider identifiers intact.
-- [ ] Add selection resolution and executable availability validation to the
+- [x] Add selection resolution and executable availability validation to the
       existing session service contract, scoped by workspace.
-- [ ] Implement workspace-scoped configuration reads and writes with existing
-      attachment and lease validation. Reject context-free mutations.
+- [x] Implement workspace-scoped configuration reads and writes with existing
+      attachment and lease validation. The new endpoint rejects requests
+      without workspace context.
+- [ ] Remove the old service-wide configuration mutation path after the
+      workspace UI and all launch paths use the scoped contract.
 - [ ] Remove global stop, cancellation epoch, and revision invalidation from
       default changes; retain cancellation for explicit job/session stops.
 - [ ] Verify independent defaults, one-time migration, reopen and restart,
@@ -202,6 +206,9 @@ after its code and relevant validation are complete.
 
 ### 2. Agent launch and resume
 
+- [x] Add an immutable selection and pass it through the session-service
+      preparation contract; verify its metadata and launch command.
+- [x] Add an explicit provider filter to service session history lookup.
 - [ ] Capture provider and executable once per launch and persist both the
       stable selection and resolved executable in agent session metadata.
 - [ ] Update session preparation and process guards to use the captured
@@ -224,6 +231,8 @@ after its code and relevant validation are complete.
 
 ### 3. Background jobs and workflow integration
 
+- [x] Capture workspace selections for corkboard and code-learner generation;
+      retain the initialization selection in its scheduler continuation.
 - [ ] Bind managed runtime factories to a captured workspace selection and
       replace global-switch cancellation with per-job cancellation.
 - [ ] Pass workspace identity and captured selections to software workflow
