@@ -69,7 +69,7 @@ from .registry import (
     build_workflow_registry,
     installed_workflow_factories,
 )
-from .agent_backend import AgentBackend
+from .agent_backend import AgentBackend, AgentSelection
 from .routes import RouteOperations, RouteRequest, build_route_dispatcher
 from .services import build_service_services
 from .sessions import (
@@ -386,6 +386,7 @@ class ServiceState:
         self,
         context: BrowserContext,
         session: AgentSession,
+        selection: AgentSelection | None = None,
     ) -> AgentSession:
         if self.session_backend == SESSION_BACKEND_TMUX and not isinstance(
             session,
@@ -393,7 +394,10 @@ class ServiceState:
         ):
             session = TmuxAgentSession.from_agent_session(session)
         if session.kind != "project-shell":
-            self.agent_backend.prepare(session)
+            if selection is None:
+                self.agent_backend.prepare(session)
+            else:
+                self.agent_backend.prepare_selection(session, selection)
         session.persist_to(
             context_id=context.context_id,
             transcript_path=_service_session_transcript_path(

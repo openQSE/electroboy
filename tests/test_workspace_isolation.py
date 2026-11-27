@@ -13,12 +13,31 @@ from electroboy.service import ServiceState, create_server
 from electroboy.service.http import JsonResponse
 from electroboy.service.registry import RouteDefinition
 from electroboy.service.routes import RouteDispatcher, RouteOperations, RouteRequest
-from electroboy.service.sessions import AgentSessionError
+from electroboy.service.sessions import AgentSession, AgentSessionError
+from electroboy.service.services import build_service_services
 from electroboy.service.workspaces import WorkspaceRegistry
 from electroboy.state_store import StateStore
 
 
 class WorkspaceIsolationTests(unittest.TestCase):
+    def test_workspace_selection_is_captured_for_agent_preparation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            first = state.create_context(workflow_id="software")["context_id"]
+            second = state.create_context(workflow_id="software")["context_id"]
+            services = build_service_services(state, state.workflow_registry).sessions
+            with mock.patch("shutil.which", side_effect=lambda name: f"/bin/{name}"):
+                services.set_workspace_backend(first, "codex-atoz")
+                services.set_workspace_backend(second, "opencode")
+                selection = services.resolve_workspace_selection(first)
+                services.set_workspace_backend(first, "codex-ornl")
+                session = AgentSession(["codex"], Path(tmp), kind="ad-hoc")
+                services.prepare(state.contexts[first], session, selection=selection)
+            self.assertEqual(session.metadata["provider_binary"], "codex-atoz")
+            self.assertEqual(session.command[0], "codex-atoz")
+            self.assertEqual(services.workspace_backend_payload(first)["backend"], "codex-ornl")
+            self.assertEqual(services.workspace_backend_payload(second)["backend"], "opencode")
+
     def test_workspace_agent_config_is_scoped_and_requires_a_lease(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             server = create_server(Path(tmp), port=0)

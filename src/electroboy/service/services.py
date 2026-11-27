@@ -7,7 +7,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Protocol, TypeVar
 
-from .agent_backend import AgentBackend, _provider_for_binary
+from .agent_backend import AgentBackend, AgentSelection, _provider_for_binary
 from .context import BrowserContext, ContextStore
 from .registry import WorkflowRegistry
 from .sessions import AgentSession
@@ -169,6 +169,10 @@ class SessionServices(Protocol):
 
     def set_workspace_backend(self, workspace_id: str, binary: str) -> dict[str, object]: ...
 
+    def resolve_workspace_selection(
+        self, workspace_id: str, binary: str = "",
+    ) -> AgentSelection: ...
+
     def executable(self, root: Path) -> str: ...
 
     def switch_backend(
@@ -185,6 +189,7 @@ class SessionServices(Protocol):
         self,
         context: BrowserContext,
         session: AgentSession,
+        selection: AgentSelection | None = None,
     ) -> AgentSession: ...
 
     def record(self, context: BrowserContext, session: AgentSession) -> None: ...
@@ -443,6 +448,7 @@ class ServiceRuntimeBackend(Protocol):
     context_store: ContextStore
     agent_backend: AgentBackend
     workspace_registry: WorkspaceRegistry
+    lock: ServiceLock
 
     def provider_history(
         self, root: Path, kind: str, scope_key: str = ""
@@ -515,6 +521,7 @@ class ServiceRuntimeBackend(Protocol):
         self,
         context: BrowserContext,
         session: AgentSession,
+        selection: AgentSelection | None = None,
     ) -> AgentSession: ...
 
     def _context_sessions_locked(
@@ -1037,6 +1044,17 @@ class RuntimeSessionServices:
         self.runtime.workspace_registry.set_agent_default(workspace_id, binary)
         return self.workspace_backend_payload(workspace_id)
 
+    def resolve_workspace_selection(
+        self, workspace_id: str, binary: str = "",
+    ) -> AgentSelection:
+        with self.runtime.lock:
+            context = self.runtime.context_store.require(workspace_id)
+            root = context.active_project_root or self.runtime.root
+            selected = binary or self.runtime.workspace_registry.agent_default(
+                workspace_id, self.runtime.agent_backend.binary,
+            )
+            return self.runtime.agent_backend.resolve(selected, root)
+
     def executable(self, root: Path) -> str:
         return self.runtime.agent_backend.executable(root)
 
@@ -1059,8 +1077,9 @@ class RuntimeSessionServices:
         self,
         context: BrowserContext,
         session: AgentSession,
+        selection: AgentSelection | None = None,
     ) -> AgentSession:
-        return self.runtime._prepare_session_locked(context, session)
+        return self.runtime._prepare_session_locked(context, session, selection=selection)
 
     def record(self, context: BrowserContext, session: AgentSession) -> None:
         self.runtime._record_session_locked(context, session)
