@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "electroboy-core"
 version = "0.1.0"
 description = "Core runtime and browser shell for ElectroBoy."
 requires-python = ">=3.10"
-license = { text = "BSD-3-Clause" }
+license = "BSD-3-Clause"
 dependencies = [
   "Markdown>=3.6",
   "reportlab>=4",
