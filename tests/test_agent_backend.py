@@ -28,6 +28,30 @@ def selection(sessions=()):
     return AgentBackend(threading.RLock(), lambda: sessions, lambda: [Path(".")])
 
 
+def test_captured_selections_are_independent_of_later_default_changes(tmp_path):
+    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
+    with patch("shutil.which", side_effect=lambda name: f"/bin/{name}"):
+        codex = backend.resolve("codex-atoz", tmp_path)
+        opencode = backend.resolve("opencode", tmp_path)
+        session = AgentSession(["codex", "resume", "example"], tmp_path)
+        backend.prepare_selection(session, codex)
+        factory = backend.selected_runtime_factory(opencode)
+        backend.switch("codex-ornl", confirmed=True, revision=0)
+
+    assert session.command[0] == "codex-atoz"
+    assert session.metadata["provider_binary"] == "codex-atoz"
+    assert session.environment["ELECTROBOY_AGENT_EXECUTABLE"] == "codex-atoz"
+    assert not factory.cancel_event.is_set()
+    assert factory("code_review", tmp_path).config.adapter == "opencode_exec"
+
+
+def test_captured_selection_requires_available_executable(tmp_path):
+    backend = selection()
+    with patch("shutil.which", return_value=None):
+        with pytest.raises(AgentSessionError, match="unavailable"):
+            backend.resolve("codex-atoz", tmp_path)
+
+
 def test_defaults_confirmation_and_stale_revision():
     backend = selection()
     assert backend.payload()["backend"] == "codex"

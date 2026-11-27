@@ -9,7 +9,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from electroboy.adapters.base import AgentInvocation, AgentResult, AgentRuntime
@@ -50,6 +50,15 @@ def _discover_codex_binaries() -> set[str]:
         except OSError:
             continue
     return binaries
+
+
+@dataclass(frozen=True)
+class AgentSelection:
+    """Immutable selection captured for an agent or background job."""
+
+    binary: str
+    provider: str
+    executable: str
 
 
 class AgentBackend:
@@ -118,6 +127,39 @@ class AgentBackend:
         with self.lock:
             command = self._command(self.binary, root, True)
         return shutil.which(command) or command
+
+    def resolve(self, binary: str, root: Path) -> AgentSelection:
+        """Validate and capture a selection independently of the service default."""
+        provider = _provider_for_binary(binary)
+        command = self._command(binary, root, interactive=True)
+        executable = shutil.which(command)
+        if executable is None:
+            raise AgentSessionError(f"Backend executable is unavailable: {command}")
+        return AgentSelection(binary, provider, executable)
+
+    def prepare_selection(self, session: AgentSession, selection: AgentSelection) -> None:
+        """Prepare a session without binding it to later default changes."""
+        session.metadata["provider"] = selection.provider
+        session.metadata["provider_binary"] = selection.binary
+        session.metadata["provider_executable"] = selection.executable
+        session.environment["ELECTROBOY_AGENT_BACKEND"] = selection.provider
+        session.environment["ELECTROBOY_AGENT_EXECUTABLE"] = (
+            selection.binary if selection.binary != selection.provider else ""
+        )
+        command = backend_config(selection.provider, session.cwd, interactive=True).command
+        if selection.binary != selection.provider and session.command and session.command[0] == command:
+            session.command = [selection.binary, *session.command[1:]]
+
+    def selected_runtime_factory(self, selection: AgentSelection):
+        """Capture a selection for the lifetime of a background job."""
+        def factory(role: str, root: Path) -> AgentRuntime:
+            return runtime_for_role(
+                role, root, backend=selection.provider,
+                executable=(selection.binary if selection.binary != selection.provider else None),
+            )
+
+        factory.cancel_event = threading.Event()
+        return factory
 
     def _available(self, binary: str) -> bool:
         roots = list(self.roots()) or [Path(".")]
