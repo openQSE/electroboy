@@ -169,6 +169,8 @@ class SessionServices(Protocol):
 
     def set_workspace_backend(self, workspace_id: str, binary: str) -> dict[str, object]: ...
 
+    def workspace_agent_sessions(self, workspace_id: str) -> list[dict[str, object]]: ...
+
     def resolve_workspace_selection(
         self, workspace_id: str, binary: str = "",
     ) -> AgentSelection: ...
@@ -1043,6 +1045,28 @@ class RuntimeSessionServices:
         self.runtime.agent_backend.resolve(binary, root)
         self.runtime.workspace_registry.set_agent_default(workspace_id, binary)
         return self.workspace_backend_payload(workspace_id)
+
+    def workspace_agent_sessions(self, workspace_id: str) -> list[dict[str, object]]:
+        self.runtime.context_store.require(workspace_id)
+        result = []
+        for entry in self.runtime.session_registry_payload().get("sessions", []):
+            if not isinstance(entry, dict) or entry.get("workspace_id") != workspace_id:
+                continue
+            metadata = entry.get("metadata") or {}
+            if not isinstance(metadata, dict) or entry.get("kind") == "project-shell":
+                continue
+            result.append({
+                "session_id": entry.get("session_id"),
+                "name": entry.get("name") or entry.get("label"),
+                "status": entry.get("status"),
+                "provider": metadata.get("provider"),
+                "provider_binary": metadata.get("provider_binary"),
+                "provider_executable": metadata.get("provider_executable"),
+                "provider_session_id": metadata.get("provider_session_id"),
+                "project_root": entry.get("active_project_root"),
+                "workspace_id": workspace_id,
+            })
+        return result
 
     def resolve_workspace_selection(
         self, workspace_id: str, binary: str = "",

@@ -20,6 +20,39 @@ from electroboy.state_store import StateStore
 
 
 class WorkspaceIsolationTests(unittest.TestCase):
+    def test_shared_workspace_connections_use_one_agent_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            workspace = state.create_context(workflow_id="software")["context_id"]
+            registry = state.workspace_registry
+            registry.records[workspace].attachment_policy = "shared-singleton"
+            first = registry.attach(workspace, "first")
+            second = registry.attach(workspace, "second")
+            registry.validate(workspace, "first", first["lease_token"])
+            registry.validate(workspace, "second", second["lease_token"])
+            registry.agent_default(workspace, "codex-atoz")
+            registry.set_agent_default(workspace, "opencode")
+            restored = ServiceState(Path(tmp)).workspace_registry
+            self.assertEqual(restored.agent_default(workspace, "codex"), "opencode")
+
+    def test_agent_info_limits_records_to_the_current_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            first = state.create_context(workflow_id="software")["context_id"]
+            second = state.create_context(workflow_id="software")["context_id"]
+            records = {"sessions": [
+                {"workspace_id": first, "session_id": "one", "status": "completed",
+                 "kind": "ad-hoc", "metadata": {"provider": "codex",
+                 "provider_binary": "codex-atoz", "secret": "do not expose"}},
+                {"workspace_id": second, "session_id": "two", "kind": "ad-hoc",
+                 "metadata": {"provider": "codex", "provider_binary": "codex-atoz"}},
+            ]}
+            services = build_service_services(state, state.workflow_registry).sessions
+            with mock.patch("electroboy.service.app._load_service_session_records", return_value=records):
+                result = services.workspace_agent_sessions(first)
+            self.assertEqual([entry["session_id"] for entry in result], ["one"])
+            self.assertNotIn("secret", json.dumps(result))
+
     def test_background_factory_captures_workspace_selection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state = ServiceState(Path(tmp))
@@ -83,6 +116,19 @@ class WorkspaceIsolationTests(unittest.TestCase):
                     {"backend": "codex"},
                 )
                 self.assertEqual(status, 409)
+                status, _ = self._request(server, "GET", "/api/workspaces/agent-sessions")
+                self.assertEqual(status, 409)
+                info_url = url.replace("agent-config", "agent-sessions")
+                records = {"sessions": [
+                    {"workspace_id": first_id, "session_id": "one", "kind": "ad-hoc",
+                     "metadata": {"provider": "codex", "provider_binary": "codex-atoz"}},
+                    {"workspace_id": second_id, "session_id": "two", "kind": "ad-hoc",
+                     "metadata": {"provider": "codex", "provider_binary": "codex-atoz"}},
+                ]}
+                with mock.patch.object(state, "session_registry_payload", return_value=records):
+                    status, payload = self._request(server, "GET", info_url)
+                self.assertEqual(status, 200)
+                self.assertEqual([entry["session_id"] for entry in payload["sessions"]], ["one"])
             finally:
                 server.shutdown()
                 server.server_close()
