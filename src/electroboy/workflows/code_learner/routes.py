@@ -231,6 +231,7 @@ def _start_agent(request: RouteRequest) -> ServiceResponse:
         session, started = _controller(request).start_agent(
             request.context_id,
             str(payload.get("walkthrough_id") or ""),
+            agent_binary=str(payload.get("agent_binary") or ""),
             **context_options_from_payload(payload),
         )
         result = {

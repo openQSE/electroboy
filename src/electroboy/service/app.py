@@ -1094,6 +1094,7 @@ class ServiceState:
         session_id: str = "",
         provider_session_id: str = "",
         name: str = "",
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("software").start_requirements_agent(
             context_id,
@@ -1101,6 +1102,7 @@ class ServiceState:
             session_id=session_id,
             provider_session_id=provider_session_id,
             name=name,
+            agent_binary=agent_binary,
         )
 
     def restart_requirements_agent(
@@ -1127,6 +1129,7 @@ class ServiceState:
         session_id: str = "",
         provider_session_id: str = "",
         name: str = "",
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("software").start_design_agent(
             context_id,
@@ -1134,6 +1137,7 @@ class ServiceState:
             session_id=session_id,
             provider_session_id=provider_session_id,
             name=name,
+            agent_binary=agent_binary,
         )
 
     def restart_design_agent(
@@ -1155,6 +1159,7 @@ class ServiceState:
         session_id: str = "",
         provider_session_id: str = "",
         name: str = "",
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("software").start_design_review_agent(
             context_id,
@@ -1164,6 +1169,7 @@ class ServiceState:
             session_id=session_id,
             provider_session_id=provider_session_id,
             name=name,
+            agent_binary=agent_binary,
         )
 
     def restart_design_review_agent(
@@ -1180,11 +1186,13 @@ class ServiceState:
         *,
         interactive: bool = True,
         target: str | None = None,
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("software").start_documentation_agent(
             context_id,
             interactive=interactive,
             target=target,
+            agent_binary=agent_binary,
         )
 
     def initialize_creative_workspace(self, context_id: str) -> dict[str, object]:
@@ -1388,6 +1396,7 @@ class ServiceState:
         interactive: bool | None = None,
         force: bool = False,
         allow_stage_reopen: bool = False,
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("software").start_workflow_stage_agent(
             context_id,
@@ -1395,6 +1404,7 @@ class ServiceState:
             interactive=interactive,
             force=force,
             allow_stage_reopen=allow_stage_reopen,
+            agent_binary=agent_binary,
         )
 
     def restart_workflow_stage_agent(

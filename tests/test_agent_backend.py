@@ -120,6 +120,31 @@ def test_software_agents_capture_workspace_default_and_explicit_override(tmp_pat
     assert services.workspace_backend_payload(workspace)["backend"] == "codex-ornl"
 
 
+def test_software_stage_agent_captures_explicit_selection(tmp_path):
+    from electroboy.state_store import StateStore
+
+    root = tmp_path / "project"
+    root.mkdir()
+    StateStore(root).init_run(run_id="test")
+    service_root = tmp_path / "service"
+    service_root.mkdir()
+    state = ServiceState(service_root)
+    workspace = state.create_context(workflow_id="software")["context_id"]
+    state.open_project(workspace, str(root))
+    controller = state.workflow_controller("software")
+    with (
+        patch("shutil.which", return_value="/bin/true"),
+        patch.object(AgentSession, "start"),
+    ):
+        session, started = controller.start_requirements_agent(
+            workspace, agent_binary="opencode",
+        )
+    assert started
+    assert session.metadata["provider"] == "opencode"
+    assert session.metadata["provider_binary"] == "opencode"
+    assert session.metadata["provider_session_id"].startswith("ses_")
+
+
 def test_defaults_confirmation_and_stale_revision():
     backend = selection()
     assert backend.payload()["backend"] == "codex"

@@ -194,10 +194,11 @@ class SoftwareWorkflowController(BoundWorkflowController):
         stage: str,
         session_id: str,
         provider_session_id: str,
-    ) -> tuple[AgentSession | None, str | None]:
+        agent_binary: str = "",
+    ) -> tuple[AgentSession | None, str | None, str]:
         requested_session_id = session_id.strip()
         requested_provider_id = provider_session_id.strip()
-        selection = self.services.sessions.resolve_workspace_selection(context_id)
+        selection = self.services.sessions.resolve_workspace_selection(context_id, agent_binary)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             command_root = self.services.contexts.command_root(context)
@@ -222,6 +223,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     metadata = existing.metadata or {}
                     existing_binary = str(metadata.get("provider_binary") or "")
                     if existing_binary:
+                        if agent_binary and agent_binary != existing_binary:
+                            raise AgentSessionError("Agent session uses a different executable.")
                         selection = self.services.sessions.resolve_workspace_selection(
                             context_id, existing_binary,
                         )
@@ -231,7 +234,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     if existing.is_active():
                         context.selected_session_id = existing.session_id
                         self.services.sessions.record(context, existing)
-                        return existing, None
+                        return existing, None, selection.binary
                 elif not requested_provider_id:
                     raise AgentSessionError("stage session was not found")
         if requested_provider_id:
@@ -260,14 +263,15 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 raise AgentSessionError(
                     "Provider session was not found for this project and stage."
                 )
-        return None, requested_provider_id or None
+        return None, requested_provider_id or None, selection.binary
 
     def _stage_session_metadata(
         self,
         provider_session_id: str | None,
         context_id: str,
+        agent_binary: str = "",
     ) -> tuple[dict[str, object], frozenset[Path]]:
-        selection = self.services.sessions.resolve_workspace_selection(context_id)
+        selection = self.services.sessions.resolve_workspace_selection(context_id, agent_binary)
         backend = selection.provider
         provider_id = provider_session_id
         if backend == "opencode" and not provider_id:
@@ -1136,19 +1140,21 @@ class SoftwareWorkflowController(BoundWorkflowController):
         session_id: str = "",
         provider_session_id: str = "",
         name: str = "",
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         existing = None
         provider_id = None
         if not allow_stage_reopen or session_id or provider_session_id:
-            existing, provider_id = self._stage_session_choice(
+            existing, provider_id, agent_binary = self._stage_session_choice(
                 context_id,
                 "requirements",
                 session_id,
                 provider_session_id,
+                agent_binary,
             )
             if existing is not None:
                 return existing, False
-        metadata, known_paths = self._stage_session_metadata(provider_id, context_id)
+        metadata, known_paths = self._stage_session_metadata(provider_id, context_id, agent_binary)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -1232,19 +1238,21 @@ class SoftwareWorkflowController(BoundWorkflowController):
         session_id: str = "",
         provider_session_id: str = "",
         name: str = "",
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         existing = None
         provider_id = None
         if not allow_stage_reopen or session_id or provider_session_id:
-            existing, provider_id = self._stage_session_choice(
+            existing, provider_id, agent_binary = self._stage_session_choice(
                 context_id,
                 "design",
                 session_id,
                 provider_session_id,
+                agent_binary,
             )
             if existing is not None:
                 return existing, False
-        metadata, known_paths = self._stage_session_metadata(provider_id, context_id)
+        metadata, known_paths = self._stage_session_metadata(provider_id, context_id, agent_binary)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -1351,20 +1359,22 @@ class SoftwareWorkflowController(BoundWorkflowController):
         session_id: str = "",
         provider_session_id: str = "",
         name: str = "",
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
-        metadata: dict[str, object] = {}
+        metadata: dict[str, object] = {"provider_binary": agent_binary} if agent_binary else {}
         known_paths: frozenset[Path] = frozenset()
         if interactive:
-            existing, provider_id = self._stage_session_choice(
+            existing, provider_id, agent_binary = self._stage_session_choice(
                 context_id,
                 "design-review",
                 session_id,
                 provider_session_id,
+                agent_binary,
             )
             if existing is not None:
                 return existing, False
             metadata, known_paths = self._stage_session_metadata(
-                provider_id, context_id
+                provider_id, context_id, agent_binary
             )
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
@@ -1465,6 +1475,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
         *,
         interactive: bool = True,
         target: str | None = None,
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
@@ -1502,6 +1513,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 metadata={
                     "document_path": target_path,
                     "document_label": document_label,
+                    **({"provider_binary": agent_binary} if agent_binary else {}),
                 },
             )
             session = self.services.sessions.prepare(context, session)
@@ -1672,6 +1684,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
         session_id: str = "",
         provider_session_id: str = "",
         name: str = "",
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         config = _generic_stage_config(stage)
         accepts_input = (
@@ -1679,21 +1692,22 @@ class SoftwareWorkflowController(BoundWorkflowController):
             if interactive is None
             else interactive
         )
-        metadata: dict[str, object] = {}
+        metadata: dict[str, object] = {"provider_binary": agent_binary} if agent_binary else {}
         known_paths: frozenset[Path] = frozenset()
         if accepts_input and (
             not allow_stage_reopen or session_id or provider_session_id
         ):
-            existing, provider_id = self._stage_session_choice(
+            existing, provider_id, agent_binary = self._stage_session_choice(
                 context_id,
                 stage,
                 session_id,
                 provider_session_id,
+                agent_binary,
             )
             if existing is not None:
                 return existing, False
             metadata, known_paths = self._stage_session_metadata(
-                provider_id, context_id
+                provider_id, context_id, agent_binary
             )
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)

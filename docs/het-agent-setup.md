@@ -209,6 +209,9 @@ after its code and relevant validation are complete.
 - [x] Add an immutable selection and pass it through the session-service
       preparation contract; verify its metadata and launch command.
 - [x] Add an explicit provider filter to service session history lookup.
+- [x] Capture workspace defaults and explicit overrides for new creative,
+      software ad hoc, and software stage agent launches. Capture workspace
+      defaults for code-learner tutor launches.
 - [ ] Capture provider and executable once per launch and persist both the
       stable selection and resolved executable in agent session metadata.
 - [ ] Update session preparation and process guards to use the captured

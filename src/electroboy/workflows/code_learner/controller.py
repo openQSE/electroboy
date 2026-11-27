@@ -501,6 +501,8 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         self,
         context_id: str,
         walkthrough_id: str = "",
+        *,
+        agent_binary: str = "",
         **context_options: object,
     ) -> tuple[AgentSession, bool]:
         root = self._active_project_root(context_id)
@@ -513,11 +515,14 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             )
         course = navigation.get("current")
         course = course if isinstance(course, dict) else {}
-        selection = self.services.sessions.resolve_workspace_selection(context_id)
+        selection = self.services.sessions.resolve_workspace_selection(context_id, agent_binary)
         with self.services.contexts.lock:
             browser = self.services.contexts.require(context_id)
             for session in browser.code_learner_sessions.values():
                 if session.is_active():
+                    existing_binary = str(session.metadata.get("provider_binary") or "")
+                    if agent_binary and existing_binary and agent_binary != existing_binary:
+                        raise CodeLearnerError("Agent session uses a different executable.")
                     browser.selected_session_id = session.session_id
                     return session, False
             session = AgentSession(

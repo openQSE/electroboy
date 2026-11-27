@@ -260,6 +260,7 @@ def _stage_session_request(request: RouteRequest) -> dict[str, str]:
         "session_id": str(payload.get("session_id") or ""),
         "provider_session_id": str(payload.get("provider_session_id") or ""),
         "name": str(payload.get("name") or ""),
+        "agent_binary": str(payload.get("agent_binary") or ""),
     }
 
 
@@ -355,6 +356,7 @@ def _documentation_start(request: RouteRequest) -> ServiceResponse:
             request.context_id,
             interactive=True,
             target=str(payload.get("target") or ""),
+            agent_binary=str(payload.get("agent_binary") or ""),
         ),
         "documentation agent",
         include_session_id=True,
