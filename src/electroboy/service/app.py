@@ -333,14 +333,16 @@ class ServiceState:
             self.workflow_controllers = {}
         _close_workflow_controllers(controllers)
 
-    def provider_history(self, root: Path, kind: str, scope_key: str = ""):
+    def provider_history(
+        self, root: Path, kind: str, scope_key: str = "", *, provider: str = "",
+    ):
         entries = []
         for record in _load_service_session_records(self.state_root).get(
             "sessions", []
         ):
             metadata = record.get("metadata") or {}
             if (
-                metadata.get("provider") != self.agent_backend.selected
+                metadata.get("provider") != (provider or self.agent_backend.selected)
                 or record.get("kind") != kind
             ):
                 continue

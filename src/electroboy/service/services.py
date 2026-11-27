@@ -180,7 +180,7 @@ class SessionServices(Protocol):
     ) -> dict[str, object]: ...
 
     def provider_history(
-        self, root: Path, kind: str, scope_key: str = ""
+        self, root: Path, kind: str, scope_key: str = "", *, provider: str = ""
     ) -> list[dict[str, object]]: ...
 
     def runtime_factory(self): ...
@@ -451,7 +451,7 @@ class ServiceRuntimeBackend(Protocol):
     lock: ServiceLock
 
     def provider_history(
-        self, root: Path, kind: str, scope_key: str = ""
+        self, root: Path, kind: str, scope_key: str = "", *, provider: str = ""
     ) -> list[dict[str, object]]: ...
 
     def _context_locked(self, context_id: str) -> BrowserContext: ...
@@ -1066,9 +1066,9 @@ class RuntimeSessionServices:
         )
 
     def provider_history(
-        self, root: Path, kind: str, scope_key: str = ""
+        self, root: Path, kind: str, scope_key: str = "", *, provider: str = ""
     ) -> list[dict[str, object]]:
-        return self.runtime.provider_history(root, kind, scope_key)
+        return self.runtime.provider_history(root, kind, scope_key, provider=provider)
 
     def runtime_factory(self):
         return self.runtime.agent_backend.runtime_factory()

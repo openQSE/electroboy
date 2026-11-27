@@ -52,6 +52,19 @@ def test_captured_selection_requires_available_executable(tmp_path):
             backend.resolve("codex-atoz", tmp_path)
 
 
+def test_provider_history_can_be_queried_independently_of_global_default(tmp_path):
+    state = ServiceState(tmp_path)
+    records = {"sessions": [
+        {"session_id": "one", "kind": "ad-hoc", "cwd": str(tmp_path),
+         "metadata": {"provider": "codex", "provider_session_id": "codex-id"}},
+        {"session_id": "two", "kind": "ad-hoc", "cwd": str(tmp_path),
+         "metadata": {"provider": "opencode", "provider_session_id": "open-id"}},
+    ]}
+    with patch("electroboy.service.app._load_service_session_records", return_value=records):
+        entries = state.provider_history(tmp_path, "ad-hoc", provider="opencode")
+    assert [entry["provider_session_id"] for entry in entries] == ["open-id"]
+
+
 def test_defaults_confirmation_and_stale_revision():
     backend = selection()
     assert backend.payload()["backend"] == "codex"
