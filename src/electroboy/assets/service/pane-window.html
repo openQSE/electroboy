@@ -1133,6 +1133,7 @@
     let artifactDocumentTitle = params.get("document_title") || "";
     let artifactDocumentFragment = "";
     let artifactDocumentLocation = null;
+    let artifactPreviewLocation = null;
     let artifactNavigationTarget = null;
     let artifactRoutePath = params.get("artifact_path") || "";
     let artifactRouteTitle = params.get("artifact_title") || "";
@@ -2611,6 +2612,7 @@
       artifactDocumentLocation = navigationLocation === null
         ? null
         : normalizedLocation;
+      artifactPreviewLocation = null;
       artifactRoutePath = "";
       artifactRouteTitle = "";
       artifactEditing = false;
@@ -4284,6 +4286,7 @@
       artifactDocumentTitle = "";
       artifactDocumentFragment = "";
       artifactDocumentLocation = null;
+      artifactPreviewLocation = null;
       artifactNavigationTarget = null;
       artifactRoutePath = "";
       artifactRouteTitle = "";
@@ -4749,7 +4752,13 @@
       return contextUrl(`/artifacts/edit?${parameters.toString()}`);
     }
 
-    function refreshArtifact() {
+    function refreshArtifact(preservePosition = false) {
+      if (preservePosition && !artifactEditing && artifactKind === "document" &&
+          artifactDocumentPath && !artifactDocumentLocation &&
+          !artifactFrame.classList.contains("loading") &&
+          !paneDocumentNavigationTargetIsExternal(artifactNavigationTarget)) {
+        artifactDocumentLocation = currentPaneDocumentNavigationEntry()?.location || null;
+      }
       artifactVersion += 1;
       artifactFrame.classList.add("loading");
       if (artifactKind === "empty") {
@@ -4762,6 +4771,16 @@
     }
 
     function setArtifactEditMode(editing) {
+      if (artifactEditing === Boolean(editing)) {
+        return;
+      }
+      if (editing && artifactKind === "document" && artifactDocumentPath &&
+          !paneDocumentNavigationTargetIsExternal(artifactNavigationTarget)) {
+        artifactPreviewLocation = currentPaneDocumentNavigationEntry()?.location || null;
+      } else if (!editing && artifactPreviewLocation) {
+        artifactDocumentLocation = artifactPreviewLocation;
+        artifactPreviewLocation = null;
+      }
       artifactEditing = Boolean(editing);
       previewArtifactButton.classList.toggle("active", !artifactEditing);
       editArtifactButton.classList.toggle("active", artifactEditing);
@@ -4823,7 +4842,7 @@
       artifactEventSource = window.ElectroBoyLiveTransport.eventSource(eventUrl);
       artifactEventSource.addEventListener("artifact-event", () => {
         if (!artifactEditing) {
-          refreshArtifact();
+          refreshArtifact(true);
         }
       });
       artifactEventSource.onerror = () => {};
@@ -5548,7 +5567,7 @@
       if (data.type === "electroboy-artifact-saved") {
         artifactVersion += 1;
         if (!artifactEditing) {
-          refreshArtifact();
+          refreshArtifact(true);
         }
         return;
       }

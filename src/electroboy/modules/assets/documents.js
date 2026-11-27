@@ -1285,12 +1285,25 @@
     }
 
     async function setArtifactPreviewEditing(item, editing) {
+      if (!item || Boolean(item.editing) === Boolean(editing)) {
+        return;
+      }
+      if (editing && item.kind === "document" && item.target &&
+          !documentNavigationTargetIsExternal(item.navigationTarget)) {
+        item.previewLocation = documentNavigation.frameEntry(
+          artifactFrameForItem(item), item.target,
+        )?.location || null;
+      }
       if (!editing && item && item.editing) {
         const saved = await requestArtifactEditorSave(item);
         if (!saved) {
           appendOutput("preview blocked: save failed\n", "error");
           return;
         }
+      }
+      if (!editing && item.previewLocation) {
+        item.navigationLocation = item.previewLocation;
+        item.previewLocation = null;
       }
       item.editing = Boolean(editing);
       renderArtifactPreviewItems();
@@ -1367,6 +1380,11 @@
         );
         if (item && item.editing && !includeEditing) {
           continue;
+        }
+        if (item && !item.editing && item.kind === "document" && item.target &&
+            !item.navigationLocation && !frame.classList.contains("loading") &&
+            !documentNavigationTargetIsExternal(item.navigationTarget)) {
+          item.navigationLocation = documentNavigation.frameEntry(frame, item.target)?.location || null;
         }
         const url = artifactFrameUrl(item);
         if (url) {

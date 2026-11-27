@@ -1790,7 +1790,7 @@ eval(`${code}
         self.assertIn(
             'artifactEventSource.addEventListener("artifact-event", () => {\n'
             "        if (!artifactEditing) {\n"
-            "          refreshArtifact();",
+            "          refreshArtifact(true);",
             pane_window,
         )
         self.assertIn('data.action === "generate-corkboard"', documents)

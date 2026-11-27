@@ -792,6 +792,99 @@ if (!forward || forward.target.url !== "https://example.com/reference?x=1#intro"
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_file_preview_position_survives_edit_mode() -> None:
+    root = Path(__file__).resolve().parents[1]
+    navigation = root / "src/electroboy/modules/assets/document-navigation.js"
+    documents = root / "src/electroboy/modules/assets/documents.js"
+    pane = root / "src/electroboy/assets/service/pane-window.html"
+    script = r'''
+const assert = require("assert");
+const fs = require("fs");
+global.window = {location: {origin: "http://localhost"}};
+require(process.argv[1]);
+const navigation = window.ElectroBoyDocumentNavigation.create();
+const frame = {contentWindow: {
+  location: {hash: "#section"}, scrollX: 12, scrollY: 840,
+  postMessage(message) { this.restored = message; },
+}};
+const item = {kind: "document", target: {path: "first.md"}, editing: false};
+let saved = true, renders = 0;
+const documentNavigation = navigation;
+const artifactFrameForItem = () => frame;
+const documentNavigationTargetIsExternal = () => false;
+const requestArtifactEditorSave = async () => saved;
+const appendOutput = () => {};
+const renderArtifactPreviewItems = () => { renders += 1; };
+const documents = fs.readFileSync(process.argv[2], "utf8");
+const docked = documents.slice(documents.indexOf("    async function setArtifactPreviewEditing("),
+  documents.indexOf("    function popOutArtifactPreview("));
+const pane = fs.readFileSync(process.argv[3], "utf8");
+const popped = pane.slice(pane.indexOf("    function setArtifactEditMode("),
+  pane.indexOf("    function artifactEventUrl("));
+(async () => {
+  await eval(docked + `(async () => {
+    await setArtifactPreviewEditing(item, true);
+    assert.equal(item.previewLocation.scrollY, 840);
+    saved = false;
+    await setArtifactPreviewEditing(item, false);
+    assert.equal(item.editing, true);
+    assert.equal(item.previewLocation.scrollY, 840);
+    saved = true;
+    await setArtifactPreviewEditing(item, false);
+    assert.deepEqual(item.navigationLocation,
+      {fragment: "section", scrollX: 12, scrollY: 840});
+    assert.equal(renders, 2);
+  })()`);
+  let artifactEditing = false, artifactKind = "document", artifactDocumentPath = "first.md";
+  let artifactNavigationTarget = null, artifactPreviewLocation = null, artifactDocumentLocation = null;
+  const paneDocumentNavigationTargetIsExternal = () => false;
+  const currentPaneDocumentNavigationEntry = () => navigation.frameEntry(frame, {path: artifactDocumentPath});
+  const previewArtifactButton = {classList: {toggle() {}}};
+  const editArtifactButton = {classList: {toggle() {}}};
+  const refreshArtifact = () => {};
+  eval(popped + `
+    setArtifactEditMode(true);
+    assert.equal(artifactPreviewLocation.scrollY, 840);
+    frame.contentWindow.scrollY = 20;
+    setArtifactEditMode(false);
+    assert.deepEqual(artifactDocumentLocation,
+      {fragment: "section", scrollX: 12, scrollY: 840});
+    navigation.restoreFrame(frame, artifactDocumentPath, artifactDocumentLocation);
+    assert.equal(frame.contentWindow.restored.path, "first.md");
+    assert.equal(frame.contentWindow.restored.location.scrollY, 840);
+  `);
+  (() => {
+    let artifactVersion = 0, artifactEditing = false, artifactKind = "document";
+    let artifactDocumentPath = "first.md", artifactNavigationTarget = null;
+    let artifactDocumentLocation = null, loading = false;
+    const artifactFrame = {classList: {
+      add() { loading = true; }, contains() { return loading; },
+    }, removeAttribute() {}};
+    const paneDocumentNavigationTargetIsExternal = () => false;
+    const currentPaneDocumentNavigationEntry = () => navigation.frameEntry(frame, {path: artifactDocumentPath});
+    const artifactUrl = () => "/preview";
+    const artifactEditUrl = () => "/edit";
+    const refresh = pane.slice(pane.indexOf("    function refreshArtifact("),
+      pane.indexOf("    function setArtifactEditMode("));
+    eval(refresh + `
+      frame.contentWindow.scrollY = 840;
+      refreshArtifact(true);
+      assert.equal(artifactDocumentLocation.scrollY, 840);
+      frame.contentWindow.scrollY = 0;
+      refreshArtifact(true);
+      assert.equal(artifactDocumentLocation.scrollY, 840);
+    `);
+  })();
+})().catch(error => {console.error(error); process.exitCode = 1;});
+'''
+    completed = subprocess.run(
+        [str(NODE), "-e", script, str(navigation), str(documents), str(pane)],
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
 def test_terminal_behavior_locks_user_viewport_during_async_write() -> None:
     asset = (
         Path(__file__).resolve().parents[1]
