@@ -271,7 +271,7 @@ class ServiceState:
 
     def __post_init__(self) -> None:
         self.agent_backend = AgentBackend(
-            self.lock, self._backend_sessions, self._backend_roots,
+            self.lock, self._backend_roots,
             Path(self.state_root or self.root).resolve() / ".electroboy/service/agent-backend.json",
         )
         self.root = self.root.resolve()
@@ -343,7 +343,7 @@ class ServiceState:
         ):
             metadata = record.get("metadata") or {}
             if (
-                metadata.get("provider") != (provider or self.agent_backend.selected)
+                (provider and metadata.get("provider") != provider)
                 or record.get("kind") != kind
             ):
                 continue
@@ -365,15 +365,6 @@ class ServiceState:
                     }
                 )
         return entries
-
-    def _backend_sessions(self):
-        return list(
-            {
-                s.session_id: s
-                for context in self.contexts.values()
-                for s in self._context_sessions_locked(context)
-            }.values()
-        )
 
     def _backend_roots(self):
         return {
@@ -398,9 +389,8 @@ class ServiceState:
             session = TmuxAgentSession.from_agent_session(session)
         if session.kind != "project-shell":
             if selection is None:
-                self.agent_backend.prepare(session)
-            else:
-                self.agent_backend.prepare_selection(session, selection)
+                raise AgentSessionError("Agent selection is required.")
+            self.agent_backend.prepare_selection(session, selection)
         session.persist_to(
             context_id=context.context_id,
             transcript_path=_service_session_transcript_path(

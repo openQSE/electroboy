@@ -597,9 +597,6 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             CourseGenerationService(
                 root, cancel_event=job.cancel_event, runtime_factory=job.runtime_factory
             ).run()
-            epoch = getattr(job.runtime_factory, "cancel_event", None)
-            if epoch is not None and epoch.is_set():
-                raise CourseGenerationCancelled("Agent backend changed.")
             self._start_module_scheduler(root, job.runtime_factory)
         except CourseGenerationCancelled:
             store.save_status(
@@ -780,9 +777,6 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         key = str(root)
         with self._lock:
             scheduler = self._module_schedulers.get(key)
-            if scheduler is not None and scheduler.backend_cancelled():
-                self._module_schedulers.pop(key)
-                scheduler = None
             if scheduler is None:
                 scheduler = ModuleCourseScheduler(
                     root, runtime_factory=runtime_factory

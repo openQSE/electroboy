@@ -206,9 +206,11 @@ def test_service_persists_discovered_uuid_and_resumes_after_restart(
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "wrong-home"))
     service = tmp_path / "service"
     state = ServiceState(service)
-    state.agent_backend.switch(binary.name, confirmed=True)
     context_id = state.create_context()["context_id"]
     context_id = state.open_project(context_id, str(project))["context_id"]
+    build_service_services(state, state.workflow_registry).sessions.set_workspace_backend(
+        context_id, binary.name,
+    )
     with mock.patch(
         "electroboy.service.AgentSession.start",
         side_effect=lambda: write_rollout(home, project, FIRST),
@@ -233,6 +235,9 @@ def test_service_persists_discovered_uuid_and_resumes_after_restart(
     restarted = ServiceState(service)
     context_id = restarted.create_context()["context_id"]
     context_id = restarted.open_project(context_id, str(project))["context_id"]
+    build_service_services(restarted, restarted.workflow_registry).sessions.set_workspace_backend(
+        context_id, binary.name,
+    )
     controller = restarted.workflow_controller("software")
     history = controller.ad_hoc_sessions(context_id)["sessions"]
     assert history[0]["title"] == "investigation"
@@ -251,8 +256,8 @@ def test_resume_uses_recorded_codex_wrapper_after_default_changes(tmp_path, monk
     if workflow == "software":
         StateStore(project).init_run(run_id="test")
     first_home, second_home = tmp_path / "first-home", tmp_path / "second-home"
-    first = write_binary(tmp_path / "bin" / "codex-atoz", first_home)
-    second = write_binary(tmp_path / "bin" / "codex-ornl", second_home)
+    first = write_binary(tmp_path / "bin" / "codex-fixture-alpha", first_home)
+    second = write_binary(tmp_path / "bin" / "codex-fixture-beta", second_home)
     monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ.get("PATH", ""))
     rollout = write_rollout(first_home, project, FIRST)
     summary = codex_session_from_path(rollout, executable=first)

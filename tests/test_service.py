@@ -9492,6 +9492,7 @@ eval(`(async () => {
                     session, started = controller.start_ad_hoc_agent(
                         context_id,
                         provider_session_id,
+                        agent_binary="codex",
                     )
                     state.rename_session(
                         context_id,

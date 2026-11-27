@@ -15,25 +15,27 @@ from electroboy.service.sessions import AgentSessionError
 
 def test_selection_migration_keeps_unresolved_identities_explicit():
     known = migrate_agent_selection({
-        "provider": "codex", "provider_executable": "/home/user/bin/codex-atoz",
+        "provider": "codex", "provider_executable": "/home/user/bin/codex-fixture-alpha",
     })
-    assert known["provider_binary"] == "codex-atoz"
+    assert known["provider_binary"] == "codex-fixture-alpha"
     assert known["selection_status"] == "resolved"
     unresolved = migrate_agent_selection({"provider": "codex"})
     assert unresolved["provider_binary"] == ""
     assert unresolved["selection_status"] == "unresolved"
     assert migrate_agent_selection(unresolved) == unresolved
     listed = preserve_unresolved_selection(unresolved, {
-        "provider": "codex", "provider_binary": "codex-atoz",
-        "provider_executable": "/bin/codex-atoz", "selection_status": "resolved",
+        "provider": "codex", "provider_binary": "codex-fixture-alpha",
+        "provider_executable": "/bin/codex-fixture-alpha", "selection_status": "resolved",
     })
     assert listed["selection_status"] == "unresolved"
     assert listed["provider_binary"] == ""
     assert "provider_executable" not in listed
     with pytest.raises(AgentSessionError, match="Select the executable"):
         resume_agent_binary([unresolved], "")
-    assert resume_agent_binary([unresolved], "codex-atoz") == "codex-atoz"
-    assert resume_agent_binary([known], "") == "codex-atoz"
+    assert resume_agent_binary([unresolved], "codex-fixture-alpha") == "codex-fixture-alpha"
+    with pytest.raises(AgentSessionError, match="different provider"):
+        resume_agent_binary([unresolved], "opencode")
+    assert resume_agent_binary([known], "") == "codex-fixture-alpha"
     with pytest.raises(AgentSessionError, match="different executable"):
         resume_agent_binary([known], "opencode")
 
@@ -46,7 +48,7 @@ def test_catalog_upgrade_is_scoped_atomic_and_idempotent(tmp_path: Path):
     path = tmp_path / "catalog.json"
     original = {"schema_version": 1, "sessions": [
         {"project_root": str(project), "provider": "codex",
-         "provider_executable": "/bin/codex-atoz", "provider_session_id": "first"},
+         "provider_executable": "/bin/codex-fixture-alpha", "provider_session_id": "first"},
         {"project_root": str(project), "provider": "codex", "provider_session_id": "unknown"},
         {"project_root": str(other), "provider": "codex", "provider_session_id": "other"},
     ]}
@@ -57,7 +59,7 @@ def test_catalog_upgrade_is_scoped_atomic_and_idempotent(tmp_path: Path):
     assert json.loads(path.read_text()) == original
     migrate_session_catalog(path, project)
     upgraded = json.loads(path.read_text())
-    assert upgraded["sessions"][0]["provider_binary"] == "codex-atoz"
+    assert upgraded["sessions"][0]["provider_binary"] == "codex-fixture-alpha"
     assert upgraded["sessions"][1]["selection_status"] == "unresolved"
     assert upgraded["sessions"][2] == original["sessions"][2]
     with mock.patch("electroboy.service.agent_migration.write_json_atomic") as write:
@@ -77,17 +79,17 @@ def test_open_creative_workspace_upgrades_catalog_and_session_records(tmp_path: 
     catalog = store / "creative-agent-sessions.json"
     catalog.write_text(json.dumps({"schema_version": 1, "sessions": [{
         "project_root": str(project), "provider": "codex",
-        "provider_executable": "/bin/codex-atoz", "provider_session_id": "first",
+        "provider_executable": "/bin/codex-fixture-alpha", "provider_session_id": "first",
     }]}))
     records = store / "sessions.json"
     records.write_text(json.dumps({"schema_version": 1, "sessions": [{
         "workspace_id": workspace, "active_project_root": str(project),
         "kind": "creative-writing", "session_id": "one",
-        "metadata": {"provider": "codex", "provider_executable": "/bin/codex-atoz"},
+        "metadata": {"provider": "codex", "provider_executable": "/bin/codex-fixture-alpha"},
     }]}))
     state.open_creative_project(workspace, str(project))
-    assert json.loads(catalog.read_text())["sessions"][0]["provider_binary"] == "codex-atoz"
-    assert json.loads(records.read_text())["sessions"][0]["metadata"]["provider_binary"] == "codex-atoz"
+    assert json.loads(catalog.read_text())["sessions"][0]["provider_binary"] == "codex-fixture-alpha"
+    assert json.loads(records.read_text())["sessions"][0]["metadata"]["provider_binary"] == "codex-fixture-alpha"
     assert state.contexts[workspace].module("agent_backend")["history_version"] == 1
     state.workspace_registry.set_agent_default(workspace, "opencode")
     with mock.patch("electroboy.service.app.migrate_workspace_sessions", side_effect=AssertionError("repeated")):
@@ -112,10 +114,10 @@ def test_open_software_workspace_upgrades_its_ad_hoc_catalog(tmp_path: Path):
     catalog = store / "ad-hoc-sessions.json"
     catalog.write_text(json.dumps({"sessions": [{
         "project_root": str(project), "provider": "codex",
-        "provider_executable": "/bin/codex-ornl", "provider_session_id": "first",
+        "provider_executable": "/bin/codex-fixture-beta", "provider_session_id": "first",
     }]}))
     state.open_project(workspace, str(project))
-    assert json.loads(catalog.read_text())["sessions"][0]["provider_binary"] == "codex-ornl"
+    assert json.loads(catalog.read_text())["sessions"][0]["provider_binary"] == "codex-fixture-beta"
 
 
 def test_failed_catalog_upgrade_preserves_history_and_retries(tmp_path: Path):
@@ -159,13 +161,13 @@ def test_listing_legacy_history_does_not_guess_its_executable(tmp_path: Path, wo
               "provider_binary": "", "scope_key": "general"}
     path.write_text(json.dumps({"sessions": [record]}))
     summary = CodexSessionSummary("old-id", project, "created", "updated", (),
-                                  tmp_path / "rollout.jsonl", "/bin/codex-atoz")
+                                  tmp_path / "rollout.jsonl", "/bin/codex-fixture-alpha")
     with mock.patch.object(module, "_indexed_session", return_value=summary):
         if workflow == "creative":
             result = module.creative_session_history(service, project, scope="general",
-                                                     scope_key="general", executable="codex-atoz")
+                                                     scope_key="general", executable="codex-fixture-alpha")
         else:
-            result = module.ad_hoc_session_history(service, project, executable="codex-atoz")
+            result = module.ad_hoc_session_history(service, project, executable="codex-fixture-alpha")
     assert result[0]["selection_status"] == "unresolved"
     saved = json.loads(path.read_text())["sessions"][0]
     assert saved["provider_binary"] == ""
@@ -187,16 +189,16 @@ def test_codex_history_filters_by_captured_executable(tmp_path: Path, workflow: 
     entries = [{"project_root": str(project), "provider": "codex", "scope_key": "general",
                 "provider_session_id": binary, "provider_binary": binary,
                 "selection_status": "resolved"}
-               for binary in ("codex-atoz", "codex-ornl")]
+               for binary in ("codex-fixture-alpha", "codex-fixture-beta")]
     path.write_text(json.dumps({"sessions": entries}))
-    summary = CodexSessionSummary("codex-atoz", project, "created", "updated", (),
-                                  tmp_path / "rollout.jsonl", "/bin/codex-atoz")
+    summary = CodexSessionSummary("codex-fixture-alpha", project, "created", "updated", (),
+                                  tmp_path / "rollout.jsonl", "/bin/codex-fixture-alpha")
     with mock.patch.object(module, "_indexed_session", return_value=summary):
         if workflow == "creative":
             result = module.creative_session_history(service, project, scope="general",
-                scope_key="general", executable="codex-atoz", agent_binary="codex-atoz")
+                scope_key="general", executable="codex-fixture-alpha", agent_binary="codex-fixture-alpha")
         else:
             result = module.ad_hoc_session_history(service, project,
-                executable="codex-atoz", agent_binary="codex-atoz")
-    assert [entry["provider_session_id"] for entry in result] == ["codex-atoz"]
+                executable="codex-fixture-alpha", agent_binary="codex-fixture-alpha")
+    assert [entry["provider_session_id"] for entry in result] == ["codex-fixture-alpha"]
     assert len(json.loads(path.read_text())["sessions"]) == 2

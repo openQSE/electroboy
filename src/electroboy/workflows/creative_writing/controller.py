@@ -606,8 +606,8 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 for session in reversed(list(context.creative_sessions.values())):
                     if (
                         session.is_active()
-                        and session.metadata.get("provider_binary", selection.binary)
-                        == selection.binary
+                        and session.metadata.get("provider_binary") == selection.binary
+                        and session.metadata.get("provider") == selection.provider
                         and self._creative_session_matches_scope(
                             session,
                             scope_key=scope_key,

@@ -27,7 +27,7 @@ def test_workspace_agent_selector_changes_only_active_workspace() -> None:
     asset = Path(__file__).resolve().parents[1] / "src/electroboy/modules/assets/agent-backend.js"
     script = r"""
 let module, tick, change, active = 'one';
-const values = {one: 'codex-atoz', two: 'opencode'};
+const values = {one: 'codex-fixture-alpha', two: 'opencode'};
 const select = {
   value: '', disabled: false,
   closest: () => ({hidden: true}),
@@ -48,7 +48,7 @@ global.fetch = async (url, options) => {
   const workspace = new URL('http://example' + url).searchParams.get('workspace_id');
   if (options.method === 'POST') values[workspace] = JSON.parse(options.body).backend;
   return {ok: true, json: async () => ({
-    backend: values[workspace], backends: ['codex-atoz', 'codex-ornl', 'opencode'],
+    backend: values[workspace], backends: ['codex-fixture-alpha', 'codex-fixture-beta', 'opencode'],
     availability: {},
   })};
 };
@@ -61,16 +61,16 @@ const runtime = {
 (async () => {
   module.mount(runtime);
   await new Promise(resolve => setImmediate(resolve));
-  if (select.value !== 'codex-atoz') throw Error('initial workspace default');
-  select.value = 'codex-ornl';
+  if (select.value !== 'codex-fixture-alpha') throw Error('initial workspace default');
+  select.value = 'codex-fixture-beta';
   await change();
-  if (values.one !== 'codex-ornl' || values.two !== 'opencode') throw Error('isolation');
+  if (values.one !== 'codex-fixture-beta' || values.two !== 'opencode') throw Error('isolation');
   active = 'two';
   await tick();
   if (select.value !== 'opencode') throw Error('workspace switch');
-  values.two = 'codex-atoz';
+  values.two = 'codex-fixture-alpha';
   await tick();
-  if (select.value !== 'codex-atoz') throw Error('other connection change');
+  if (select.value !== 'codex-fixture-alpha') throw Error('other connection change');
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     completed = subprocess.run(
@@ -228,8 +228,8 @@ def test_agent_context_tools_selection_and_info(tmp_path: Path) -> None:
              "src/electroboy/modules/assets/agent-pane-tools.js").read_text()
     page = """<!doctype html><html><body><div id="tools"></div><script>
 let launched = null, workspace = 'workspace-one', current = {session_id:'one', name:'Writer', status:'running',
-  metadata:{provider:'codex',provider_binary:'codex-atoz',
-    provider_executable:'/bin/codex-atoz',provider_session_id:'provider-one'}};
+  metadata:{provider:'codex',provider_binary:'codex-fixture-alpha',
+    provider_executable:'/bin/codex-fixture-alpha',provider_session_id:'provider-one'}};
 const controller = {addSection: () => {
   const section = document.createElement('section');
   document.getElementById('tools').append(section); return section;
@@ -241,11 +241,11 @@ window.ElectroBoyAgentPaneTools.mount({
  getTarget: () => ({projectRoot:'/project', canStart:true}),
  getSession: () => current,
  getSessions: () => [],
- loadAgentConfig: async () => ({backend:workspace === 'workspace-one' ? 'codex-atoz' : 'codex-ornl',
-   backends:['codex-atoz','codex-ornl','opencode'], availability:{}}),
+ loadAgentConfig: async () => ({backend:workspace === 'workspace-one' ? 'codex-fixture-alpha' : 'codex-fixture-beta',
+   backends:['codex-fixture-alpha','codex-fixture-beta','opencode'], availability:{}}),
  loadAgentSessions: async () => [
-   {name:'Writer',session_id:'one',status:'running',provider:'codex',provider_binary:'codex-atoz'},
-   {name:'Past',session_id:'three',status:'completed',provider:'codex',provider_binary:'codex-atoz'},
+   {name:'Writer',session_id:'one',status:'running',provider:'codex',provider_binary:'codex-fixture-alpha'},
+   {name:'Past',session_id:'three',status:'completed',provider:'codex',provider_binary:'codex-fixture-alpha'},
    {name:'Other',session_id:'two',status:'completed',provider:'opencode',provider_binary:'opencode'}],
  actions: {start: (_session, _target, choice) => { launched = choice.agentBinary; }},
 });
@@ -254,14 +254,14 @@ window.ElectroBoyAgentPaneTools.mount({
   menu.open = true; menu.dispatchEvent(new Event('toggle'));
   await new Promise(resolve => setTimeout(resolve, 10));
   const select = menu.querySelector('select');
-  const defaultCorrect = select.value === 'codex-atoz';
+  const defaultCorrect = select.value === 'codex-fixture-alpha';
   select.value = 'opencode'; select.dispatchEvent(new Event('change'));
   [...menu.querySelectorAll('button')].find(b => b.textContent === 'Start agent').click();
   [...menu.querySelectorAll('button')].find(b => b.textContent === 'Info').click();
   await new Promise(resolve => setTimeout(resolve, 10));
   const info = document.querySelector('dialog');
   const infoCorrect = defaultCorrect && launched === 'opencode'
-    && info.textContent.includes('/bin/codex-atoz')
+    && info.textContent.includes('/bin/codex-fixture-alpha')
     && info.textContent.includes('Writer') && info.textContent.includes('Past')
     && !info.textContent.includes('Other');
   info.querySelector('button').click(); current = null;
@@ -271,7 +271,7 @@ window.ElectroBoyAgentPaneTools.mount({
   document.querySelector('dialog').querySelector('button').click();
   workspace = 'workspace-two'; menu.dispatchEvent(new Event('toggle'));
   await new Promise(resolve => setTimeout(resolve, 10));
-  const switchedCorrect = select.value === 'codex-ornl';
+  const switchedCorrect = select.value === 'codex-fixture-beta';
   const result = document.createElement('div'); result.id = 'agentToolsProbe';
   result.dataset.result = String(infoCorrect && emptyCorrect && switchedCorrect);
   document.body.append(result);
@@ -290,7 +290,7 @@ def test_agent_launch_selector_uses_override_without_changing_default(tmp_path: 
 <fieldset><legend>Session</legend></fieldset></form></dialog><script>
 let chosen = '', calls = 0;
 window.fetch = async () => { calls++; return {ok:true, json:async () => ({
- backend:'codex-atoz', backends:['codex-atoz','opencode'], availability:{}
+ backend:'codex-fixture-alpha', backends:['codex-fixture-alpha','opencode'], availability:{}
 })}; };
 </script><script>""" + asset + """</script><script>
 (async () => {
@@ -298,9 +298,9 @@ window.fetch = async () => { calls++; return {ok:true, json:async () => ({
  const select = await window.ElectroBoyAgentPaneTools.configureAgentChoice(
    dialog, path => path, 'opencode', value => { chosen = value; });
  const initial = select.value;
- select.value = 'codex-atoz'; select.dispatchEvent(new Event('change'));
+ select.value = 'codex-fixture-alpha'; select.dispatchEvent(new Event('change'));
  const result = document.createElement('div'); result.id = 'agentChoiceProbe';
- result.dataset.result = String(initial === 'opencode' && chosen === 'codex-atoz' && calls === 1);
+ result.dataset.result = String(initial === 'opencode' && chosen === 'codex-fixture-alpha' && calls === 1);
  document.body.append(result);
 })();
 </script></body></html>"""

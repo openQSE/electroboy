@@ -30,7 +30,7 @@ class WorkspaceIsolationTests(unittest.TestCase):
             second = registry.attach(workspace, "second")
             registry.validate(workspace, "first", first["lease_token"])
             registry.validate(workspace, "second", second["lease_token"])
-            registry.agent_default(workspace, "codex-atoz")
+            registry.agent_default(workspace, "codex-fixture-alpha")
             registry.set_agent_default(workspace, "opencode")
             restored = ServiceState(Path(tmp)).workspace_registry
             self.assertEqual(restored.agent_default(workspace, "codex"), "opencode")
@@ -43,9 +43,9 @@ class WorkspaceIsolationTests(unittest.TestCase):
             records = {"sessions": [
                 {"workspace_id": first, "session_id": "one", "status": "completed",
                  "kind": "ad-hoc", "metadata": {"provider": "codex",
-                 "provider_binary": "codex-atoz", "secret": "do not expose"}},
+                 "provider_binary": "codex-fixture-alpha", "secret": "do not expose"}},
                 {"workspace_id": second, "session_id": "two", "kind": "ad-hoc",
-                 "metadata": {"provider": "codex", "provider_binary": "codex-atoz"}},
+                 "metadata": {"provider": "codex", "provider_binary": "codex-fixture-alpha"}},
             ]}
             services = build_service_services(state, state.workflow_registry).sessions
             with mock.patch("electroboy.service.app._load_service_session_records", return_value=records):
@@ -59,13 +59,12 @@ class WorkspaceIsolationTests(unittest.TestCase):
             workspace = state.create_context(workflow_id="software")["context_id"]
             services = build_service_services(state, state.workflow_registry).sessions
             with mock.patch("shutil.which", side_effect=lambda name: f"/bin/{name}"):
-                services.set_workspace_backend(workspace, "codex-atoz")
+                services.set_workspace_backend(workspace, "codex-fixture-alpha")
                 captured = services.runtime_factory(workspace)
                 services.set_workspace_backend(workspace, "opencode")
                 next_factory = services.runtime_factory(workspace)
-            self.assertEqual(captured("code_review", Path(tmp)).config.command, "codex-atoz")
+            self.assertEqual(captured("code_review", Path(tmp)).config.command, "codex-fixture-alpha")
             self.assertEqual(next_factory("code_review", Path(tmp)).config.adapter, "opencode_exec")
-            self.assertFalse(captured.cancel_event.is_set())
 
     def test_workspace_selection_is_captured_for_agent_preparation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -74,15 +73,15 @@ class WorkspaceIsolationTests(unittest.TestCase):
             second = state.create_context(workflow_id="software")["context_id"]
             services = build_service_services(state, state.workflow_registry).sessions
             with mock.patch("shutil.which", side_effect=lambda name: f"/bin/{name}"):
-                services.set_workspace_backend(first, "codex-atoz")
+                services.set_workspace_backend(first, "codex-fixture-alpha")
                 services.set_workspace_backend(second, "opencode")
                 selection = services.resolve_workspace_selection(first)
-                services.set_workspace_backend(first, "codex-ornl")
+                services.set_workspace_backend(first, "codex-fixture-beta")
                 session = AgentSession(["codex"], Path(tmp), kind="ad-hoc")
                 services.prepare(state.contexts[first], session, selection=selection)
-            self.assertEqual(session.metadata["provider_binary"], "codex-atoz")
-            self.assertEqual(session.command[0], "codex-atoz")
-            self.assertEqual(services.workspace_backend_payload(first)["backend"], "codex-ornl")
+            self.assertEqual(session.metadata["provider_binary"], "codex-fixture-alpha")
+            self.assertEqual(session.command[0], "codex-fixture-alpha")
+            self.assertEqual(services.workspace_backend_payload(first)["backend"], "codex-fixture-beta")
             self.assertEqual(services.workspace_backend_payload(second)["backend"], "opencode")
 
     def test_workspace_agent_config_is_scoped_and_requires_a_lease(self) -> None:
@@ -121,9 +120,9 @@ class WorkspaceIsolationTests(unittest.TestCase):
                 info_url = url.replace("agent-config", "agent-sessions")
                 records = {"sessions": [
                     {"workspace_id": first_id, "session_id": "one", "kind": "ad-hoc",
-                     "metadata": {"provider": "codex", "provider_binary": "codex-atoz"}},
+                     "metadata": {"provider": "codex", "provider_binary": "codex-fixture-alpha"}},
                     {"workspace_id": second_id, "session_id": "two", "kind": "ad-hoc",
-                     "metadata": {"provider": "codex", "provider_binary": "codex-atoz"}},
+                     "metadata": {"provider": "codex", "provider_binary": "codex-fixture-alpha"}},
                 ]}
                 with mock.patch.object(state, "session_registry_payload", return_value=records):
                     status, payload = self._request(server, "GET", info_url)
@@ -142,8 +141,8 @@ class WorkspaceIsolationTests(unittest.TestCase):
             registry = state.workspace_registry
             for workspace in (first, second):
                 registry.adopt_context(state.contexts[workspace], project_identity=tmp)
-            self.assertEqual(registry.agent_default(first, "codex-atoz"), "codex-atoz")
-            self.assertEqual(registry.agent_default(second, "codex-atoz"), "codex-atoz")
+            self.assertEqual(registry.agent_default(first, "codex-fixture-alpha"), "codex-fixture-alpha")
+            self.assertEqual(registry.agent_default(second, "codex-fixture-alpha"), "codex-fixture-alpha")
             registry.set_agent_default(first, "opencode")
             context = state.contexts[first]
             context.reset_project(
@@ -153,7 +152,7 @@ class WorkspaceIsolationTests(unittest.TestCase):
             registry.persist(first)
             restored = ServiceState(Path(tmp)).workspace_registry
             self.assertEqual(restored.agent_default(first, "codex"), "opencode")
-            self.assertEqual(restored.agent_default(second, "codex"), "codex-atoz")
+            self.assertEqual(restored.agent_default(second, "codex"), "codex-fixture-alpha")
 
     def test_agent_default_write_failure_preserves_previous_value(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

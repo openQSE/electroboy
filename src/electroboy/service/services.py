@@ -7,7 +7,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Protocol, TypeVar
 
-from .agent_backend import AgentBackend, AgentSelection, _provider_for_binary
+from .agent_backend import AgentBackend, AgentSelection
 from .context import BrowserContext, ContextStore
 from .registry import WorkflowRegistry
 from .sessions import AgentSession
@@ -160,11 +160,6 @@ class WorkspaceServices(Protocol):
 class SessionServices(Protocol):
     """Agent-session lifecycle operations available to plugins."""
 
-    @property
-    def backend(self) -> str: ...
-
-    def backend_payload(self) -> dict[str, object]: ...
-
     def workspace_backend_payload(self, workspace_id: str) -> dict[str, object]: ...
 
     def set_workspace_backend(self, workspace_id: str, binary: str) -> dict[str, object]: ...
@@ -179,17 +174,11 @@ class SessionServices(Protocol):
         self, workspace_id: str, binary: str = "",
     ) -> AgentSelection: ...
 
-    def executable(self, root: Path) -> str: ...
-
-    def switch_backend(
-        self, backend: str, *, confirmed: bool, revision: int
-    ) -> dict[str, object]: ...
-
     def provider_history(
         self, root: Path, kind: str, scope_key: str = "", *, provider: str = ""
     ) -> list[dict[str, object]]: ...
 
-    def runtime_factory(self, workspace_id: str = ""): ...
+    def runtime_factory(self, workspace_id: str): ...
 
     def prepare(
         self,
@@ -1022,26 +1011,12 @@ class RuntimeWorkspaceServices:
 class RuntimeSessionServices:
     runtime: ServiceRuntimeBackend
 
-    @property
-    def backend(self) -> str:
-        return self.runtime.agent_backend.selected
-
-    def backend_payload(self) -> dict[str, object]:
-        return self.runtime.agent_backend.payload()
-
     def workspace_backend_payload(self, workspace_id: str) -> dict[str, object]:
         backend = self.runtime.agent_backend
         binary = self.runtime.workspace_registry.agent_default(workspace_id, backend.binary)
-        payload = backend.payload()
-        payload["backend"] = binary
-        payload["provider"] = _provider_for_binary(binary)
-        binaries = payload["backends"]
-        availability = payload["availability"]
-        if isinstance(binaries, list) and binary not in binaries:
-            binaries.append(binary)
-        if isinstance(availability, dict) and binary not in availability:
-            availability[binary] = backend._available(binary)
-        return payload
+        context = self.runtime.context_store.require(workspace_id)
+        root = context.active_project_root or self.runtime.root
+        return backend.payload(root, binary)
 
     def set_workspace_backend(self, workspace_id: str, binary: str) -> dict[str, object]:
         context = self.runtime.context_store.require(workspace_id)
@@ -1107,24 +1082,12 @@ class RuntimeSessionServices:
             )
             return self.runtime.agent_backend.resolve(selected, root)
 
-    def executable(self, root: Path) -> str:
-        return self.runtime.agent_backend.executable(root)
-
-    def switch_backend(
-        self, backend: str, *, confirmed: bool, revision: int
-    ) -> dict[str, object]:
-        return self.runtime.agent_backend.switch(
-            backend, confirmed=confirmed, revision=revision
-        )
-
     def provider_history(
         self, root: Path, kind: str, scope_key: str = "", *, provider: str = ""
     ) -> list[dict[str, object]]:
         return self.runtime.provider_history(root, kind, scope_key, provider=provider)
 
-    def runtime_factory(self, workspace_id: str = ""):
-        if not workspace_id:
-            return self.runtime.agent_backend.runtime_factory()
+    def runtime_factory(self, workspace_id: str):
         selection = self.resolve_workspace_selection(workspace_id)
         return self.runtime.agent_backend.selected_runtime_factory(selection)
 

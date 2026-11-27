@@ -151,6 +151,10 @@ Each workspace has a default selection, which can be overridden for an agent.
   workflow controllers. Resolve the selection before provider-specific work.
 - Use the existing backend discovery and provider mapping. Accept executable
   names under the existing validation rules, not arbitrary shell fragments.
+- Populate selectable harnesses from executables discovered on the service's
+  `PATH`. Account-specific wrapper names are examples, not fixed choices. Keep
+  a saved selection visible when its executable is temporarily unavailable.
+  Provider adapters still define which runtime families ElectroBoy supports.
 - Provide workspace-scoped configuration reads and writes through the existing
   module route registration. Reads return the default and available choices;
   writes validate the selection and require the appropriate workspace lease.
@@ -198,7 +202,7 @@ after its code and relevant validation are complete.
       without workspace context.
 - [x] Remove the old service-wide configuration mutation route; the workspace
       UI uses the scoped contract.
-- [ ] Remove global stop, cancellation epoch, and revision invalidation from
+- [x] Remove global stop, cancellation epoch, and revision invalidation from
       default changes; retain cancellation for explicit job/session stops.
 - [ ] Verify independent defaults, one-time migration, reopen and restart,
       migration failure, lease rejection, and concurrent change/launch ordering
@@ -216,7 +220,7 @@ after its code and relevant validation are complete.
       workspace default changes.
 - [ ] Capture provider and executable once per launch and persist both the
       stable selection and resolved executable in agent session metadata.
-- [ ] Update session preparation and process guards to use the captured
+- [x] Update session preparation and process guards to use the captured
       selection without checking a mutable service-wide backend revision.
 - [ ] Route creative general and document agents through workspace defaults
       and explicit overrides; keep scope and existing agent reuse rules.
@@ -238,9 +242,9 @@ after its code and relevant validation are complete.
 
 - [x] Capture workspace selections for corkboard and code-learner generation;
       retain the initialization selection in its scheduler continuation.
-- [ ] Bind managed runtime factories to a captured workspace selection and
+- [x] Bind managed runtime factories to a captured workspace selection and
       replace global-switch cancellation with per-job cancellation.
-- [ ] Pass workspace identity and captured selections to software workflow
+- [x] Pass workspace identity and captured selections to software workflow
       runs, creative corkboard generation, and code-learner generation.
 - [ ] Audit remaining session-service callers and workflow CLI/adapter launch
       paths for implicit reads of a global backend or executable.
@@ -253,7 +257,7 @@ after its code and relevant validation are complete.
       remove stop-all confirmation and use context-aware requests.
 - [x] Refresh the displayed default when switching workspaces and when another
       connection changes the same workspace's default.
-- [ ] Add a per-agent selector to creative general and document start dialogs,
+- [x] Add a per-agent selector to creative general and document start dialogs,
       software agent start dialogs, and other interactive launch surfaces.
 - [x] Add a next-launch agent selector to the Agent context tools, initialized
       from the workspace default and propagated to that pane's Start dialog.
@@ -265,7 +269,7 @@ after its code and relevant validation are complete.
       selections and no selected session, and respect workspace authorization.
 - [ ] Show the selection on running and resumable sessions. Display a fixed
       selection when resuming and explain conflicts or missing executables.
-- [ ] Pass the selected override through each frontend action, route, and
+- [x] Pass the selected override through each frontend action, route, and
       controller without changing the workspace default.
 - [ ] Add service static assertions and behavioral browser coverage for default
       changes, context-tool selection, Info, and preserving a running agent.

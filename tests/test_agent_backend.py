@@ -1,4 +1,4 @@
-"""Provider switching must cancel work before admitting another provider."""
+"""Workspace-scoped agent selection and heterogeneous process behavior."""
 
 import json
 import os
@@ -15,7 +15,7 @@ from electroboy.adapters.generic_cli import GenericCliRuntime
 from electroboy.adapters.opencode_exec import OpenCodeExecRuntime
 from electroboy.config import DEFAULT_CONFIG, RuntimeConfig
 from electroboy.runtime import interactive_command, runtime_for_role
-from electroboy.service.agent_backend import AgentBackend, ManagedRuntime
+from electroboy.service.agent_backend import AgentBackend
 from electroboy.service.app import ServiceState, create_server
 from electroboy.service.sessions import (
     AgentSession,
@@ -24,24 +24,23 @@ from electroboy.service.sessions import (
 )
 
 
-def selection(sessions=()):
-    return AgentBackend(threading.RLock(), lambda: sessions, lambda: [Path(".")])
+def selection():
+    return AgentBackend(threading.RLock(), lambda: [Path(".")])
 
 
 def test_captured_selections_are_independent_of_later_default_changes(tmp_path):
-    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
+    backend = AgentBackend(threading.RLock(), lambda: [tmp_path])
     with patch("shutil.which", side_effect=lambda name: f"/bin/{name}"):
-        codex = backend.resolve("codex-atoz", tmp_path)
+        codex = backend.resolve("codex-fixture-alpha", tmp_path)
         opencode = backend.resolve("opencode", tmp_path)
         session = AgentSession(["codex", "resume", "example"], tmp_path)
         backend.prepare_selection(session, codex)
         factory = backend.selected_runtime_factory(opencode)
-        backend.switch("codex-ornl", confirmed=True, revision=0)
+        backend.resolve("codex-fixture-beta", tmp_path)
 
-    assert session.command[0] == "codex-atoz"
-    assert session.metadata["provider_binary"] == "codex-atoz"
-    assert session.environment["ELECTROBOY_AGENT_EXECUTABLE"] == "codex-atoz"
-    assert not factory.cancel_event.is_set()
+    assert session.command[0] == "codex-fixture-alpha"
+    assert session.metadata["provider_binary"] == "codex-fixture-alpha"
+    assert session.environment["ELECTROBOY_AGENT_EXECUTABLE"] == "codex-fixture-alpha"
     assert factory("code_review", tmp_path).config.adapter == "opencode_exec"
 
 
@@ -49,7 +48,42 @@ def test_captured_selection_requires_available_executable(tmp_path):
     backend = selection()
     with patch("shutil.which", return_value=None):
         with pytest.raises(AgentSessionError, match="unavailable"):
-            backend.resolve("codex-atoz", tmp_path)
+            backend.resolve("codex-fixture-alpha", tmp_path)
+
+
+def test_explicit_background_cancellation_is_isolated(tmp_path):
+    script = tmp_path / "agent.py"
+    script.write_text(
+        "import sys,time\nfrom pathlib import Path\n"
+        "Path(sys.argv[1]).write_text('started')\ntime.sleep(60)\n"
+    )
+    events = [threading.Event(), threading.Event()]
+    markers = [tmp_path / "one", tmp_path / "two"]
+    results = [None, None]
+    workers = []
+    for index in range(2):
+        runtime = GenericCliRuntime(
+            RuntimeConfig("fake", "generic_cli", sys.executable, [str(script), str(markers[index])]),
+            tmp_path,
+        )
+        def invoke(i=index, agent=runtime):
+            results[i] = agent.invoke(AgentInvocation("review", "hello", cancel_event=events[i]))
+        worker = threading.Thread(target=invoke)
+        worker.start()
+        workers.append(worker)
+    try:
+        deadline = time.monotonic() + 5
+        while not all(path.exists() for path in markers) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert all(path.exists() for path in markers)
+        events[0].set()
+        workers[0].join(3)
+        assert not workers[0].is_alive() and workers[1].is_alive()
+        assert results[0].error == "Agent invocation aborted."
+    finally:
+        events[1].set()
+        for worker in workers:
+            worker.join(3)
 
 
 def test_workspace_default_change_keeps_mixed_agent_processes_running(tmp_path):
@@ -61,8 +95,8 @@ def test_workspace_default_change_keeps_mixed_agent_processes_running(tmp_path):
     sessions = []
     try:
         with patch("shutil.which", return_value="/bin/true"):
-            services.set_workspace_backend(workspace, "codex-atoz")
-            for binary in ("codex-atoz", "opencode"):
+            services.set_workspace_backend(workspace, "codex-fixture-alpha")
+            for binary in ("codex-fixture-alpha", "opencode"):
                 selected = services.resolve_workspace_selection(workspace, binary)
                 session = AgentSession(
                     [sys.executable, "-c", "import time; time.sleep(60)"],
@@ -71,10 +105,10 @@ def test_workspace_default_change_keeps_mixed_agent_processes_running(tmp_path):
                 services.prepare(state.contexts[workspace], session, selected)
                 session.start()
                 sessions.append(session)
-            services.set_workspace_backend(workspace, "codex-ornl")
+            services.set_workspace_backend(workspace, "codex-fixture-beta")
         assert all(session.is_active() for session in sessions)
         assert [session.metadata["provider_binary"] for session in sessions] == [
-            "codex-atoz", "opencode",
+            "codex-fixture-alpha", "opencode",
         ]
     finally:
         for session in sessions:
@@ -109,15 +143,15 @@ def test_creative_agents_capture_workspace_default_and_explicit_override(tmp_pat
         patch("electroboy.workflows.creative_writing.controller.codex_session_paths", return_value=frozenset()),
         patch("electroboy.workflows.creative_writing.controller.start_creative_session_tracking"),
     ):
-        services.set_workspace_backend(workspace, "codex-atoz")
+        services.set_workspace_backend(workspace, "codex-fixture-alpha")
         first, _ = state.start_creative_writing_agent(workspace)
         second, _ = state.start_creative_writing_agent(workspace, agent_binary="opencode")
-        services.set_workspace_backend(workspace, "codex-ornl")
-    assert first.metadata["provider_binary"] == "codex-atoz"
+        services.set_workspace_backend(workspace, "codex-fixture-beta")
+    assert first.metadata["provider_binary"] == "codex-fixture-alpha"
     assert second.metadata["provider_binary"] == "opencode"
     assert first.metadata["provider"] == "codex"
     assert second.metadata["provider"] == "opencode"
-    assert services.workspace_backend_payload(workspace)["backend"] == "codex-ornl"
+    assert services.workspace_backend_payload(workspace)["backend"] == "codex-fixture-beta"
 
 
 def test_software_agents_capture_workspace_default_and_explicit_override(tmp_path):
@@ -140,13 +174,13 @@ def test_software_agents_capture_workspace_default_and_explicit_override(tmp_pat
         patch("electroboy.workflows.software.controller.codex_session_paths", return_value=frozenset()),
         patch("electroboy.workflows.software.controller.start_ad_hoc_session_tracking"),
     ):
-        services.set_workspace_backend(workspace, "codex-atoz")
+        services.set_workspace_backend(workspace, "codex-fixture-alpha")
         first, _ = controller.start_ad_hoc_agent(workspace)
         second, _ = controller.start_ad_hoc_agent(workspace, agent_binary="opencode")
-        services.set_workspace_backend(workspace, "codex-ornl")
-    assert first.metadata["provider_binary"] == "codex-atoz"
+        services.set_workspace_backend(workspace, "codex-fixture-beta")
+    assert first.metadata["provider_binary"] == "codex-fixture-alpha"
     assert second.metadata["provider_binary"] == "opencode"
-    assert services.workspace_backend_payload(workspace)["backend"] == "codex-ornl"
+    assert services.workspace_backend_payload(workspace)["backend"] == "codex-fixture-beta"
 
 
 def test_software_stage_agent_captures_explicit_selection(tmp_path):
@@ -197,11 +231,11 @@ def test_resume_uses_original_provider_after_default_changes(tmp_path, workflow)
     with patch("shutil.which", return_value="/bin/true"), patch.object(AgentSession, "start"):
         first, _ = start(workspace, agent_binary="opencode")
         provider_id = first.metadata["provider_session_id"]
-        services.set_workspace_backend(workspace, "codex-atoz")
+        services.set_workspace_backend(workspace, "codex-fixture-alpha")
         resumed, created = start(workspace, provider_session_id=provider_id)
         assert created and resumed.metadata["provider_binary"] == "opencode"
         with pytest.raises(AgentSessionError, match="different executable"):
-            start(workspace, provider_session_id=provider_id, agent_binary="codex-atoz")
+            start(workspace, provider_session_id=provider_id, agent_binary="codex-fixture-alpha")
 
 
 def test_stage_resume_uses_original_provider_after_default_changes(tmp_path):
@@ -220,7 +254,7 @@ def test_stage_resume_uses_original_provider_after_default_changes(tmp_path):
     controller = state.workflow_controller("software")
     with patch("shutil.which", return_value="/bin/true"), patch.object(AgentSession, "start"):
         first, _ = controller.start_requirements_agent(workspace, agent_binary="opencode")
-        services.set_workspace_backend(workspace, "codex-atoz")
+        services.set_workspace_backend(workspace, "codex-fixture-alpha")
         resumed, created = controller.start_requirements_agent(
             workspace, session_id=first.session_id,
         )
@@ -241,109 +275,36 @@ def test_stage_history_filters_codex_wrappers(tmp_path):
     state.open_project(workspace, str(root))
     services = build_service_services(state, state.workflow_registry).sessions
     history = [
-        {"provider_session_id": "one", "provider_binary": "codex-atoz"},
-        {"provider_session_id": "two", "provider_binary": "codex-ornl"},
+        {"provider_session_id": "one", "provider_binary": "codex-fixture-alpha"},
+        {"provider_session_id": "two", "provider_binary": "codex-fixture-beta"},
     ]
     with patch("shutil.which", return_value="/bin/true"), patch.object(state, "provider_history", return_value=history):
-        services.set_workspace_backend(workspace, "codex-atoz")
+        services.set_workspace_backend(workspace, "codex-fixture-alpha")
         result = state.workflow_controller("software").stage_sessions(workspace, "requirements")
     assert [entry["provider_session_id"] for entry in result["sessions"]] == ["one"]
 
 
-def test_defaults_confirmation_and_stale_revision():
-    backend = selection()
-    assert backend.payload()["backend"] == "codex"
-    with pytest.raises(AgentSessionError, match="Confirm"):
-        backend.switch("opencode", revision=0)
-    with patch("shutil.which", return_value="/bin/true"):
-        assert (
-            backend.switch("opencode", confirmed=True, revision=0)["backend"]
-            == "opencode"
-        )
-        with pytest.raises(AgentSessionError, match="changed"):
-            backend.switch("codex", confirmed=True, revision=0)
-        assert backend.switch("codex", confirmed=True, revision=1)["backend"] == "codex"
-    with pytest.raises(ValueError):
-        backend.switch("invalid", confirmed=True, revision=2)
 
 
 def test_missing_executable_does_not_stop_agent():
     session = AgentSession([sys.executable, "-c", "import time; time.sleep(60)"], ".")
-    backend = selection([session])
+    backend = selection()
     session.start()
     try:
         with (
             patch("shutil.which", return_value=None),
             pytest.raises(AgentSessionError, match="unavailable"),
         ):
-            backend.switch("opencode", confirmed=True, revision=0)
+            backend.resolve("opencode", Path("."))
         assert session.is_active()
-        assert backend.selected == "codex"
     finally:
         session.terminate()
 
 
-def test_switch_stops_process_and_rejects_delayed_launch():
-    running = AgentSession([sys.executable, "-c", "import time; time.sleep(60)"], ".")
-    delayed = AgentSession([sys.executable, "-c", "pass"], ".")
-    backend = selection([running, delayed])
-    backend.prepare(running)
-    backend.prepare(delayed)
-    running.start()
-    try:
-        with patch("shutil.which", return_value="/bin/true"):
-            backend.switch("opencode", confirmed=True, revision=0)
-        assert not running.is_active()
-        with pytest.raises(AgentSessionError, match="changed"):
-            delayed.start()
-        assert delayed.process is None
-    finally:
-        running.terminate()
 
 
-def test_failed_termination_keeps_old_backend():
-    session = AgentSession(["fake"], ".")
-    backend = selection([session])
-    with (
-        patch.object(session, "is_active", return_value=True),
-        patch.object(session, "terminate"),
-        patch("shutil.which", return_value="/bin/true"),
-    ):
-        with pytest.raises(AgentSessionError, match="Could not stop"):
-            backend.switch("opencode", confirmed=True, revision=0)
-    assert backend.selected == "codex"
-    assert not backend.switching
 
 
-def test_background_process_is_cancelled_and_old_factory_invalidated(tmp_path):
-    script = tmp_path / "agent.py"
-    script.write_text("import sys,time\nsys.stdin.read()\ntime.sleep(60)\n")
-    backend = selection()
-    factory = backend.runtime_factory()
-    runtime = GenericCliRuntime(
-        RuntimeConfig("fake", "generic_cli", sys.executable, [str(script)]), tmp_path
-    )
-    managed = ManagedRuntime(backend, 0, runtime)
-    errors = []
-
-    def invoke():
-        try:
-            managed.invoke(AgentInvocation("review", "hello"))
-        except AgentSessionError as error:
-            errors.append(str(error))
-
-    worker = threading.Thread(target=invoke)
-    worker.start()
-    deadline = time.monotonic() + 3
-    while not backend.invocations and time.monotonic() < deadline:
-        time.sleep(0.01)
-    with patch("shutil.which", return_value="/bin/true"):
-        backend.switch("opencode", confirmed=True, revision=0)
-    worker.join(3)
-    assert not worker.is_alive()
-    assert errors
-    with pytest.raises(AgentSessionError, match="changed"):
-        factory("review", tmp_path)
 
 
 def test_opencode_command_and_event_contract(tmp_path):
@@ -388,7 +349,8 @@ def test_selected_backend_overrides_project_roles_and_reaches_tmux(tmp_path):
         )
     session = AgentSession(["fake"], tmp_path)
     backend = selection()
-    backend.prepare(session)
+    with patch("shutil.which", return_value="/bin/true"):
+        backend.prepare_selection(session, backend.resolve("codex", tmp_path))
     converted = TmuxAgentSession.from_agent_session(session)
     assert converted.environment["ELECTROBOY_AGENT_BACKEND"] == "codex"
     assert converted.start_guard is session.start_guard
@@ -527,31 +489,6 @@ def test_new_provider_does_not_resume_old_code_learner_slot(tmp_path):
     assert invoke.call_args.args[0].provider_session_id is None
 
 
-def test_tmux_switch_stops_session_and_propagates_provider(tmp_path):
-    import shutil
-
-    if shutil.which("tmux") is None:
-        pytest.skip("tmux is not installed")
-    output = tmp_path / "backend.txt"
-    script = tmp_path / "agent.py"
-    script.write_text(
-        'import os,time\nfrom pathlib import Path\nPath("backend.txt").write_text(os.environ["ELECTROBOY_AGENT_BACKEND"])\ntime.sleep(60)\n'
-    )
-    session = TmuxAgentSession([sys.executable, str(script)], tmp_path)
-    backend = selection([session])
-    backend.prepare(session)
-    session.start()
-    try:
-        deadline = time.monotonic() + 5
-        while not output.exists() and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert output.read_text() == "codex"
-        with patch("shutil.which", return_value="/bin/true"):
-            backend.switch("opencode", confirmed=True, revision=0)
-        assert not session.is_active()
-        assert backend.selected == "opencode"
-    finally:
-        session.terminate()
 
 
 def test_backend_discovers_executable_codex_names_from_path(tmp_path, monkeypatch):
@@ -566,6 +503,7 @@ def test_backend_discovers_executable_codex_names_from_path(tmp_path, monkeypatc
         (second, "codexpert"),
         (second, "codex-"),
         (second, "codex-linux-sandbox"),
+        (second, "opencode"),
     ):
         executable = directory / name
         executable.touch()
@@ -579,14 +517,14 @@ def test_backend_discovers_executable_codex_names_from_path(tmp_path, monkeypatc
     monkeypatch.setenv("PATH", os.pathsep.join(map(str, (
         tmp_path / "missing", invalid_directory, first, second, first,
     ))))
-    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
+    backend = AgentBackend(threading.RLock(), lambda: [tmp_path])
     payload = backend.payload()
     assert payload["backends"] == [
         "codex", "codex-duplicate", "codex-lab", "codex-linked", "opencode",
     ]
     assert payload["availability"] == {
         "codex": True, "codex-duplicate": True, "codex-lab": True,
-        "codex-linked": True, "opencode": False,
+        "codex-linked": True, "opencode": True,
     }
 
     # Refresh discovery when executables appear or disappear in existing PATH dirs.
@@ -603,12 +541,12 @@ def test_backend_discovery_honors_empty_path_entries(tmp_path, monkeypatch):
     executable.touch(mode=0o755)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PATH", os.pathsep.join(("", str(tmp_path / "missing"))))
-    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
+    backend = AgentBackend(threading.RLock(), lambda: [tmp_path])
     payload = backend.payload()
-    assert payload["backends"] == ["codex", "codex-local", "opencode"]
+    assert payload["backends"] == ["codex", "codex-local"]
     assert payload["availability"]["codex-local"] is True
     monkeypatch.setenv("PATH", "")
-    assert backend.payload()["backends"] == ["codex", "opencode"]
+    assert backend.payload()["backends"] == ["codex"]
 
 
 def test_saved_codex_wrapper_remains_visible_after_removal(tmp_path, monkeypatch):
@@ -616,15 +554,16 @@ def test_saved_codex_wrapper_remains_visible_after_removal(tmp_path, monkeypatch
     executable.touch(mode=0o755)
     monkeypatch.setenv("PATH", str(tmp_path))
     path = tmp_path / "state" / "backend.json"
-    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
-    backend.switch("codex-temporary", confirmed=True, revision=0)
+    backend = AgentBackend(threading.RLock(), lambda: [tmp_path], path)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"binary": "codex-temporary"}))
     executable.unlink()
 
-    restored = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
+    restored = AgentBackend(threading.RLock(), lambda: [tmp_path], path)
     payload = restored.payload()
     assert payload["backend"] == "codex-temporary"
     assert payload["provider"] == "codex"
-    assert payload["backends"] == ["codex", "codex-temporary", "opencode"]
+    assert payload["backends"] == ["codex-temporary"]
     assert payload["availability"]["codex-temporary"] is False
 
 
@@ -636,24 +575,25 @@ def test_saved_codex_wrapper_remains_visible_after_removal(tmp_path, monkeypatch
 def test_invalid_saved_binary_falls_back_to_codex(tmp_path, binary):
     path = tmp_path / "backend.json"
     path.write_text(json.dumps({"binary": binary}))
-    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
-    assert backend.binary == backend.selected == "codex"
+    backend = AgentBackend(threading.RLock(), lambda: [tmp_path], path)
+    assert backend.binary == "codex"
     with pytest.raises(ValueError, match="Unknown backend binary"):
-        backend.switch(binary, confirmed=True, revision=0)
+        backend.resolve(binary, tmp_path)
 
 
 @pytest.mark.parametrize("binary", ["codex-team-alpha", "codex-personal-test"])
 def test_binary_selection_reaches_terminal_background_and_workflow_children(tmp_path, binary):
     from electroboy.runtime import backend_config
 
-    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
+    backend = AgentBackend(threading.RLock(), lambda: [tmp_path])
     with patch("shutil.which", return_value="/bin/true"):
-        payload = backend.switch(binary, confirmed=True, revision=0)
+        chosen = backend.resolve(binary, tmp_path)
+        payload = backend.payload(tmp_path, binary)
     assert payload["backend"] == binary
     assert payload["provider"] == "codex"
     original = backend_config("codex", tmp_path, interactive=True)
     terminal = AgentSession([original.command, "--no-alt-screen"], tmp_path)
-    backend.prepare(terminal)
+    backend.prepare_selection(terminal, chosen)
     assert terminal.command == [binary, "--no-alt-screen"]
     assert terminal.metadata["provider"] == "codex"
     assert terminal.environment["ELECTROBOY_AGENT_EXECUTABLE"] == binary
@@ -663,45 +603,24 @@ def test_binary_selection_reaches_terminal_background_and_workflow_children(tmp_
 
     # A pipeline child launches ElectroBoy first, then resolves its own runtime.
     pipeline = AgentSession([sys.executable, "-m", "electroboy", "code"], tmp_path)
-    backend.prepare(pipeline)
+    backend.prepare_selection(pipeline, chosen)
     assert pipeline.command[0] == sys.executable
     with patch.dict("os.environ", pipeline.environment):
         runtime = runtime_for_role("code_review", tmp_path)
         assert runtime.config.command == binary
         assert runtime.config.args == DEFAULT_CONFIG.runtimes["codex"].args
         assert runtime.config.env == DEFAULT_CONFIG.runtimes["codex"].env
-    runtime = backend.runtime_factory()("design_author", tmp_path)
+    runtime = backend.selected_runtime_factory(chosen)("design_author", tmp_path)
     assert runtime.config.command == binary
     assert runtime.config.adapter == "codex_interactive"
-    runtime = backend.runtime_factory()("code_review", tmp_path)
+    runtime = backend.selected_runtime_factory(chosen)("code_review", tmp_path)
     assert runtime.config.command == binary
     assert runtime.config.adapter == "codex_exec"
 
 
-def test_binary_selection_persists_and_same_provider_switch_invalidates_jobs(tmp_path):
-    path = tmp_path / "state" / "backend.json"
-    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
-    with patch("shutil.which", return_value="/bin/true"):
-        backend.switch("codex-team-alpha", confirmed=True, revision=0)
-        factory = backend.runtime_factory()
-        backend.switch("codex-personal-test", confirmed=True, revision=1)
-    assert factory.cancel_event.is_set()
-    with pytest.raises(AgentSessionError, match="changed"):
-        factory("code_review", tmp_path)
-    restored = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path)
-    assert restored.binary == "codex-personal-test"
-    assert restored.selected == "codex"
-    with patch("shutil.which", return_value=None):
-        assert restored.payload()["availability"]["codex-personal-test"] is False
-        with pytest.raises(AgentSessionError, match="unavailable"):
-            restored.switch("codex-team-alpha", confirmed=True, revision=0)
-    assert restored.binary == "codex-personal-test"
-    assert json.loads(path.read_text())["binary"] == "codex-personal-test"
-    path.write_text("invalid json")
-    assert AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path], path).binary == "codex"
 
 
-def test_selected_binary_executes_and_same_provider_switch_stops_it(tmp_path, monkeypatch):
+def test_selected_binary_executes_independently_of_other_selections(tmp_path, monkeypatch):
     executable = tmp_path / "codex-team-alpha"
     marker = tmp_path / "started.txt"
     executable.write_text(
@@ -713,11 +632,11 @@ def test_selected_binary_executes_and_same_provider_switch_stops_it(tmp_path, mo
     executable.chmod(0o755)
     monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
     sessions = []
-    backend = AgentBackend(threading.RLock(), lambda: sessions, lambda: [tmp_path])
+    backend = AgentBackend(threading.RLock(), lambda: [tmp_path])
     assert "codex-team-alpha" in backend.payload()["backends"]
-    backend.switch("codex-team-alpha", confirmed=True, revision=0)
+    chosen = backend.resolve("codex-team-alpha", tmp_path)
     session = AgentSession(interactive_command(tmp_path, "fixture"), tmp_path)
-    backend.prepare(session)
+    backend.prepare_selection(session, chosen)
     sessions.append(session)
     session.start()
     try:
@@ -728,11 +647,11 @@ def test_selected_binary_executes_and_same_provider_switch_stops_it(tmp_path, mo
         # The target may be absent; that must not stop the running wrapper.
         with patch("shutil.which", return_value=None):
             with pytest.raises(AgentSessionError, match="unavailable"):
-                backend.switch("codex-personal-test", confirmed=True, revision=1)
+                backend.resolve("codex-personal-test", tmp_path)
         assert session.is_active()
         with patch("shutil.which", return_value="/bin/true"):
-            backend.switch("codex-personal-test", confirmed=True, revision=1)
-        assert not session.is_active()
+            backend.resolve("codex-personal-test", tmp_path)
+        assert session.is_active()
     finally:
         session.terminate()
 
@@ -741,18 +660,18 @@ def test_selected_binary_executes_and_same_provider_switch_stops_it(tmp_path, mo
 def test_explicit_backend_ignores_inherited_wrapper(tmp_path, monkeypatch, provider):
     monkeypatch.setenv("ELECTROBOY_AGENT_BACKEND", "codex")
     monkeypatch.setenv("ELECTROBOY_AGENT_EXECUTABLE", "codex-team-alpha")
-    backend = AgentBackend(threading.RLock(), lambda: [], lambda: [tmp_path])
+    backend = AgentBackend(threading.RLock(), lambda: [tmp_path])
     with patch("shutil.which", return_value="/bin/true"):
-        backend.switch(provider, confirmed=True, revision=0)
+        chosen = backend.resolve(provider, tmp_path)
 
     runtime = runtime_for_role("code_review", tmp_path, backend=provider)
     assert runtime.config.command == DEFAULT_CONFIG.runtimes[provider].command
-    runtime = backend.runtime_factory()("code_review", tmp_path)
+    runtime = backend.selected_runtime_factory(chosen)("code_review", tmp_path)
     assert runtime.config.command == DEFAULT_CONFIG.runtimes[provider].command
 
     # Workflow CLI children inherit os.environ plus the prepared session values.
     pipeline = AgentSession([sys.executable, "-m", "electroboy", "code"], tmp_path)
-    backend.prepare(pipeline)
+    backend.prepare_selection(pipeline, chosen)
     with patch.dict("os.environ", pipeline.environment):
         runtime = runtime_for_role("code_review", tmp_path)
         assert runtime.config.command == DEFAULT_CONFIG.runtimes[provider].command

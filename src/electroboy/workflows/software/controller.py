@@ -29,7 +29,7 @@ from electroboy.service.sessions import (
     normalize_session_name,
 )
 from electroboy.service.workflow_controller import BoundWorkflowController
-from electroboy.service.agent_backend import resume_agent_binary
+from electroboy.service.agent_backend import AgentSelection, resume_agent_binary
 from electroboy.state_store import StateError, StateStore
 
 from .ad_hoc import (
@@ -283,7 +283,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
         provider_session_id: str | None,
         context_id: str,
         agent_binary: str = "",
-    ) -> tuple[dict[str, object], frozenset[Path]]:
+    ) -> tuple[dict[str, object], frozenset[Path], AgentSelection]:
         selection = self.services.sessions.resolve_workspace_selection(context_id, agent_binary)
         backend = selection.provider
         provider_id = provider_session_id
@@ -305,7 +305,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 raise AgentSessionError("activate a project first")
             executable = selection.executable
             known_paths = codex_session_paths(executable=executable, root=root)
-        return metadata, known_paths
+        return metadata, known_paths, selection
 
     def _track_stage_session(
         self,
@@ -1176,7 +1176,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             )
             if existing is not None:
                 return existing, False
-        metadata, known_paths = self._stage_session_metadata(provider_id, context_id, agent_binary)
+        metadata, known_paths, selection = self._stage_session_metadata(provider_id, context_id, agent_binary)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -1205,7 +1205,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 lock_names=lock_names,
                 metadata=metadata,
             )
-            session = self.services.sessions.prepare(context, session)
+            session = self.services.sessions.prepare(context, session, selection)
             context.requirements_session = session
             context.selected_session_id = session.session_id
             context.workflow_stage = "requirements"
@@ -1274,7 +1274,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             )
             if existing is not None:
                 return existing, False
-        metadata, known_paths = self._stage_session_metadata(provider_id, context_id, agent_binary)
+        metadata, known_paths, selection = self._stage_session_metadata(provider_id, context_id, agent_binary)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -1304,7 +1304,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 lock_names=lock_names,
                 metadata=metadata,
             )
-            session = self.services.sessions.prepare(context, session)
+            session = self.services.sessions.prepare(context, session, selection)
             context.design_session = session
             context.selected_session_id = session.session_id
             context.workflow_stage = "design"
@@ -1385,6 +1385,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
     ) -> tuple[AgentSession, bool]:
         metadata: dict[str, object] = {"provider_binary": agent_binary} if agent_binary else {}
         known_paths: frozenset[Path] = frozenset()
+        selection = None
         if interactive:
             existing, provider_id, agent_binary = self._stage_session_choice(
                 context_id,
@@ -1395,7 +1396,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             )
             if existing is not None:
                 return existing, False
-            metadata, known_paths = self._stage_session_metadata(
+            metadata, known_paths, selection = self._stage_session_metadata(
                 provider_id, context_id, agent_binary
             )
         with self.services.contexts.lock:
@@ -1443,7 +1444,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     )
                 ),
             )
-            session = self.services.sessions.prepare(context, session)
+            session = self.services.sessions.prepare(context, session, selection)
             context.design_review_session = session
             context.selected_session_id = session.session_id
             context.design_review_interactive = interactive
@@ -1716,6 +1717,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
         )
         metadata: dict[str, object] = {"provider_binary": agent_binary} if agent_binary else {}
         known_paths: frozenset[Path] = frozenset()
+        selection = None
         if accepts_input and (
             not allow_stage_reopen or session_id or provider_session_id
         ):
@@ -1728,7 +1730,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             )
             if existing is not None:
                 return existing, False
-            metadata, known_paths = self._stage_session_metadata(
+            metadata, known_paths, selection = self._stage_session_metadata(
                 provider_id, context_id, agent_binary
             )
         with self.services.contexts.lock:
@@ -1778,7 +1780,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     returncode,
                 ),
             )
-            session = self.services.sessions.prepare(context, session)
+            session = self.services.sessions.prepare(context, session, selection)
             context.stage_sessions[stage] = session
             context.selected_session_id = session.session_id
             context.workflow_stage = stage
