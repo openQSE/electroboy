@@ -10776,7 +10776,10 @@ eval(`(async () => {
                 mock.patch.object(
                     controller,
                     "_stage_session_choice",
-                    return_value=(None, provider_session_id, "codex"),
+                    return_value=(
+                        None, provider_session_id,
+                        controller.services.sessions.resolve_workspace_selection(context_id, "codex"),
+                    ),
                 ),
                 mock.patch("electroboy.service.AgentSession.start"),
             ):

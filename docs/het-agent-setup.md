@@ -234,7 +234,7 @@ after its code and relevant validation are complete.
       unresolved selection with user input and persist the validated result.
 - [ ] Remove legacy workspace format branches from launch, history, resume,
       and UI paths; consume only the converted representation.
-- [ ] Test mixed live agents, separate workspace defaults, overrides, resume
+- [x] Test mixed live agents, separate workspace defaults, overrides, resume
       after a default change, both providers, unavailable binaries, legacy
       metadata, and session-history isolation.
 
@@ -246,9 +246,9 @@ after its code and relevant validation are complete.
       replace global-switch cancellation with per-job cancellation.
 - [x] Pass workspace identity and captured selections to software workflow
       runs, creative corkboard generation, and code-learner generation.
-- [ ] Audit remaining session-service callers and workflow CLI/adapter launch
+- [x] Audit remaining session-service callers and workflow CLI/adapter launch
       paths for implicit reads of a global backend or executable.
-- [ ] Test queued and running jobs across default changes, explicit job
+- [x] Test queued and running jobs across default changes, explicit job
       cancellation, workflow locks, and simultaneous provider execution.
 
 ### 4. User interface
@@ -276,15 +276,15 @@ after its code and relevant validation are complete.
 
 ### 5. Validation and documentation
 
-- [ ] Run focused backend and service tests and frontend browser tests for
+- [x] Run focused backend and service tests and frontend browser tests for
       the affected launch paths; resolve any failures.
-- [ ] Exercise Codex wrapper and OpenCode selections concurrently, including
+- [x] Exercise Codex wrapper and OpenCode selections concurrently, including
       restart and resume, with the executables available in the test setup.
-- [ ] Review service and workflow boundaries for global selection reads,
+- [x] Review service and workflow boundaries for global selection reads,
       provider-specific logic in core, and untracked launch paths.
 - [x] Update operator documentation to explain workspace defaults, overrides,
       provider-specific history, resume behavior, and legacy migration.
-- [ ] Preserve review findings, validation commands, results, and decisions
+- [x] Preserve review findings, validation commands, results, and decisions
       according to the project development workflow.
 
 ## Acceptance criteria
@@ -295,3 +295,28 @@ then start a third agent with a `codex-ornl` override while keeping OpenCode as
 the workspace default. Another workspace keeps its own default throughout.
 After restart, each saved agent can be resumed using its recorded provider and
 executable, subject to that executable and its history being available.
+
+## Implementation review and validation
+
+- Executable discovery reads the service `PATH`; account-specific wrapper names
+  are test fixtures or examples, not a production allowlist. The Codex and
+  OpenCode provider adapters retain their provider-specific command handling.
+- Workspace migration runs at project open and preserves unresolved identities
+  rather than guessing an executable. A selected executable is validated before
+  saving a default; active sessions and queued jobs retain captured selections.
+- The focused agent, migration, workspace, history, and learner tests passed
+  (86 tests). Stage and requirements coverage passed (82 tests); the three
+  agent UI browser checks passed. Fixture executables exercised concurrent
+  Codex-wrapper and OpenCode processes without model calls.
+- The full repository invocation completed with 798 passed, two skipped, and
+  five failures. One failure was an untracked local test, three were unrelated
+  browser mind-map/corkboard checks using Snap Chromium, and one was the
+  existing project-creation Git-worktree check, which also failed in isolation.
+  The service file-event stream test intermittently failed in a focused run and
+  passed immediately on its own.
+- Validation commands used an activated project environment: `python -m pytest
+  tests/test_agent_backend.py tests/test_agent_migration.py
+  tests/test_workspace_isolation.py tests/test_codex_session_discovery.py
+  tests/test_code_learner_controller.py tests/test_code_learner_module_scheduler.py
+  -q`; targeted stage and UI browser checks; and `python -m pytest -q` with a
+  Chromium-accessible base directory.

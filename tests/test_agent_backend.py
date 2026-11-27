@@ -51,6 +51,21 @@ def test_captured_selection_requires_available_executable(tmp_path):
             backend.resolve("codex-fixture-alpha", tmp_path)
 
 
+def test_queued_runtime_retains_workspace_selection(tmp_path):
+    from electroboy.service.services import build_service_services
+
+    state = ServiceState(tmp_path)
+    workspace = state.create_context(workflow_id="software")["context_id"]
+    services = build_service_services(state, state.workflow_registry).sessions
+    with patch("shutil.which", side_effect=lambda name: f"/bin/{name}"):
+        services.set_workspace_backend(workspace, "codex-fixture-alpha")
+        queued_factory = services.runtime_factory(workspace)
+        services.set_workspace_backend(workspace, "opencode")
+        later_factory = services.runtime_factory(workspace)
+    assert queued_factory("code_review", tmp_path).config.command == "codex-fixture-alpha"
+    assert later_factory("code_review", tmp_path).config.adapter == "opencode_exec"
+
+
 def test_explicit_background_cancellation_is_isolated(tmp_path):
     script = tmp_path / "agent.py"
     script.write_text(
@@ -110,6 +125,46 @@ def test_workspace_default_change_keeps_mixed_agent_processes_running(tmp_path):
         assert [session.metadata["provider_binary"] for session in sessions] == [
             "codex-fixture-alpha", "opencode",
         ]
+    finally:
+        for session in sessions:
+            session.terminate()
+
+
+def test_discovered_provider_executables_run_concurrently(tmp_path, monkeypatch):
+    from electroboy.service.services import build_service_services
+
+    for binary in ("codex-fixture-alpha", "opencode"):
+        executable = tmp_path / binary
+        executable.write_text(
+            f"#!{sys.executable}\n"
+            "import os,time\nfrom pathlib import Path\n"
+            "Path(os.path.basename(__file__) + '.started').write_text('running')\n"
+            "time.sleep(60)\n"
+        )
+        executable.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    state = ServiceState(tmp_path)
+    workspace = state.create_context(workflow_id="software")["context_id"]
+    services = build_service_services(state, state.workflow_registry).sessions
+    sessions = []
+    try:
+        for binary in ("codex-fixture-alpha", "opencode"):
+            selected = services.resolve_workspace_selection(workspace, binary)
+            session = AgentSession(
+                interactive_command(tmp_path, "", backend=selected.provider),
+                tmp_path, kind="ad-hoc",
+            )
+            services.prepare(state.contexts[workspace], session, selected)
+            session.start()
+            sessions.append(session)
+        deadline = time.monotonic() + 5
+        while not all((tmp_path / f"{name}.started").exists() for name in
+                      ("codex-fixture-alpha", "opencode")) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert all((tmp_path / f"{name}.started").exists() for name in
+                   ("codex-fixture-alpha", "opencode"))
+        services.set_workspace_backend(workspace, "opencode")
+        assert all(session.is_active() for session in sessions)
     finally:
         for session in sessions:
             session.terminate()
@@ -198,10 +253,12 @@ def test_software_stage_agent_captures_explicit_selection(tmp_path):
     with (
         patch("shutil.which", return_value="/bin/true"),
         patch.object(AgentSession, "start"),
+        patch.object(state.agent_backend, "resolve", wraps=state.agent_backend.resolve) as resolve,
     ):
         session, started = controller.start_requirements_agent(
             workspace, agent_binary="opencode",
         )
+    assert resolve.call_count == 1
     assert started
     assert session.metadata["provider"] == "opencode"
     assert session.metadata["provider_binary"] == "opencode"
