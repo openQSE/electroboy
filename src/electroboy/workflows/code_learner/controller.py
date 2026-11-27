@@ -513,6 +513,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             )
         course = navigation.get("current")
         course = course if isinstance(course, dict) else {}
+        selection = self.services.sessions.resolve_workspace_selection(context_id)
         with self.services.contexts.lock:
             browser = self.services.contexts.require(context_id)
             for session in browser.code_learner_sessions.values():
@@ -521,7 +522,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     return session, False
             session = AgentSession(
                 command=code_learner_agent_command(
-                    root, backend=self.services.sessions.backend
+                    root, backend=selection.provider
                 ),
                 cwd=root,
                 label="code learner tutor",
@@ -534,8 +535,8 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                     "tutor_context_path": TUTOR_CONTEXT_RELATIVE_PATH,
                 },
             )
-            session.environment.update(interactive_environment(self.services.sessions.backend, sandbox="read-only"))
-            session = self.services.sessions.prepare(browser, session)
+            session.environment.update(interactive_environment(selection.provider, sandbox="read-only"))
+            session = self.services.sessions.prepare(browser, session, selection)
             browser.code_learner_sessions[session.session_id] = session
             browser.selected_session_id = session.session_id
             self.services.sessions.record(browser, session)

@@ -91,6 +91,35 @@ def test_creative_agents_capture_workspace_default_and_explicit_override(tmp_pat
     assert services.workspace_backend_payload(workspace)["backend"] == "codex-ornl"
 
 
+def test_software_agents_capture_workspace_default_and_explicit_override(tmp_path):
+    from electroboy.service.services import build_service_services
+    from electroboy.state_store import StateStore
+
+    root = tmp_path / "project"
+    root.mkdir()
+    StateStore(root).init_run(run_id="test")
+    service_root = tmp_path / "service"
+    service_root.mkdir()
+    state = ServiceState(service_root)
+    workspace = state.create_context(workflow_id="software")["context_id"]
+    state.open_project(workspace, str(root))
+    services = build_service_services(state, state.workflow_registry).sessions
+    controller = state.workflow_controller("software")
+    with (
+        patch("shutil.which", side_effect=lambda name: f"/bin/{name}"),
+        patch.object(AgentSession, "start"),
+        patch("electroboy.workflows.software.controller.codex_session_paths", return_value=frozenset()),
+        patch("electroboy.workflows.software.controller.start_ad_hoc_session_tracking"),
+    ):
+        services.set_workspace_backend(workspace, "codex-atoz")
+        first, _ = controller.start_ad_hoc_agent(workspace)
+        second, _ = controller.start_ad_hoc_agent(workspace, agent_binary="opencode")
+        services.set_workspace_backend(workspace, "codex-ornl")
+    assert first.metadata["provider_binary"] == "codex-atoz"
+    assert second.metadata["provider_binary"] == "opencode"
+    assert services.workspace_backend_payload(workspace)["backend"] == "codex-ornl"
+
+
 def test_defaults_confirmation_and_stale_revision():
     backend = selection()
     assert backend.payload()["backend"] == "codex"

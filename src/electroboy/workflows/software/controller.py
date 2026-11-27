@@ -165,7 +165,10 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 _stage_session_payload(session)
                 for session in current_by_id.values()
             ]
-        history = self.services.sessions.provider_history(command_root, stage)
+        selection = self.services.sessions.resolve_workspace_selection(context_id)
+        history = self.services.sessions.provider_history(
+            command_root, stage, provider=selection.provider,
+        )
         known_provider_ids = {
             str(payload.get("provider_session_id") or "")
             for payload in current_payloads
@@ -194,6 +197,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
     ) -> tuple[AgentSession | None, str | None]:
         requested_session_id = session_id.strip()
         requested_provider_id = provider_session_id.strip()
+        selection = self.services.sessions.resolve_workspace_selection(context_id)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             command_root = self.services.contexts.command_root(context)
@@ -216,6 +220,11 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     raise AgentSessionError("stage session was not found")
                 if existing is not None:
                     metadata = existing.metadata or {}
+                    existing_binary = str(metadata.get("provider_binary") or "")
+                    if existing_binary:
+                        selection = self.services.sessions.resolve_workspace_selection(
+                            context_id, existing_binary,
+                        )
                     requested_provider_id = requested_provider_id or str(
                         metadata.get("provider_session_id") or ""
                     )
@@ -231,12 +240,13 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 for entry in self.services.sessions.provider_history(
                     command_root,
                     stage,
+                    provider=selection.provider,
                 )
             }
-            if self.services.sessions.backend == "codex":
+            if selection.provider == "codex":
                 provider_session = codex_session_by_id(
                     requested_provider_id,
-                    executable=self.services.sessions.executable(command_root),
+                    executable=selection.executable,
                     root=command_root,
                 )
                 valid = (
@@ -257,12 +267,14 @@ class SoftwareWorkflowController(BoundWorkflowController):
         provider_session_id: str | None,
         context_id: str,
     ) -> tuple[dict[str, object], frozenset[Path]]:
-        backend = self.services.sessions.backend
+        selection = self.services.sessions.resolve_workspace_selection(context_id)
+        backend = selection.provider
         provider_id = provider_session_id
         if backend == "opencode" and not provider_id:
             provider_id = "ses_" + uuid4().hex
         metadata: dict[str, object] = {
             "provider": backend,
+            "provider_binary": selection.binary,
             "resumed_session": bool(provider_session_id),
         }
         if provider_id:
@@ -274,7 +286,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 root = self.services.contexts.command_root(context)
             if root is None:
                 raise AgentSessionError("activate a project first")
-            executable = self.services.sessions.executable(root)
+            executable = selection.executable
             known_paths = codex_session_paths(executable=executable, root=root)
         return metadata, known_paths
 
@@ -284,7 +296,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
         session: AgentSession,
         known_paths: frozenset[Path],
     ) -> None:
-        if not known_paths and self.services.sessions.backend != "codex":
+        if not known_paths and session.metadata.get("provider") != "codex":
             return
         if session.metadata.get("provider_session_id"):
             return
@@ -411,6 +423,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 provider_id = provider_id.strip().lower()
                 if provider_id and session.is_active():
                     running_provider_session_ids.add(provider_id)
+        selection = self.services.sessions.resolve_workspace_selection(context_id)
         return {
             "project_root": str(command_root),
             "sessions": [
@@ -419,10 +432,12 @@ class SoftwareWorkflowController(BoundWorkflowController):
                     ad_hoc_session_history(
                         self.services.files.state_root,
                         command_root,
-                        executable=self.services.sessions.executable(command_root),
+                        executable=selection.executable,
                     )
-                    if self.services.sessions.backend == "codex"
-                    else self.services.sessions.provider_history(command_root, "ad-hoc")
+                    if selection.provider == "codex"
+                    else self.services.sessions.provider_history(
+                        command_root, "ad-hoc", provider=selection.provider,
+                    )
                 )
                 if str(session.get("provider_session_id") or "").strip().lower()
                 not in running_provider_session_ids
@@ -434,11 +449,13 @@ class SoftwareWorkflowController(BoundWorkflowController):
         context_id: str,
         provider_session_id: str | None = None,
         name: str = "",
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         """Start a workflow-neutral agent or resume a selected Codex UUID."""
 
         requested_session_id = str(provider_session_id or "").strip().lower()
         requested_name = normalize_session_name(name)
+        selection = self.services.sessions.resolve_workspace_selection(context_id, agent_binary)
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             command_root = self.services.contexts.command_root(context)
@@ -451,17 +468,20 @@ class SoftwareWorkflowController(BoundWorkflowController):
                         metadata.get("provider_session_id") or ""
                     ).strip().lower()
                     if provider_id == requested_session_id and session.is_active():
+                        existing_binary = str(metadata.get("provider_binary") or "")
+                        if agent_binary and existing_binary and agent_binary != existing_binary:
+                            raise AgentSessionError("Agent session uses a different executable.")
                         if requested_name:
                             session.name = requested_name
                             self.services.sessions.record(context, session)
                         context.selected_session_id = session.session_id
                         return session, False
 
-        backend = self.services.sessions.backend
+        backend = selection.provider
         if backend == "opencode":
             with self.services.contexts.lock:
                 history = self.services.sessions.provider_history(
-                    command_root, "ad-hoc"
+                    command_root, "ad-hoc", provider=backend
                 )
                 if requested_session_id and not any(
                     entry["provider_session_id"] == requested_session_id
@@ -490,7 +510,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                         "resumed_session": bool(requested_session_id),
                     },
                 )
-                session = self.services.sessions.prepare(context, session)
+                session = self.services.sessions.prepare(context, session, selection)
                 context.ad_hoc_sessions[session.session_id] = session
                 context.selected_session_id = session.session_id
                 self.services.sessions.record(context, session)
@@ -499,7 +519,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
 
         provider_session = None
         known_provider_paths: frozenset[Path] = frozenset()
-        executable = self.services.sessions.executable(command_root)
+        executable = selection.executable
         if requested_session_id:
             provider_session = resumable_ad_hoc_session(
                 self.services.files.state_root,
@@ -562,7 +582,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 interactive=True,
                 metadata=metadata,
             )
-            session = self.services.sessions.prepare(context, session)
+            session = self.services.sessions.prepare(context, session, selection)
             context.ad_hoc_sessions[session.session_id] = session
             context.selected_session_id = session.session_id
             self.services.sessions.record(context, session)

@@ -222,6 +222,7 @@ def _ad_hoc_start(request: RouteRequest) -> ServiceResponse:
             payload.get("provider_session_id") or ""
         ).strip()
         name = str(payload.get("name") or "")
+        agent_binary = str(payload.get("agent_binary") or "")
     except Exception as error:
         return _error(error)
     return _agent_started(
@@ -230,6 +231,7 @@ def _ad_hoc_start(request: RouteRequest) -> ServiceResponse:
             request.context_id,
             provider_session_id or None,
             name,
+            agent_binary,
         ),
         "ad-hoc agent",
         include_session_id=True,

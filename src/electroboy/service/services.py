@@ -1082,6 +1082,10 @@ class RuntimeSessionServices:
         session: AgentSession,
         selection: AgentSelection | None = None,
     ) -> AgentSession:
+        if selection is None and session.kind != "project-shell":
+            selection = self.resolve_workspace_selection(
+                context.context_id, str(session.metadata.get("provider_binary") or ""),
+            )
         return self.runtime._prepare_session_locked(context, session, selection=selection)
 
     def record(self, context: BrowserContext, session: AgentSession) -> None:
