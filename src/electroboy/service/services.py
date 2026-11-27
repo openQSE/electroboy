@@ -183,7 +183,7 @@ class SessionServices(Protocol):
         self, root: Path, kind: str, scope_key: str = "", *, provider: str = ""
     ) -> list[dict[str, object]]: ...
 
-    def runtime_factory(self): ...
+    def runtime_factory(self, workspace_id: str = ""): ...
 
     def prepare(
         self,
@@ -1070,8 +1070,11 @@ class RuntimeSessionServices:
     ) -> list[dict[str, object]]:
         return self.runtime.provider_history(root, kind, scope_key, provider=provider)
 
-    def runtime_factory(self):
-        return self.runtime.agent_backend.runtime_factory()
+    def runtime_factory(self, workspace_id: str = ""):
+        if not workspace_id:
+            return self.runtime.agent_backend.runtime_factory()
+        selection = self.resolve_workspace_selection(workspace_id)
+        return self.runtime.agent_backend.selected_runtime_factory(selection)
 
     def prepare(
         self,

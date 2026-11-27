@@ -139,7 +139,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             raise CodeLearnerError(f"invalid initialization mode: {requested_mode}")
         store = LearnerStore(root)
         if requested_mode == "continue" and store.course_ready("architecture"):
-            self._start_module_scheduler(root)
+            self._start_module_scheduler(
+                root, self.services.sessions.runtime_factory(context_id)
+            )
             return self._initialization_payload(context_id, root)
         self._require_cache_clearable(context_id)
         with self._lock:
@@ -154,7 +156,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             if scheduler is not None:
                 scheduler.stop()
             job = _InitializationJob(
-                root, runtime_factory=self.services.sessions.runtime_factory()
+                root, runtime_factory=self.services.sessions.runtime_factory(context_id)
             )
             job.lease = InitializationLease.acquire(root, job.job_id)
             try:
@@ -186,7 +188,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
     def initialization_status(self, context_id: str) -> dict[str, object]:
         root = self._active_project_root(context_id)
         if LearnerStore(root).course_ready("architecture"):
-            self._start_module_scheduler(root)
+            self._start_module_scheduler(
+                root, self.services.sessions.runtime_factory(context_id)
+            )
         return self._initialization_payload(context_id, root)
 
     def abort_initialization(self, context_id: str) -> dict[str, object]:
@@ -331,7 +335,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
         store = LearnerStore(root)
         if not store.course_ready("function", scope_id):
             CourseWorkerService(
-                root, runtime_factory=self.services.sessions.runtime_factory()
+                root, runtime_factory=self.services.sessions.runtime_factory(context_id)
             ).generate_function(symbol, scope_id)
         return {
             "status": "ready",
@@ -381,7 +385,9 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             if not scope_id:
                 raise CodeLearnerError("Module target is required")
             if not store.course_ready("module", scope_id):
-                background = self._start_module_scheduler(root)
+                background = self._start_module_scheduler(
+                    root, self.services.sessions.runtime_factory(context_id)
+                )
                 scheduler = self._module_schedulers[str(root)]
                 background = scheduler.prioritize(scope_id)
                 target_state = next(
@@ -588,7 +594,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             epoch = getattr(job.runtime_factory, "cancel_event", None)
             if epoch is not None and epoch.is_set():
                 raise CourseGenerationCancelled("Agent backend changed.")
-            self._start_module_scheduler(root)
+            self._start_module_scheduler(root, job.runtime_factory)
         except CourseGenerationCancelled:
             store.save_status(
                 status="aborted",
@@ -762,7 +768,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
             "course_artifact": navigator.artifact(navigation),
         }
 
-    def _start_module_scheduler(self, root: Path) -> dict[str, object]:
+    def _start_module_scheduler(self, root: Path, runtime_factory) -> dict[str, object]:
         if not LearnerStore(root).course_ready("architecture"):
             return module_generation_status(root)
         key = str(root)
@@ -773,7 +779,7 @@ class CodeLearnerWorkflowController(BoundWorkflowController):
                 scheduler = None
             if scheduler is None:
                 scheduler = ModuleCourseScheduler(
-                    root, runtime_factory=self.services.sessions.runtime_factory()
+                    root, runtime_factory=runtime_factory
                 )
                 self._module_schedulers[key] = scheduler
         return scheduler.start()

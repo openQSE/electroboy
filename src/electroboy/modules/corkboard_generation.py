@@ -883,7 +883,7 @@ class CorkboardGenerationManager:
         connection_id: str = "",
     ) -> dict[str, object]:
         runtime_factory = (
-            services.sessions.runtime_factory()
+            services.sessions.runtime_factory(context_id)
             if self.runtime_factory is _default_runtime_factory
             else self.runtime_factory
         )

@@ -20,6 +20,20 @@ from electroboy.state_store import StateStore
 
 
 class WorkspaceIsolationTests(unittest.TestCase):
+    def test_background_factory_captures_workspace_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            workspace = state.create_context(workflow_id="software")["context_id"]
+            services = build_service_services(state, state.workflow_registry).sessions
+            with mock.patch("shutil.which", side_effect=lambda name: f"/bin/{name}"):
+                services.set_workspace_backend(workspace, "codex-atoz")
+                captured = services.runtime_factory(workspace)
+                services.set_workspace_backend(workspace, "opencode")
+                next_factory = services.runtime_factory(workspace)
+            self.assertEqual(captured("code_review", Path(tmp)).config.command, "codex-atoz")
+            self.assertEqual(next_factory("code_review", Path(tmp)).config.adapter, "opencode_exec")
+            self.assertFalse(captured.cancel_event.is_set())
+
     def test_workspace_selection_is_captured_for_agent_preparation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state = ServiceState(Path(tmp))
