@@ -17,6 +17,8 @@ from electroboy.adapters.codex_sessions import (
     codex_sessions_directory,
 )
 from electroboy.runtime import interactive_command
+from electroboy.service.agent_backend import migrate_agent_selection
+from electroboy.service.agent_migration import migrate_session_catalog, preserve_unresolved_selection
 from electroboy.workflows.software.agent_rules import (
     materialize_software_agent_rules,
     prompt_with_software_agent_rules,
@@ -28,6 +30,12 @@ AD_HOC_CATALOG_RELATIVE_PATH = (
 _LEGACY_AD_HOC_PROMPT = "Here is the code base. Follow what the operator says."
 _AD_HOC_PROMPT_PREFIX = "You are an ad-hoc agent for this code base."
 _CATALOG_LOCK = threading.Lock()
+
+
+def upgrade_agent_history(service_root: Path, project_root: Path) -> None:
+    """Upgrade this project's catalog under its existing synchronization lock."""
+    with _CATALOG_LOCK:
+        migrate_session_catalog(_catalog_path(service_root), project_root)
 
 
 def ad_hoc_agent_command(
@@ -93,13 +101,13 @@ def ad_hoc_session_history(
                 retained.append(entry)
                 continue
             project_entries.append(
-                _history_entry(
+                preserve_unresolved_selection(entry, _history_entry(
                     session,
                     electroboy_session_id=str(
                         entry.get("electroboy_session_id") or ""
                     ),
                     title=str(entry.get("title") or "").strip() or None,
-                )
+                ))
             )
         catalog["sessions"] = [*project_entries, *retained]
         _save_catalog(service_root, catalog)
@@ -309,13 +317,13 @@ def _history_entry(
     electroboy_session_id: str = "",
     title: str | None = None,
 ) -> dict[str, object]:
-    return {
+    return migrate_agent_selection({
         **session.payload(),
         "electroboy_session_id": electroboy_session_id,
         "title": title or _session_title(session),
         "last_validated_at": datetime.now(timezone.utc).isoformat(),
         "resumable": True,
-    }
+    })
 
 
 def _session_title(session: CodexSessionSummary) -> str:

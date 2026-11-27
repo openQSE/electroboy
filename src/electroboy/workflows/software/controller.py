@@ -37,6 +37,7 @@ from .ad_hoc import (
     remember_ad_hoc_session,
     resumable_ad_hoc_session,
     start_ad_hoc_session_tracking,
+    upgrade_agent_history,
 )
 from .domain import (
     APPROVAL_WORKFLOW_STAGES,
@@ -125,6 +126,9 @@ class SoftwareWorkflowController(BoundWorkflowController):
     """Own software-workflow actions and agent sequencing."""
 
     workflow_id = "software"
+
+    def upgrade_agent_history(self, project_root: Path) -> None:
+        upgrade_agent_history(self.services.files.state_root, project_root)
 
     def __init__(self, services: ServiceServices) -> None:
         super().__init__(services)

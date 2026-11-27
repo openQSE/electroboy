@@ -69,7 +69,8 @@ from .registry import (
     build_workflow_registry,
     installed_workflow_factories,
 )
-from .agent_backend import AgentBackend, AgentSelection
+from .agent_backend import AgentBackend, AgentSelection, migrate_agent_selection
+from .agent_migration import migrate_workspace_sessions, write_json_atomic
 from .routes import RouteOperations, RouteRequest, build_route_dispatcher
 from .services import build_service_services
 from .sessions import (
@@ -549,6 +550,8 @@ class ServiceState:
             context = self._context_locked(context_id)
             active_project_root = context.active_project_root
             workflow_id = context.workflow_id
+            if active_project_root is not None:
+                self._upgrade_workspace_agent_state(context, active_project_root)
         payload = project_payload(
             self.root,
             context,
@@ -568,6 +571,41 @@ class ServiceState:
             pass
         self.workspace_registry.persist(context_id)
         return payload
+
+    def _upgrade_workspace_agent_state(
+        self, context: BrowserContext, project_root: Path,
+    ) -> None:
+        """Normalize legacy agent data once when opening a workspace project."""
+        root = project_root.expanduser().resolve()
+        state = context.module("agent_backend")
+        if state.get("history_version") == 1 and state.get("history_project") == str(root):
+            return
+        self.workspace_registry.agent_default(context.context_id, self.agent_backend.binary)
+        migrate_workspace_sessions(
+            _service_session_records_path(self.state_root), context.context_id, root,
+        )
+        controller = self.workflow_controller(context.workflow_id)
+        upgrade = getattr(controller, "upgrade_agent_history", None)
+        if callable(upgrade):
+            upgrade(root)
+        for session in self._context_process_sessions_locked(context):
+            if session.kind != "project-shell":
+                session.metadata = migrate_agent_selection(session.metadata)
+        previous_version = state.get("history_version")
+        previous_project = state.get("history_project")
+        state.update({"history_version": 1, "history_project": str(root)})
+        try:
+            self.workspace_registry.persist(context.context_id)
+        except Exception:
+            if previous_version is None:
+                state.pop("history_version", None)
+            else:
+                state["history_version"] = previous_version
+            if previous_project is None:
+                state.pop("history_project", None)
+            else:
+                state["history_project"] = previous_project
+            raise
 
     def workspace_payload(
         self,
@@ -2554,8 +2592,7 @@ def _save_service_session_records(
     data: dict[str, object],
 ) -> None:
     path = _service_session_records_path(service_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json_atomic(path, data)
 
 
 def _upsert_service_session_record(

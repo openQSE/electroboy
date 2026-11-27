@@ -94,6 +94,26 @@
     });
   }
 
+  function confirmUnresolvedAgent(binary) {
+    const dialog = document.createElement("dialog");
+    dialog.className = "agent-focus-session-dialog";
+    dialog.innerHTML = `<form method="dialog"><h2>Confirm session agent</h2>
+      <p></p><button type="button" class="cancel">Cancel</button>
+      <button type="submit">Resume</button></form>`;
+    dialog.querySelector("p").textContent =
+      `This session has no saved agent. Resume it with ${binary}?`;
+    document.body.append(dialog);
+    return new Promise((resolve) => {
+      const finish = (value) => { dialog.close(); dialog.remove(); resolve(value); };
+      dialog.querySelector(".cancel").onclick = () => finish(false);
+      dialog.oncancel = (event) => { event.preventDefault(); finish(false); };
+      dialog.querySelector("form").onsubmit = (event) => {
+        event.preventDefault(); finish(true);
+      };
+      dialog.showModal();
+    });
+  }
+
   function mount(options) {
     const controller = options.controller;
     const controls = options.controls || {};
@@ -516,5 +536,7 @@
     return { refresh };
   }
 
-  window.ElectroBoyAgentPaneTools = { mount, configureAgentChoice, chooseAgentForLaunch };
+  window.ElectroBoyAgentPaneTools = {
+    mount, configureAgentChoice, chooseAgentForLaunch, confirmUnresolvedAgent,
+  };
 })();

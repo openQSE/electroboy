@@ -1076,6 +1076,7 @@
       input.dataset.providerSessionId = String(session.provider_session_id || "");
       input.dataset.sessionName = String(session.name || session.title || "Stage session");
       input.dataset.agentBinary = String(session.provider_binary || session.metadata?.provider_binary || "");
+      input.dataset.selectionStatus = String(session.selection_status || session.metadata?.selection_status || "");
       const copy = document.createElement("span");
       copy.className = "ad-hoc-session-option-copy";
       const title = document.createElement("strong");
@@ -1153,9 +1154,13 @@
           event.preventDefault();
           finish(null);
         };
-        dialog.querySelector("form").onsubmit = (event) => {
+        dialog.querySelector("form").onsubmit = async (event) => {
           event.preventDefault();
           const selected = dialog.querySelector('input[name="stage-session"]:checked');
+          if (selected?.dataset.selectionStatus === "unresolved" &&
+              !await window.ElectroBoyAgentPaneTools.confirmUnresolvedAgent(agentSelect.value)) {
+            return;
+          }
           const name = nameInput.value.trim();
           if (!name) {
             error.textContent = "Enter a session name.";
@@ -1240,6 +1245,7 @@
       input.name = "ad-hoc-session";
       input.value = String(session.provider_session_id || "");
       input.id = `ad-hoc-session-${index}`;
+      input.dataset.selectionStatus = String(session.selection_status || session.metadata?.selection_status || "");
       const copy = document.createElement("span");
       copy.className = "ad-hoc-session-option-copy";
       const title = document.createElement("strong");
@@ -1335,11 +1341,15 @@
           event.preventDefault();
           finish(null);
         };
-        dialog.querySelector("form").onsubmit = (event) => {
+        dialog.querySelector("form").onsubmit = async (event) => {
           event.preventDefault();
           const selected = dialog.querySelector(
             'input[name="ad-hoc-session"]:checked',
           );
+          if (selected?.dataset.selectionStatus === "unresolved" &&
+              !await window.ElectroBoyAgentPaneTools.confirmUnresolvedAgent(agentSelect.value)) {
+            return;
+          }
           let providerSessionId = selected ? selected.value : "";
           if (providerSessionId === "custom") {
             providerSessionId = customInput.value.trim().toLowerCase();

@@ -61,6 +61,27 @@ class AgentSelection:
     executable: str
 
 
+def migrate_agent_selection(metadata: dict[str, object]) -> dict[str, object]:
+    """Normalize recorded executable identity without guessing missing values."""
+    result = dict(metadata)
+    binary = str(result.get("provider_binary") or "")
+    if not binary:
+        binary = Path(str(result.get("provider_executable") or "")).name
+    provider = str(result.get("provider") or "")
+    try:
+        derived = _provider_for_binary(binary)
+        if provider and provider != derived:
+            raise ValueError("Provider does not match executable")
+    except ValueError:
+        result["provider_binary"] = ""
+        result["selection_status"] = "unresolved"
+    else:
+        result["provider"] = derived
+        result["provider_binary"] = binary
+        result["selection_status"] = "resolved"
+    return result
+
+
 class AgentBackend:
     """Coordinate terminal sessions and background invocations for one service."""
 
@@ -142,6 +163,7 @@ class AgentBackend:
         session.metadata["provider"] = selection.provider
         session.metadata["provider_binary"] = selection.binary
         session.metadata["provider_executable"] = selection.executable
+        session.metadata["selection_status"] = "resolved"
         session.environment["ELECTROBOY_AGENT_BACKEND"] = selection.provider
         session.environment["ELECTROBOY_AGENT_EXECUTABLE"] = (
             selection.binary if selection.binary != selection.provider else ""

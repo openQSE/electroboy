@@ -30,10 +30,10 @@ Each workspace has a default selection, which can be overridden for an agent.
   invalid. Persist the result. The legacy file is not a shared mutable default.
 - Apply the same initialization when creating a workspace. Project-specific
   persistence beyond the workspace lifecycle is outside this design.
-- Make workspace upgrades versioned and idempotent. Persist the converted data
-  and version together; if conversion or persistence fails, report the error
-  and leave the previous workspace data intact. Reopening must not duplicate
-  records or overwrite a user's newer selections.
+- Make workspace upgrades versioned and idempotent. Replace each converted
+  file atomically and record completion only after all conversions succeed.
+  If an upgrade fails, retain session data and retry the conversion on reopen.
+  Reopening must not duplicate records or overwrite newer selections.
 - Convert associated session records at the migration boundary, including
   records held in existing service catalogs. Restrict changes to the workspace
   and project being opened, preserve provider IDs and history, and coordinate
@@ -184,12 +184,12 @@ after its code and relevant validation are complete.
 - [x] Add namespaced workspace default storage using the workspace registry;
       verify isolation, project reset, restore, and failed-write rollback.
 - [x] Verify workspace default storage for shared workspaces.
-- [ ] Upgrade older workspaces and their associated session records at open or
+- [x] Upgrade older workspaces and their associated session records at open or
       restore, using recorded provider and executable metadata when reliable.
-      Persist the current representation and version as one upgrade.
-- [ ] Seed missing defaults from the legacy service binary, falling back to
+      Commit each file atomically and mark the upgrade complete last.
+- [x] Seed missing defaults from the legacy service binary, falling back to
       `codex`, and mark sessions with unknown executables as unresolved.
-- [ ] Make upgrades idempotent, scoped to the workspace and project, and safe
+- [x] Make upgrades idempotent, scoped to the workspace and project, and safe
       on failure; keep history and provider identifiers intact.
 - [x] Add selection resolution and executable availability validation to the
       existing session service contract, scoped by workspace.

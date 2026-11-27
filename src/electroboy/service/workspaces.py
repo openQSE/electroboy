@@ -647,7 +647,9 @@ class WorkspaceRegistry:
             self.require_record(workspace_id)
             context = self.context_store.require(workspace_id)
             previous = dict(context.module("agent_backend"))
-            context.module_state["agent_backend"] = {"version": 1, "binary": binary}
+            context.module_state["agent_backend"] = {
+                **previous, "version": 1, "binary": binary,
+            }
             try:
                 self._save_locked()
             except Exception:

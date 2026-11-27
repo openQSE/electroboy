@@ -359,15 +359,16 @@ def test_workflow_launches_opencode_and_resumes_only_its_own_history(
     else:
         opened = state.create_creative_project(context_id, str(root))
     context_id = opened.get("context_id", context_id)
-    with patch("shutil.which", return_value="/bin/true"):
-        state.agent_backend.switch("opencode", confirmed=True, revision=0)
+    from electroboy.service.services import build_service_services
+    services = build_service_services(state, state.workflow_registry).sessions
     controller = state.workflow_controller(workflow)
     start = (
         controller.start_ad_hoc_agent
         if workflow == "software"
         else state.start_creative_writing_agent
     )
-    with patch.object(AgentSession, "start"):
+    with patch("shutil.which", return_value="/bin/true"), patch.object(AgentSession, "start"):
+        services.set_workspace_backend(context_id, "opencode")
         first, created = start(context_id)
         assert created and first.command[0] == "opencode"
         assert "--standalone" in first.command
@@ -381,7 +382,7 @@ def test_workflow_launches_opencode_and_resumes_only_its_own_history(
             start(
                 context_id, provider_session_id="00000000-0000-0000-0000-000000000000"
             )
-    history = state.provider_history(root, first.kind)
+    history = state.provider_history(root, first.kind, provider="opencode")
     assert any(entry["provider_session_id"] == provider_id for entry in history)
 
 
@@ -403,10 +404,11 @@ def test_switch_leaves_shell_running_and_changes_pipeline_child_environment(tmp_
     shell = state._prepare_session_locked(context, shell)
     shell.start()
     try:
-        with patch("shutil.which", return_value="/bin/true"):
-            state.agent_backend.switch("opencode", confirmed=True, revision=0)
-        assert shell.is_active()
-        with patch.object(AgentSession, "start"):
+        from electroboy.service.services import build_service_services
+        services = build_service_services(state, state.workflow_registry).sessions
+        with patch("shutil.which", return_value="/bin/true"), patch.object(AgentSession, "start"):
+            services.set_workspace_backend(context_id, "opencode")
+            assert shell.is_active()
             agent, started = state.start_requirements_agent(context_id)
         assert started
         assert agent.environment["ELECTROBOY_AGENT_BACKEND"] == "opencode"

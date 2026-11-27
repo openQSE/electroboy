@@ -49,6 +49,7 @@ from .sessions import (
     remember_creative_session,
     resumable_creative_session,
     start_creative_session_tracking,
+    upgrade_agent_history,
 )
 
 
@@ -60,6 +61,9 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
     """Own creative project, binder, corkboard, and agent behavior."""
 
     workflow_id = "creative-writing"
+
+    def upgrade_agent_history(self, project_root: Path) -> None:
+        upgrade_agent_history(self.services.files.state_root, project_root)
 
     def __init__(self, services: ServiceServices) -> None:
         super().__init__(services)

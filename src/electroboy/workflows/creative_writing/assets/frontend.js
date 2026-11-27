@@ -1239,6 +1239,7 @@
       input.name = "creative-session";
       input.value = creativeSessionOptionValue(session);
       input.id = `creative-session-${index}`;
+      input.dataset.selectionStatus = String(session.selection_status || session.metadata?.selection_status || "");
       const copy = document.createElement("span");
       copy.className = "ad-hoc-session-option-copy";
       const title = document.createElement("strong");
@@ -1397,7 +1398,7 @@
           event.preventDefault();
           finish(null);
         };
-        dialog.querySelector("form").onsubmit = (event) => {
+        dialog.querySelector("form").onsubmit = async (event) => {
           event.preventDefault();
           const selected = dialog.querySelector(
             'input[name="creative-session"]:checked',
@@ -1409,6 +1410,10 @@
           if (!choice) {
             error.textContent = "Enter a session id.";
             error.hidden = false;
+            return;
+          }
+          if (selected?.dataset.selectionStatus === "unresolved" &&
+              !await window.ElectroBoyAgentPaneTools.confirmUnresolvedAgent(agentSelect.value)) {
             return;
           }
           const name = nameInput.value.trim();

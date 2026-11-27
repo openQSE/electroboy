@@ -16,6 +16,8 @@ from electroboy.adapters.codex_sessions import (
     codex_session_paths,
     codex_sessions_directory,
 )
+from electroboy.service.agent_backend import migrate_agent_selection
+from electroboy.service.agent_migration import migrate_session_catalog, preserve_unresolved_selection
 
 
 CREATIVE_AGENT_CATALOG_RELATIVE_PATH = (
@@ -26,6 +28,12 @@ CREATIVE_DOCUMENT_SCOPE = "document"
 CREATIVE_GENERAL_SCOPE_KEY = "general"
 _CREATIVE_PROMPT_PREFIX = "Act as a creative writing collaborator inside this project."
 _CATALOG_LOCK = threading.Lock()
+
+
+def upgrade_agent_history(service_root: Path, project_root: Path) -> None:
+    """Upgrade this project's catalog under its existing synchronization lock."""
+    with _CATALOG_LOCK:
+        migrate_session_catalog(_catalog_path(service_root), project_root)
 
 
 def creative_document_scope_key(document_path: str) -> str:
@@ -59,7 +67,7 @@ def creative_session_history(
                 retained.append(entry)
                 continue
             scoped_entries.append(
-                _history_entry(
+                preserve_unresolved_selection(entry, _history_entry(
                     session,
                     project_root=resolved_root,
                     scope=scope,
@@ -71,7 +79,7 @@ def creative_session_history(
                         entry.get("electroboy_session_id") or ""
                     ),
                     title=str(entry.get("title") or "").strip() or None,
-                )
+                ))
             )
         catalog["sessions"] = [*scoped_entries, *retained]
         _save_catalog(service_root, catalog)
@@ -327,7 +335,7 @@ def _history_entry(
         if session.cwd != scoped_root:
             payload["provider_project_root"] = str(session.cwd)
         payload["project_root"] = str(scoped_root)
-    return {
+    return migrate_agent_selection({
         **payload,
         "scope": scope,
         "scope_key": scope_key,
@@ -338,7 +346,7 @@ def _history_entry(
         "title": title or _session_title(session),
         "last_validated_at": datetime.now(timezone.utc).isoformat(),
         "resumable": True,
-    }
+    })
 
 
 def _session_title(session: CodexSessionSummary) -> str:

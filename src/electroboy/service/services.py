@@ -1062,6 +1062,7 @@ class RuntimeSessionServices:
                 "provider": metadata.get("provider"),
                 "provider_binary": metadata.get("provider_binary"),
                 "provider_executable": metadata.get("provider_executable"),
+                "selection_status": metadata.get("selection_status"),
                 "provider_session_id": metadata.get("provider_session_id"),
                 "project_root": entry.get("active_project_root"),
                 "workspace_id": workspace_id,
