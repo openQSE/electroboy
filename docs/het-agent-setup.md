@@ -222,10 +222,10 @@ after its code and relevant validation are complete.
       and explicit overrides; keep scope and existing agent reuse rules.
 - [ ] Route software ad hoc, stage, interactive, and review agents through the
       same selection contract. Update code-learner interactive agent launches.
-- [ ] Preserve provider/executable affinity for attachment and resume, reject
+- [x] Preserve provider/executable affinity for attachment and resume, reject
       conflicting overrides, and handle missing executables without affecting
       other sessions.
-- [ ] Update Codex and OpenCode history lookup to filter by the captured
+- [x] Update Codex and OpenCode history lookup to filter by the captured
       selection and retain each record's own executable. Resolve an explicitly
       unresolved selection with user input and persist the validated result.
 - [ ] Remove legacy workspace format branches from launch, history, resume,

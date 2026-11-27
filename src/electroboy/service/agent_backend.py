@@ -82,6 +82,34 @@ def migrate_agent_selection(metadata: dict[str, object]) -> dict[str, object]:
     return result
 
 
+def resume_agent_binary(
+    records: Iterable[dict[str, object] | None], requested: str,
+) -> str:
+    """Choose a recorded executable or require an explicit legacy choice."""
+    binaries: set[str] = set()
+    unresolved = False
+    for record in records:
+        if not record:
+            continue
+        metadata = record.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else record
+        binary = str(metadata.get("provider_binary") or "")
+        if binary:
+            binaries.add(binary)
+        elif metadata.get("selection_status") == "unresolved":
+            unresolved = True
+    if len(binaries) > 1:
+        raise AgentSessionError("Session records disagree about the executable.")
+    if binaries:
+        binary = next(iter(binaries))
+        if requested and requested != binary:
+            raise AgentSessionError("Agent session uses a different executable.")
+        return binary
+    if unresolved and not requested:
+        raise AgentSessionError("Select the executable used by this session before resuming.")
+    return requested
+
+
 class AgentBackend:
     """Coordinate terminal sessions and background invocations for one service."""
 

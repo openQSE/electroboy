@@ -171,6 +171,10 @@ class SessionServices(Protocol):
 
     def workspace_agent_sessions(self, workspace_id: str) -> list[dict[str, object]]: ...
 
+    def resume_record(
+        self, root: Path, kind: str, session_id: str, scope_key: str = "",
+    ) -> dict[str, object] | None: ...
+
     def resolve_workspace_selection(
         self, workspace_id: str, binary: str = "",
     ) -> AgentSelection: ...
@@ -1068,6 +1072,29 @@ class RuntimeSessionServices:
                 "workspace_id": workspace_id,
             })
         return result
+
+    def resume_record(
+        self, root: Path, kind: str, session_id: str, scope_key: str = "",
+    ) -> dict[str, object] | None:
+        requested = session_id.strip().lower()
+        if not requested:
+            return None
+        for entry in self.runtime.session_registry_payload().get("sessions", []):
+            if not isinstance(entry, dict) or entry.get("kind") != kind:
+                continue
+            if Path(str(entry.get("cwd") or ".")).resolve() != root.resolve():
+                continue
+            metadata = entry.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            if scope_key and metadata.get("creative_scope_key") != scope_key:
+                continue
+            if requested in {
+                str(metadata.get("provider_session_id") or "").lower(),
+                str(entry.get("session_id") or "").lower(),
+            }:
+                return entry
+        return None
 
     def resolve_workspace_selection(
         self, workspace_id: str, binary: str = "",

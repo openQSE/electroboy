@@ -36,6 +36,26 @@ def upgrade_agent_history(service_root: Path, project_root: Path) -> None:
         migrate_session_catalog(_catalog_path(service_root), project_root)
 
 
+def recorded_agent_session(
+    service_root: Path, project_root: Path, scope_key: str, session_id: str,
+) -> dict[str, object] | None:
+    requested = session_id.strip().lower()
+    if not requested:
+        return None
+    with _CATALOG_LOCK:
+        for entry in _load_catalog(service_root)["sessions"]:
+            if _entry_project_root(entry) != project_root.expanduser().resolve():
+                continue
+            if str(entry.get("scope_key") or "") != scope_key:
+                continue
+            if requested in {
+                str(entry.get("provider_session_id") or "").lower(),
+                str(entry.get("electroboy_session_id") or "").lower(),
+            }:
+                return dict(entry)
+    return None
+
+
 def creative_document_scope_key(document_path: str) -> str:
     return f"document:{document_path}"
 
@@ -47,6 +67,7 @@ def creative_session_history(
     scope: str,
     scope_key: str,
     executable: str | None = None,
+    agent_binary: str = "",
 ) -> list[dict[str, object]]:
     """Return validated indexed creative sessions for one scope."""
 
@@ -59,6 +80,8 @@ def creative_session_history(
             if (
                 _entry_project_root(entry) != resolved_root
                 or str(entry.get("scope_key") or "") != scope_key
+                or (agent_binary and entry.get("provider_binary")
+                    and entry.get("provider_binary") != agent_binary)
             ):
                 retained.append(entry)
                 continue

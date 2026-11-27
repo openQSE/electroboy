@@ -38,6 +38,24 @@ def upgrade_agent_history(service_root: Path, project_root: Path) -> None:
         migrate_session_catalog(_catalog_path(service_root), project_root)
 
 
+def recorded_agent_session(
+    service_root: Path, project_root: Path, session_id: str,
+) -> dict[str, object] | None:
+    requested = session_id.strip().lower()
+    if not requested:
+        return None
+    with _CATALOG_LOCK:
+        for entry in _load_catalog(service_root)["sessions"]:
+            if _entry_project_root(entry) != project_root.expanduser().resolve():
+                continue
+            if requested in {
+                str(entry.get("provider_session_id") or "").lower(),
+                str(entry.get("electroboy_session_id") or "").lower(),
+            }:
+                return dict(entry)
+    return None
+
+
 def ad_hoc_agent_command(
     root: Path,
     provider_session_id: str | None = None,
@@ -83,6 +101,7 @@ def ad_hoc_session_history(
     project_root: Path,
     *,
     executable: str | None = None,
+    agent_binary: str = "",
 ) -> list[dict[str, object]]:
     """Return validated indexed ad-hoc sessions for one project root."""
 
@@ -92,7 +111,9 @@ def ad_hoc_session_history(
         retained: list[dict[str, object]] = []
         project_entries: list[dict[str, object]] = []
         for entry in catalog["sessions"]:
-            if _entry_project_root(entry) != resolved_root:
+            if (_entry_project_root(entry) != resolved_root or
+                (agent_binary and entry.get("provider_binary")
+                 and entry.get("provider_binary") != agent_binary)):
                 retained.append(entry)
                 continue
             session = _indexed_session(entry, resolved_root, executable=executable)

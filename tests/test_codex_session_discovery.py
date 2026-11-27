@@ -7,14 +7,19 @@ import time
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from electroboy.adapters.codex_sessions import (
     codex_session_by_id,
+    codex_session_from_path,
     codex_session_paths,
     codex_sessions_directory,
 )
 from electroboy.adapters.interactive_cli import CodexInteractiveRuntime
 from electroboy.config import RuntimeConfig
 from electroboy.service import ServiceState
+from electroboy.service.sessions import AgentSessionError
+from electroboy.service.services import build_service_services
 from electroboy.state_store import StateStore
 from electroboy.workflows.creative_writing.sessions import (
     creative_session_history,
@@ -237,6 +242,58 @@ def test_service_persists_discovered_uuid_and_resumes_after_restart(
     assert resumed.command[0] == binary.name
     assert resumed.metadata["provider_executable"] == executable
     assert "resume" in resumed.command and FIRST in resumed.command
+
+
+@pytest.mark.parametrize("workflow", ["software", "creative-writing"])
+def test_resume_uses_recorded_codex_wrapper_after_default_changes(tmp_path, monkeypatch, workflow):
+    project = tmp_path / "project"
+    project.mkdir()
+    if workflow == "software":
+        StateStore(project).init_run(run_id="test")
+    first_home, second_home = tmp_path / "first-home", tmp_path / "second-home"
+    first = write_binary(tmp_path / "bin" / "codex-atoz", first_home)
+    second = write_binary(tmp_path / "bin" / "codex-ornl", second_home)
+    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ.get("PATH", ""))
+    rollout = write_rollout(first_home, project, FIRST)
+    summary = codex_session_from_path(rollout, executable=first)
+    service = tmp_path / "service"
+    if workflow == "software":
+        remember_ad_hoc_session(service, summary)
+    else:
+        remember_creative_session(service, summary, project_root=project,
+                                  scope="general", scope_key="general")
+    state = ServiceState(service)
+    workspace = state.create_context(workflow_id=workflow)["context_id"]
+    if workflow == "software":
+        state.open_project(workspace, str(project))
+        controller = state.workflow_controller(workflow)
+        start = controller.start_ad_hoc_agent
+        history = controller.ad_hoc_sessions
+    else:
+        state.open_creative_project(workspace, str(project))
+        start = state.start_creative_writing_agent
+        history = state.creative_agent_sessions
+    services = build_service_services(state, state.workflow_registry).sessions
+    services.set_workspace_backend(workspace, Path(second).name)
+    assert not history(workspace)["sessions"]
+    with mock.patch("electroboy.service.AgentSession.start"):
+        resumed, started = start(workspace, provider_session_id=FIRST)
+        assert started and resumed.metadata["provider_binary"] == Path(first).name
+        assert resumed.command[0] == Path(first).name
+        with pytest.raises(AgentSessionError, match="different executable"):
+            start(workspace, provider_session_id=FIRST, agent_binary=Path(second).name)
+    state.deactivate_project(workspace)
+    restarted = ServiceState(service)
+    workspace = restarted.create_context(workflow_id=workflow)["context_id"]
+    if workflow == "software":
+        restarted.open_project(workspace, str(project))
+        start = restarted.workflow_controller(workflow).start_ad_hoc_agent
+    else:
+        restarted.open_creative_project(workspace, str(project))
+        start = restarted.start_creative_writing_agent
+    with mock.patch("electroboy.service.AgentSession.start"):
+        resumed, started = start(workspace, provider_session_id=FIRST)
+    assert started and resumed.metadata["provider_binary"] == Path(first).name
 
 
 def test_creative_tracker_uses_the_wrapper_and_restores_its_named_history(

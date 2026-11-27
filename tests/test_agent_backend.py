@@ -174,6 +174,82 @@ def test_software_stage_agent_captures_explicit_selection(tmp_path):
     assert session.metadata["provider_session_id"].startswith("ses_")
 
 
+@pytest.mark.parametrize("workflow", ["software", "creative-writing"])
+def test_resume_uses_original_provider_after_default_changes(tmp_path, workflow):
+    from electroboy.service.services import build_service_services
+    from electroboy.state_store import StateStore
+
+    root = tmp_path / "project"
+    root.mkdir()
+    if workflow == "software":
+        StateStore(root).init_run(run_id="test")
+    service = tmp_path / "service"
+    service.mkdir()
+    state = ServiceState(service)
+    workspace = state.create_context(workflow_id=workflow)["context_id"]
+    if workflow == "software":
+        state.open_project(workspace, str(root))
+        start = state.workflow_controller(workflow).start_ad_hoc_agent
+    else:
+        state.open_creative_project(workspace, str(root))
+        start = state.start_creative_writing_agent
+    services = build_service_services(state, state.workflow_registry).sessions
+    with patch("shutil.which", return_value="/bin/true"), patch.object(AgentSession, "start"):
+        first, _ = start(workspace, agent_binary="opencode")
+        provider_id = first.metadata["provider_session_id"]
+        services.set_workspace_backend(workspace, "codex-atoz")
+        resumed, created = start(workspace, provider_session_id=provider_id)
+        assert created and resumed.metadata["provider_binary"] == "opencode"
+        with pytest.raises(AgentSessionError, match="different executable"):
+            start(workspace, provider_session_id=provider_id, agent_binary="codex-atoz")
+
+
+def test_stage_resume_uses_original_provider_after_default_changes(tmp_path):
+    from electroboy.service.services import build_service_services
+    from electroboy.state_store import StateStore
+
+    root = tmp_path / "project"
+    root.mkdir()
+    StateStore(root).init_run(run_id="test")
+    service = tmp_path / "service"
+    service.mkdir()
+    state = ServiceState(service)
+    workspace = state.create_context(workflow_id="software")["context_id"]
+    state.open_project(workspace, str(root))
+    services = build_service_services(state, state.workflow_registry).sessions
+    controller = state.workflow_controller("software")
+    with patch("shutil.which", return_value="/bin/true"), patch.object(AgentSession, "start"):
+        first, _ = controller.start_requirements_agent(workspace, agent_binary="opencode")
+        services.set_workspace_backend(workspace, "codex-atoz")
+        resumed, created = controller.start_requirements_agent(
+            workspace, session_id=first.session_id,
+        )
+    assert created and resumed.metadata["provider_binary"] == "opencode"
+
+
+def test_stage_history_filters_codex_wrappers(tmp_path):
+    from electroboy.service.services import build_service_services
+    from electroboy.state_store import StateStore
+
+    root = tmp_path / "project"
+    root.mkdir()
+    StateStore(root).init_run(run_id="test")
+    service = tmp_path / "service"
+    service.mkdir()
+    state = ServiceState(service)
+    workspace = state.create_context(workflow_id="software")["context_id"]
+    state.open_project(workspace, str(root))
+    services = build_service_services(state, state.workflow_registry).sessions
+    history = [
+        {"provider_session_id": "one", "provider_binary": "codex-atoz"},
+        {"provider_session_id": "two", "provider_binary": "codex-ornl"},
+    ]
+    with patch("shutil.which", return_value="/bin/true"), patch.object(state, "provider_history", return_value=history):
+        services.set_workspace_backend(workspace, "codex-atoz")
+        result = state.workflow_controller("software").stage_sessions(workspace, "requirements")
+    assert [entry["provider_session_id"] for entry in result["sessions"]] == ["one"]
+
+
 def test_defaults_confirmation_and_stale_revision():
     backend = selection()
     assert backend.payload()["backend"] == "codex"

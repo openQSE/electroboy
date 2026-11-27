@@ -7,9 +7,10 @@ from unittest import mock
 import pytest
 
 from electroboy.service import ServiceState
-from electroboy.service.agent_backend import migrate_agent_selection
+from electroboy.service.agent_backend import migrate_agent_selection, resume_agent_binary
 from electroboy.service.agent_migration import migrate_session_catalog, preserve_unresolved_selection
 from electroboy.adapters.codex_sessions import CodexSessionSummary
+from electroboy.service.sessions import AgentSessionError
 
 
 def test_selection_migration_keeps_unresolved_identities_explicit():
@@ -29,6 +30,12 @@ def test_selection_migration_keeps_unresolved_identities_explicit():
     assert listed["selection_status"] == "unresolved"
     assert listed["provider_binary"] == ""
     assert "provider_executable" not in listed
+    with pytest.raises(AgentSessionError, match="Select the executable"):
+        resume_agent_binary([unresolved], "")
+    assert resume_agent_binary([unresolved], "codex-atoz") == "codex-atoz"
+    assert resume_agent_binary([known], "") == "codex-atoz"
+    with pytest.raises(AgentSessionError, match="different executable"):
+        resume_agent_binary([known], "opencode")
 
 
 def test_catalog_upgrade_is_scoped_atomic_and_idempotent(tmp_path: Path):
@@ -163,3 +170,33 @@ def test_listing_legacy_history_does_not_guess_its_executable(tmp_path: Path, wo
     saved = json.loads(path.read_text())["sessions"][0]
     assert saved["provider_binary"] == ""
     assert "provider_executable" not in saved
+
+
+@pytest.mark.parametrize("workflow", ["creative", "software"])
+def test_codex_history_filters_by_captured_executable(tmp_path: Path, workflow: str):
+    from electroboy.workflows.creative_writing import sessions as creative
+    from electroboy.workflows.software import ad_hoc
+
+    project = tmp_path / "project"
+    project.mkdir()
+    service = tmp_path / "service"
+    store = service / ".electroboy" / "service"
+    store.mkdir(parents=True)
+    module = creative if workflow == "creative" else ad_hoc
+    path = store / ("creative-agent-sessions.json" if workflow == "creative" else "ad-hoc-sessions.json")
+    entries = [{"project_root": str(project), "provider": "codex", "scope_key": "general",
+                "provider_session_id": binary, "provider_binary": binary,
+                "selection_status": "resolved"}
+               for binary in ("codex-atoz", "codex-ornl")]
+    path.write_text(json.dumps({"sessions": entries}))
+    summary = CodexSessionSummary("codex-atoz", project, "created", "updated", (),
+                                  tmp_path / "rollout.jsonl", "/bin/codex-atoz")
+    with mock.patch.object(module, "_indexed_session", return_value=summary):
+        if workflow == "creative":
+            result = module.creative_session_history(service, project, scope="general",
+                scope_key="general", executable="codex-atoz", agent_binary="codex-atoz")
+        else:
+            result = module.ad_hoc_session_history(service, project,
+                executable="codex-atoz", agent_binary="codex-atoz")
+    assert [entry["provider_session_id"] for entry in result] == ["codex-atoz"]
+    assert len(json.loads(path.read_text())["sessions"]) == 2

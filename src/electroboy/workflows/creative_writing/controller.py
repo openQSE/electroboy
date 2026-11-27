@@ -38,6 +38,7 @@ from electroboy.service.sessions import (
     normalize_session_name,
 )
 from electroboy.service.workflow_controller import BoundWorkflowController
+from electroboy.service.agent_backend import resume_agent_binary
 
 from .corkboard_provider import CreativeWritingCorkboardProvider
 from .sessions import (
@@ -46,6 +47,7 @@ from .sessions import (
     CREATIVE_GENERAL_SCOPE_KEY,
     creative_document_scope_key,
     creative_session_history,
+    recorded_agent_session,
     remember_creative_session,
     resumable_creative_session,
     start_creative_session_tracking,
@@ -442,6 +444,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 scope=scope_name,
                 scope_key=scope_key,
                 executable=selection.executable,
+                agent_binary=selection.binary,
             )
             if selection.provider == "codex"
             else self.services.sessions.provider_history(
@@ -498,9 +501,6 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         requested_session_id = str(session_id or "").strip()
         requested_provider_session_id = str(provider_session_id or "").strip()
         requested_name = normalize_session_name(name)
-        selection = self.services.sessions.resolve_workspace_selection(
-            context_id, agent_binary,
-        )
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -511,6 +511,38 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             scope=scope,
             active_document=active_document,
             active_target=active_target,
+        )
+        resume_id = requested_provider_session_id or requested_session_id
+        if resume_id:
+            with self.services.contexts.lock:
+                context = self.services.contexts.require(context_id)
+                for active in context.creative_sessions.values():
+                    metadata = active.metadata or {}
+                    matches = resume_id.lower() in {
+                        active.session_id.lower(),
+                        str(metadata.get("provider_session_id") or "").lower(),
+                    }
+                    if not matches or not active.is_active() or not self._creative_session_matches_scope(
+                        active, scope_key=scope_key,
+                    ):
+                        continue
+                    existing_binary = str(metadata.get("provider_binary") or "")
+                    if agent_binary and existing_binary and agent_binary != existing_binary:
+                        raise AgentSessionError("Agent session uses a different executable.")
+                    if requested_name:
+                        active.name = requested_name
+                    context.selected_session_id = active.session_id
+                    self.services.sessions.record(context, active)
+                    return active, False
+            service_record = self.services.sessions.resume_record(
+                project_root, "creative-writing", resume_id, scope_key,
+            )
+            catalog_record = recorded_agent_session(
+                self.services.files.state_root, project_root, scope_key, resume_id,
+            )
+            agent_binary = resume_agent_binary([service_record, catalog_record], agent_binary)
+        selection = self.services.sessions.resolve_workspace_selection(
+            context_id, agent_binary,
         )
         if requested_session_id:
             existing = self._creative_session_from_request(
