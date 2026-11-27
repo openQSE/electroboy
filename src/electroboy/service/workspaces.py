@@ -625,6 +625,35 @@ class WorkspaceRegistry:
             record.updated_at = _now()
             self._save_locked()
 
+    def agent_default(self, workspace_id: str, seed: str) -> str:
+        """Initialize a workspace selection once and return its current value."""
+        with self.lock:
+            self.require_record(workspace_id)
+            context = self.context_store.require(workspace_id)
+            state = context.module("agent_backend")
+            if "binary" in state:
+                return str(state["binary"])
+            state.update({"version": 1, "binary": seed})
+            try:
+                self._save_locked()
+            except Exception:
+                state.clear()
+                raise
+            return seed
+
+    def set_agent_default(self, workspace_id: str, binary: str) -> None:
+        """Persist one workspace's default without changing other workspaces."""
+        with self.lock:
+            self.require_record(workspace_id)
+            context = self.context_store.require(workspace_id)
+            previous = dict(context.module("agent_backend"))
+            context.module_state["agent_backend"] = {"version": 1, "binary": binary}
+            try:
+                self._save_locked()
+            except Exception:
+                context.module_state["agent_backend"] = previous
+                raise
+
     @staticmethod
     def _project_layout_key(record: WorkspaceRecord) -> str:
         if not record.project_identity or record.attachment_policy != WORKSPACE_POLICY_EXCLUSIVE:

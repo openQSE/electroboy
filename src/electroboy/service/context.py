@@ -63,7 +63,11 @@ class BrowserContext:
         self.selected_session_id = None
         self.editor_context = None
         self.workflow_state.clear()
+        # Agent selection belongs to the workspace, not the active project.
+        agent_backend = self.module_state.get("agent_backend")
         self.module_state.clear()
+        if agent_backend is not None:
+            self.module_state["agent_backend"] = agent_backend
         self.workflow_stage = workflow_stage
 
     def _value(

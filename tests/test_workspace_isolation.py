@@ -19,6 +19,38 @@ from electroboy.state_store import StateStore
 
 
 class WorkspaceIsolationTests(unittest.TestCase):
+    def test_agent_defaults_are_isolated_persisted_and_survive_project_reset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            first = state.create_context(workflow_id="creative-writing")["context_id"]
+            second = state.create_context(workflow_id="software")["context_id"]
+            registry = state.workspace_registry
+            for workspace in (first, second):
+                registry.adopt_context(state.contexts[workspace], project_identity=tmp)
+            self.assertEqual(registry.agent_default(first, "codex-atoz"), "codex-atoz")
+            self.assertEqual(registry.agent_default(second, "codex-atoz"), "codex-atoz")
+            registry.set_agent_default(first, "opencode")
+            context = state.contexts[first]
+            context.reset_project(
+                workflow_id="creative-writing", project_mode="creative",
+                activation_root=Path(tmp), active_project_root=Path(tmp),
+            )
+            registry.persist(first)
+            restored = ServiceState(Path(tmp)).workspace_registry
+            self.assertEqual(restored.agent_default(first, "codex"), "opencode")
+            self.assertEqual(restored.agent_default(second, "codex"), "codex-atoz")
+
+    def test_agent_default_write_failure_preserves_previous_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = ServiceState(Path(tmp))
+            workspace = state.create_context(workflow_id="software")["context_id"]
+            registry = state.workspace_registry
+            registry.agent_default(workspace, "codex")
+            with mock.patch.object(registry, "_save_locked", side_effect=OSError("disk")):
+                with self.assertRaises(OSError):
+                    registry.set_agent_default(workspace, "opencode")
+            self.assertEqual(registry.agent_default(workspace, "other"), "codex")
+
     @staticmethod
     def _request(
         server: object,
