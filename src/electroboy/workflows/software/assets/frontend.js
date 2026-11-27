@@ -1075,6 +1075,7 @@
       input.value = String(session.electroboy_session_id || session.session_id || "");
       input.dataset.providerSessionId = String(session.provider_session_id || "");
       input.dataset.sessionName = String(session.name || session.title || "Stage session");
+      input.dataset.agentBinary = String(session.provider_binary || session.metadata?.provider_binary || "");
       const copy = document.createElement("span");
       copy.className = "ad-hoc-session-option-copy";
       const title = document.createElement("strong");
@@ -1082,22 +1083,13 @@
       const details = document.createElement("span");
       details.className = "ad-hoc-session-details";
       const status = session.status === "running" ? "running" : "resumable";
-      details.textContent = `${status} · ${adHocSessionDate(session)} · ${session.provider || "agent"}`;
+      details.textContent = `${status} · ${adHocSessionDate(session)} · ${input.dataset.agentBinary || session.provider || "agent"}`;
       copy.append(title, details);
       option.append(input, copy);
       return option;
     }
 
-    async function chooseStageSession(stage, label) {
-      const parameters = new URLSearchParams({ stage });
-      const response = await fetch(
-        contextUrl(`/api/agents/stage-sessions?${parameters.toString()}`),
-        { cache: "no-store" },
-      );
-      const payload = await response.json().catch(() => ({ error: "session history failed" }));
-      if (!response.ok) {
-        throw new Error(payload.error || "session history failed");
-      }
+    async function chooseStageSession(stage, label, options = {}) {
       const dialog = ensureStageSessionDialog();
       dialog.querySelector(".stage-session-title").textContent = `Start ${label}`;
       const list = dialog.querySelector(".ad-hoc-session-list");
@@ -1112,11 +1104,33 @@
           <strong>New session</strong>
           <span class="ad-hoc-session-details">Start with a clean ${label} context.</span>
         </span>`;
-      const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
-      list.replaceChildren(
-        newOption,
-        ...sessions.map((session, index) => stageSessionOption(session, index)),
+      let historyRevision = 0;
+      async function refreshHistory(binary) {
+        const revision = ++historyRevision;
+        submit.disabled = true;
+        const parameters = new URLSearchParams({ stage, agent_binary: binary });
+        const response = await fetch(
+          contextUrl(`/api/agents/stage-sessions?${parameters}`), { cache: "no-store" },
+        );
+        const payload = await response.json().catch(() => ({ error: "session history failed" }));
+        if (!response.ok) throw new Error(payload.error || "session history failed");
+        if (revision !== historyRevision) return;
+        const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+        list.replaceChildren(newOption,
+          ...sessions.map((session, index) => stageSessionOption(session, index)));
+        newOption.querySelector("input").checked = true;
+        submit.textContent = "Start";
+        submit.disabled = false;
+      }
+      const agentSelect = await window.ElectroBoyAgentPaneTools.configureAgentChoice(
+        dialog, contextUrl, options.agentBinary || "", (binary) => {
+          refreshHistory(binary).catch((failure) => {
+            error.textContent = failure.message;
+            error.hidden = false;
+          });
+        },
       );
+      await refreshHistory(agentSelect.value);
       nameInput.value = `${label} session`;
       error.hidden = true;
       submit.textContent = "Start";
@@ -1124,6 +1138,9 @@
         if (event.target.name !== "stage-session") return;
         nameInput.value = event.target.dataset.sessionName || `${label} session`;
         submit.textContent = event.target.value ? "Resume" : "Start";
+        const recorded = event.target.dataset.agentBinary || "";
+        agentSelect.disabled = Boolean(event.target.value && recorded);
+        if (recorded) agentSelect.value = recorded;
       };
       return new Promise((resolve) => {
         const finish = (choice) => {
@@ -1149,6 +1166,7 @@
             session_id: selected ? selected.value : "",
             provider_session_id: selected ? selected.dataset.providerSessionId || "" : "",
             name,
+            agent_binary: agentSelect.value,
           });
         };
         dialog.showModal();
@@ -1166,7 +1184,7 @@
           <header class="ad-hoc-session-header">
             <div>
               <h2>Start ad-hoc agent</h2>
-              <p>Start fresh or resume a Codex session from this project.</p>
+              <p>Start fresh or resume a session from this project.</p>
             </div>
             <button
               type="button"
@@ -1180,7 +1198,7 @@
             <label class="ad-hoc-session-option ad-hoc-session-custom">
               <input type="radio" name="ad-hoc-session" value="custom">
               <span class="ad-hoc-session-option-copy">
-                <strong>Resume by UUID</strong>
+                <strong>Resume by session ID</strong>
                 <input
                   class="ad-hoc-session-uuid"
                   type="text"
@@ -1235,17 +1253,7 @@
       return label;
     }
 
-    async function chooseAdHocSession() {
-      const response = await fetch(
-        contextUrl("/api/agents/ad-hoc/sessions"),
-        { cache: "no-store" },
-      );
-      const payload = await response.json().catch(() => ({
-        error: "session history failed",
-      }));
-      if (!response.ok) {
-        throw new Error(payload.error || "session history failed");
-      }
+    async function chooseAdHocSession(options = {}) {
       const dialog = ensureAdHocSessionDialog();
       const list = dialog.querySelector(".ad-hoc-session-list");
       const customInput = dialog.querySelector(".ad-hoc-session-uuid");
@@ -1265,11 +1273,32 @@
           </span>
         </span>
       `;
-      const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
-      list.replaceChildren(
-        newOption,
-        ...sessions.map((session, index) => adHocSessionOption(session, index)),
+      let historyRevision = 0;
+      async function refreshHistory(binary) {
+        const revision = ++historyRevision;
+        submit.disabled = true;
+        const params = new URLSearchParams({ agent_binary: binary });
+        const response = await fetch(contextUrl(`/api/agents/ad-hoc/sessions?${params}`),
+          { cache: "no-store" });
+        const payload = await response.json().catch(() => ({ error: "session history failed" }));
+        if (!response.ok) throw new Error(payload.error || "session history failed");
+        if (revision !== historyRevision) return;
+        const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+        list.replaceChildren(newOption,
+          ...sessions.map((session, index) => adHocSessionOption(session, index)));
+        newOption.querySelector("input").checked = true;
+        submit.textContent = "Start";
+        submit.disabled = false;
+      }
+      const agentSelect = await window.ElectroBoyAgentPaneTools.configureAgentChoice(
+        dialog, contextUrl, options.agentBinary || "", (binary) => {
+          refreshHistory(binary).catch((failure) => {
+            error.textContent = failure.message;
+            error.hidden = false;
+          });
+        },
       );
+      await refreshHistory(agentSelect.value);
       customInput.value = "";
       customRadio.dataset.sessionName = "";
       nameInput.value = "";
@@ -1314,11 +1343,11 @@
           let providerSessionId = selected ? selected.value : "";
           if (providerSessionId === "custom") {
             providerSessionId = customInput.value.trim().toLowerCase();
-            const validSessionId = (
+            const validSessionId = /^ses_[a-zA-Z0-9_-]+$/.test(providerSessionId) || (
               /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
             ).test(providerSessionId);
             if (!validSessionId) {
-              error.textContent = "Enter a valid Codex session UUID.";
+              error.textContent = "Enter a valid Codex or OpenCode session ID.";
               error.hidden = false;
               return;
             }
@@ -1330,20 +1359,20 @@
             nameInput.focus();
             return;
           }
-          finish({ providerSessionId, name });
+          finish({ providerSessionId, name, agentBinary: agentSelect.value });
         };
         dialog.showModal();
       });
     }
 
-    async function startAdHocAgent() {
+    async function startAdHocAgent(options = {}) {
       if (!activationRoot) {
         appendOutput("activate a project first\n", "error");
         return;
       }
       let choice = { providerSessionId: "" };
       try {
-        choice = await chooseAdHocSession();
+        choice = await chooseAdHocSession(options);
       } catch (error) {
         appendOutput(`${error.message || "session history failed"}\n`, "error");
         return;
@@ -1371,6 +1400,7 @@
         body: JSON.stringify({
           provider_session_id: choice.providerSessionId || "",
           name: choice.name || "",
+          agent_binary: choice.agentBinary || options.agentBinary || "",
         }),
       });
       const payload = await response.json().catch(() => ({ error: "start failed" }));

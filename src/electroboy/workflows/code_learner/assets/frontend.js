@@ -1385,13 +1385,17 @@
     openLearnerPane({ refresh: true });
   }
 
-  async function startTutor(runtime) {
+  async function startTutor(runtime, options = {}) {
     bindRuntime(runtime);
     const walkthrough = learnerState.currentWalkthrough;
     if (!walkthrough) {
       setStatus("Generate a course first.", "error");
       return null;
     }
+    const agentBinary = await window.ElectroBoyAgentPaneTools.chooseAgentForLaunch(
+      contextUrl, options.agentBinary || "",
+    );
+    if (!agentBinary) return null;
     setStatus("Starting tutor...");
     runtime.ui.setAgentInputVisible(true);
     runtime.layout.ensurePane("agent", "code-learner", "row", {
@@ -1405,6 +1409,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           walkthrough_id: walkthrough.id,
+          agent_binary: agentBinary,
           ...contextOptionsFromCurrent(),
         }),
       },
@@ -2674,7 +2679,8 @@
       handleWindowMessage,
       actions: {
         preparePrompt: (runtime, ...args) => invoke(runtime, preparePrompt, args),
-        startTutor: (runtime, ...args) => invoke(runtime, startTutor, args),
+        startAgent: (runtime, options = {}) => startTutor(runtime, options),
+        startTutor: (runtime, ...args) => startTutor(runtime, ...args),
         initializeCodeLearner: (runtime, ...args) =>
           invoke(runtime, initializeCodeLearner, args),
         generateCourse: (runtime, ...args) => invoke(runtime, generateCourse, args),

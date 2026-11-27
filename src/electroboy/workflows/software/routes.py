@@ -240,14 +240,19 @@ def _ad_hoc_start(request: RouteRequest) -> ServiceResponse:
 
 def _ad_hoc_sessions(request: RouteRequest) -> ServiceResponse:
     return _workflow_action(
-        lambda: _controller(request).ad_hoc_sessions(request.context_id)
+        lambda: _controller(request).ad_hoc_sessions(
+            request.context_id, str((request.params.get("agent_binary") or [""])[0]),
+        )
     )
 
 
 def _stage_sessions(request: RouteRequest) -> ServiceResponse:
     stage = str((request.params.get("stage") or [""])[0])
     return _workflow_action(
-        lambda: _controller(request).stage_sessions(request.context_id, stage)
+        lambda: _controller(request).stage_sessions(
+            request.context_id, stage,
+            str((request.params.get("agent_binary") or [""])[0]),
+        )
     )
 
 

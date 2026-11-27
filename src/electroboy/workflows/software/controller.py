@@ -145,7 +145,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             active_root = context.active_project_root
         return workflow_payload(active_root)
 
-    def stage_sessions(self, context_id: str, stage: str) -> dict[str, object]:
+    def stage_sessions(self, context_id: str, stage: str, agent_binary: str = "") -> dict[str, object]:
         """List running and resumable provider sessions for one stage."""
 
         _interactive_stage(stage)
@@ -165,7 +165,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 _stage_session_payload(session)
                 for session in current_by_id.values()
             ]
-        selection = self.services.sessions.resolve_workspace_selection(context_id)
+        selection = self.services.sessions.resolve_workspace_selection(context_id, agent_binary)
         history = self.services.sessions.provider_history(
             command_root, stage, provider=selection.provider,
         )
@@ -412,7 +412,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
             "run_id": manifest.run_id,
         }
 
-    def ad_hoc_sessions(self, context_id: str) -> dict[str, object]:
+    def ad_hoc_sessions(self, context_id: str, agent_binary: str = "") -> dict[str, object]:
         """List resumable ad-hoc sessions for the active command root."""
 
         with self.services.contexts.lock:
@@ -427,7 +427,7 @@ class SoftwareWorkflowController(BoundWorkflowController):
                 provider_id = provider_id.strip().lower()
                 if provider_id and session.is_active():
                     running_provider_session_ids.add(provider_id)
-        selection = self.services.sessions.resolve_workspace_selection(context_id)
+        selection = self.services.sessions.resolve_workspace_selection(context_id, agent_binary)
         return {
             "project_root": str(command_root),
             "sessions": [

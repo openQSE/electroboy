@@ -1738,7 +1738,7 @@
       publishAgentSessionState();
     }
 
-    function requestStartAgent() {
+    function requestStartAgent(selection = {}) {
       const host = window.opener && !window.opener.closed
         ? window.opener
         : window.parent !== window
@@ -1750,6 +1750,7 @@
       host.postMessage({
         type: "electroboy:pane-start-agent",
         paneInstanceId,
+        agentBinary: String(selection.agentBinary || ""),
       }, window.location.origin);
     }
 
@@ -1900,17 +1901,6 @@
     }
 
     async function choosePaneCreativeAgentSession(activeTarget) {
-      const query = paneCreativeSessionQuery(activeTarget);
-      const response = await fetch(
-        contextUrl(`/api/creative/agent/sessions?${query}`),
-        { cache: "no-store" },
-      );
-      const payload = await response.json().catch(() => ({
-        error: "session history failed",
-      }));
-      if (!response.ok) {
-        throw new Error(payload.error || "session history failed");
-      }
       const dialog = ensurePaneCreativeSessionDialog();
       const heading = dialog.querySelector(".pane-session-header h2");
       const summary = dialog.querySelector(".pane-session-header p");
@@ -1930,19 +1920,38 @@
           </span>
         </span>
       `;
-      const sessions = Array.isArray(payload.sessions)
-        ? payload.sessions.filter(paneCreativeSessionCanContinue)
-        : [];
       heading.textContent = "Start document agent";
-      summary.textContent = payload.document_path
-        ? `Sessions scoped to ${payload.document_path}.`
-        : `Sessions scoped to ${activeTarget.path}.`;
-      list.replaceChildren(
-        newOption,
-        ...sessions.map((session, index) =>
-          paneCreativeSessionOption(session, index),
-        ),
+      let historyRevision = 0;
+      async function refreshHistory(binary) {
+        const revision = ++historyRevision;
+        submit.disabled = true;
+        const params = new URLSearchParams(paneCreativeSessionQuery(activeTarget));
+        params.set("agent_binary", binary);
+        const response = await fetch(contextUrl(`/api/creative/agent/sessions?${params}`),
+          { cache: "no-store" });
+        const payload = await response.json().catch(() => ({ error: "session history failed" }));
+        if (!response.ok) throw new Error(payload.error || "session history failed");
+        if (revision !== historyRevision) return;
+        const sessions = Array.isArray(payload.sessions)
+          ? payload.sessions.filter(paneCreativeSessionCanContinue) : [];
+        summary.textContent = payload.document_path
+          ? `Sessions scoped to ${payload.document_path}.`
+          : `Sessions scoped to ${activeTarget.path}.`;
+        list.replaceChildren(newOption,
+          ...sessions.map((session, index) => paneCreativeSessionOption(session, index)));
+        newOption.querySelector("input").checked = true;
+        submit.textContent = "Start";
+        submit.disabled = false;
+      }
+      const agentSelect = await window.ElectroBoyAgentPaneTools.configureAgentChoice(
+        dialog, contextUrl, "", (binary) => {
+          refreshHistory(binary).catch((failure) => {
+            error.textContent = failure.message;
+            error.hidden = false;
+          });
+        },
       );
+      await refreshHistory(agentSelect.value);
       customInput.value = "";
       error.hidden = true;
       submit.textContent = "Start";
@@ -1988,6 +1997,7 @@
             error.hidden = false;
             return;
           }
+          choice.agentBinary = agentSelect.value;
           finish(choice);
         };
         dialog.showModal();
@@ -2000,8 +2010,8 @@
       const isCreativeProject = project.project_mode === "creative";
       const choice = isCreativeProject
         ? await choosePaneCreativeAgentSession(activeTarget)
-        : null;
-      if (isCreativeProject && !choice) {
+        : { agentBinary: await window.ElectroBoyAgentPaneTools.chooseAgentForLaunch(contextUrl) };
+      if (!choice || (!isCreativeProject && !choice.agentBinary)) {
         return null;
       }
       const endpoint = isCreativeProject
@@ -2015,8 +2025,9 @@
             session_id: choice.sessionId || "",
             provider_session_id: choice.providerSessionId || "",
             start_new: Boolean(choice.startNew),
+            agent_binary: choice.agentBinary || "",
           }
-        : { target: activeTarget.path };
+        : { target: activeTarget.path, agent_binary: choice.agentBinary };
       const response = await fetch(contextUrl(endpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -5711,14 +5722,26 @@
       agentPaneTools = window.ElectroBoyAgentPaneTools.mount({
         controller: paneToolsController,
         getSession: selectedAgentSession,
+        getWorkspaceId: () => contextId,
+        loadAgentConfig: async () => {
+          const response = await fetch(contextUrl("/api/workspaces/agent-config"));
+          if (!response.ok) throw new Error("Could not load agent selections.");
+          return response.json();
+        },
+        loadAgentSessions: async () => {
+          const response = await fetch(contextUrl("/api/workspaces/agent-sessions"));
+          if (!response.ok) throw new Error("Could not load agent sessions.");
+          return (await response.json()).sessions || [];
+        },
         getTarget: () => ({
           canPop: EMBEDDED_PANE && params.get("popped") !== "1",
           canDock: !EMBEDDED_PANE && Boolean(window.opener),
           canClosePane: EMBEDDED_PANE && Boolean(paneInstanceId),
           canStart: Boolean(activeProjectRoot),
+          projectRoot: activeProjectRoot,
         }),
         actions: {
-          start: requestStartAgent,
+          start: (_session, _target, selection) => requestStartAgent(selection),
           export: exportCurrentPaneOutput,
           interrupt: interruptAgentSession,
           terminate: terminateAgentSession,

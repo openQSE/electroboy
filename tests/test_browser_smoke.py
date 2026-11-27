@@ -222,6 +222,93 @@ def browser_file_dom(page: str, root: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_agent_context_tools_selection_and_info(tmp_path: Path) -> None:
+    asset = (Path(__file__).resolve().parents[1] /
+             "src/electroboy/modules/assets/agent-pane-tools.js").read_text()
+    page = """<!doctype html><html><body><div id="tools"></div><script>
+let launched = null, workspace = 'workspace-one', current = {session_id:'one', name:'Writer', status:'running',
+  metadata:{provider:'codex',provider_binary:'codex-atoz',
+    provider_executable:'/bin/codex-atoz',provider_session_id:'provider-one'}};
+const controller = {addSection: () => {
+  const section = document.createElement('section');
+  document.getElementById('tools').append(section); return section;
+}, setEnabled: () => {}};
+</script><script>""" + asset + """</script><script>
+window.ElectroBoyAgentPaneTools.mount({
+ controller,
+ getWorkspaceId: () => workspace,
+ getTarget: () => ({projectRoot:'/project', canStart:true}),
+ getSession: () => current,
+ getSessions: () => [],
+ loadAgentConfig: async () => ({backend:workspace === 'workspace-one' ? 'codex-atoz' : 'codex-ornl',
+   backends:['codex-atoz','codex-ornl','opencode'], availability:{}}),
+ loadAgentSessions: async () => [
+   {name:'Writer',session_id:'one',status:'running',provider:'codex',provider_binary:'codex-atoz'},
+   {name:'Past',session_id:'three',status:'completed',provider:'codex',provider_binary:'codex-atoz'},
+   {name:'Other',session_id:'two',status:'completed',provider:'opencode',provider_binary:'opencode'}],
+ actions: {start: (_session, _target, choice) => { launched = choice.agentBinary; }},
+});
+(async () => {
+  const menu = document.querySelector('.pane-tool-agent-session-menu');
+  menu.open = true; menu.dispatchEvent(new Event('toggle'));
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const select = menu.querySelector('select');
+  const defaultCorrect = select.value === 'codex-atoz';
+  select.value = 'opencode'; select.dispatchEvent(new Event('change'));
+  [...menu.querySelectorAll('button')].find(b => b.textContent === 'Start agent').click();
+  [...menu.querySelectorAll('button')].find(b => b.textContent === 'Info').click();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const info = document.querySelector('dialog');
+  const infoCorrect = defaultCorrect && launched === 'opencode'
+    && info.textContent.includes('/bin/codex-atoz')
+    && info.textContent.includes('Writer') && info.textContent.includes('Past')
+    && !info.textContent.includes('Other');
+  info.querySelector('button').click(); current = null;
+  [...menu.querySelectorAll('button')].find(b => b.textContent === 'Info').click();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const emptyCorrect = document.querySelector('dialog').textContent.includes('No agent session selected');
+  document.querySelector('dialog').querySelector('button').click();
+  workspace = 'workspace-two'; menu.dispatchEvent(new Event('toggle'));
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const switchedCorrect = select.value === 'codex-ornl';
+  const result = document.createElement('div'); result.id = 'agentToolsProbe';
+  result.dataset.result = String(infoCorrect && emptyCorrect && switchedCorrect);
+  document.body.append(result);
+})();
+</script></body></html>"""
+    completed = browser_file_dom(page, tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="agentToolsProbe" data-result="true"></div>' in completed.stdout
+
+
+@pytest.mark.skipif(CHROME is None, reason="headless Chrome is not installed")
+def test_agent_launch_selector_uses_override_without_changing_default(tmp_path: Path) -> None:
+    asset = (Path(__file__).resolve().parents[1] /
+             "src/electroboy/modules/assets/agent-pane-tools.js").read_text()
+    page = """<!doctype html><html><body><dialog id="launch"><form>
+<fieldset><legend>Session</legend></fieldset></form></dialog><script>
+let chosen = '', calls = 0;
+window.fetch = async () => { calls++; return {ok:true, json:async () => ({
+ backend:'codex-atoz', backends:['codex-atoz','opencode'], availability:{}
+})}; };
+</script><script>""" + asset + """</script><script>
+(async () => {
+ const dialog = document.getElementById('launch');
+ const select = await window.ElectroBoyAgentPaneTools.configureAgentChoice(
+   dialog, path => path, 'opencode', value => { chosen = value; });
+ const initial = select.value;
+ select.value = 'codex-atoz'; select.dispatchEvent(new Event('change'));
+ const result = document.createElement('div'); result.id = 'agentChoiceProbe';
+ result.dataset.result = String(initial === 'opencode' && chosen === 'codex-atoz' && calls === 1);
+ document.body.append(result);
+})();
+</script></body></html>"""
+    completed = browser_file_dom(page, tmp_path)
+    assert completed.returncode == 0, completed.stderr
+    assert '<div id="agentChoiceProbe" data-result="true"></div>' in completed.stdout
+
+
 def browser_page_dom(page: str, profile: Path) -> subprocess.CompletedProcess[str]:
     body = page.encode("utf-8")
 

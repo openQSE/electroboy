@@ -183,7 +183,7 @@ after its code and relevant validation are complete.
 
 - [x] Add namespaced workspace default storage using the workspace registry;
       verify isolation, project reset, restore, and failed-write rollback.
-- [ ] Verify workspace default storage for shared workspaces.
+- [x] Verify workspace default storage for shared workspaces.
 - [ ] Upgrade older workspaces and their associated session records at open or
       restore, using recorded provider and executable metadata when reliable.
       Persist the current representation and version as one upgrade.
@@ -255,13 +255,13 @@ after its code and relevant validation are complete.
       connection changes the same workspace's default.
 - [ ] Add a per-agent selector to creative general and document start dialogs,
       software agent start dialogs, and other interactive launch surfaces.
-- [ ] Add a next-launch agent selector to the Agent context tools, initialized
+- [x] Add a next-launch agent selector to the Agent context tools, initialized
       from the workspace default and propagated to that pane's Start dialog.
       Verify it does not change the default or a running session's selection.
-- [ ] Add an Info button to the Agent context tools. Show the selected session's
+- [x] Add an Info button to the Agent context tools. Show the selected session's
       status, provider, binary, workspace, project, and IDs, plus the current
       workspace's sessions using that provider and executable.
-- [ ] Distinguish running and completed sessions in Info, handle unresolved
+- [x] Distinguish running and completed sessions in Info, handle unresolved
       selections and no selected session, and respect workspace authorization.
 - [ ] Show the selection on running and resumable sessions. Display a fixed
       selection when resuming and explain conflicts or missing executables.

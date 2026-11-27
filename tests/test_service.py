@@ -961,8 +961,8 @@ eval(`${code}
         self.assertIn("async function chooseCreativeAgentSession", creative)
         self.assertIn("function payloadWithCreativeSession(payload)", creative)
         self.assertIn("selected_session_id: sessionId", creative)
-        self.assertIn("const sessionPath = query", creative)
-        self.assertIn("contextUrl(sessionPath)", creative)
+        self.assertIn('params.set("agent_binary", binary)', creative)
+        self.assertIn('contextUrl(`/api/creative/agent/sessions?${params}`)', creative)
         self.assertNotIn(
             '`${contextUrl("/api/creative/agent/sessions")}?${query}`',
             creative,
@@ -1462,11 +1462,11 @@ eval(`${code}
         )
         self.assertIn("Focus session", agent_pane_tools)
         self.assertIn("Start agent", agent_pane_tools)
-        self.assertIn('runAction("start", () => {})', agent_pane_tools)
+        self.assertIn('runAction("start", () => {}, { agentBinary: binary })', agent_pane_tools)
         self.assertIn("startActiveWorkflowAgent", sessions)
-        self.assertIn('invokeWorkflow(workflow.id, "startAgent")', sessions)
+        self.assertIn('invokeWorkflow(workflow.id, "startAgent", options)', sessions)
         self.assertIn('type: "electroboy:pane-start-agent"', pane_window)
-        self.assertIn('start: requestStartAgent', pane_window)
+        self.assertIn('requestStartAgent(selection)', pane_window)
         self.assertIn('message.type === "electroboy:pane-start-agent"', app)
         self.assertIn(
             'startAgent: (runtime, ...args) => invoke(runtime, startAdHocAgent, args)',
@@ -2020,7 +2020,7 @@ eval(`${code}
         self.assertIn('parameters.set("targets", JSON.stringify(targets))', documents)
         self.assertIn("runtimeApi.http.rawEventSource(", documents)
         self.assertIn("async function startRequirementsAgent()", software)
-        ad_hoc_start_offset = software.index("async function startAdHocAgent()")
+        ad_hoc_start_offset = software.index("async function startAdHocAgent(options = {})")
         ad_hoc_start = software[
             ad_hoc_start_offset : software.index(
                 "async function runRequirementsAgent",
@@ -2028,7 +2028,7 @@ eval(`${code}
             )
         ]
         self.assertNotIn("hideArtifactPreview()", ad_hoc_start)
-        self.assertIn('contextUrl("/api/agents/ad-hoc/sessions")', software)
+        self.assertIn('contextUrl(`/api/agents/ad-hoc/sessions?${params}`)', software)
         self.assertIn("function ensureAdHocSessionDialog()", software)
         self.assertIn('class="ad-hoc-session-name"', software)
         self.assertIn('class="ad-hoc-session-name"', creative)
@@ -4061,7 +4061,7 @@ eval(`${code}
             PANE_WINDOW_HTML,
         )
         self.assertIn(
-            "contextUrl(`/api/creative/agent/sessions?${query}`)",
+            "contextUrl(`/api/creative/agent/sessions?${params}`)",
             PANE_WINDOW_HTML,
         )
         self.assertIn(

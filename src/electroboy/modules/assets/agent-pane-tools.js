@@ -39,6 +39,61 @@
     return button(label, action, `pane-tool-menu-button ${className}`.trim());
   }
 
+  async function configureAgentChoice(dialog, contextUrl, initialBinary, onChange) {
+    const response = await fetch(contextUrl("/api/workspaces/agent-config"));
+    if (!response.ok) throw new Error("Could not load agent selections.");
+    const config = await response.json();
+    let label = dialog.querySelector(".agent-launch-selection");
+    if (!label) {
+      label = document.createElement("label");
+      label.className = "agent-launch-selection";
+      label.append(document.createTextNode("Agent "));
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", "Agent for this session");
+      label.append(select);
+      const form = dialog.querySelector("form");
+      form.insertBefore(label, form.querySelector("fieldset"));
+    }
+    const select = label.querySelector("select");
+    select.replaceChildren(...(config.backends || []).map((binary) => {
+      const option = document.createElement("option");
+      option.value = binary;
+      option.textContent = binary;
+      option.disabled = config.availability?.[binary] === false;
+      return option;
+    }));
+    select.value = initialBinary || config.backend;
+    if (!select.value) throw new Error("Selected agent is unavailable.");
+    select.onchange = () => onChange(select.value);
+    return select;
+  }
+
+  async function chooseAgentForLaunch(contextUrl, initialBinary = "") {
+    const dialog = document.createElement("dialog");
+    dialog.className = "agent-focus-session-dialog";
+    dialog.innerHTML = `<form method="dialog"><h2>Start agent</h2>
+      <fieldset><legend>Agent selection</legend></fieldset>
+      <button type="button" class="cancel">Cancel</button>
+      <button type="submit">Start</button></form>`;
+    document.body.append(dialog);
+    let selection;
+    try {
+      selection = await configureAgentChoice(dialog, contextUrl, initialBinary, () => {});
+    } catch (error) {
+      dialog.remove();
+      throw error;
+    }
+    return new Promise((resolve) => {
+      const finish = (value) => { dialog.close(); dialog.remove(); resolve(value); };
+      dialog.querySelector(".cancel").onclick = () => finish(null);
+      dialog.oncancel = (event) => { event.preventDefault(); finish(null); };
+      dialog.querySelector("form").onsubmit = (event) => {
+        event.preventDefault(); finish(selection.value);
+      };
+      dialog.showModal();
+    });
+  }
+
   function mount(options) {
     const controller = options.controller;
     const controls = options.controls || {};
@@ -55,6 +110,10 @@
     const displayLabel = typeof options.displayLabel === "function"
       ? options.displayLabel
       : (session) => `${session.kind || "agent"} · ${session.status || "done"}`;
+    const getWorkspaceId = options.getWorkspaceId || (() => "");
+    let configuredWorkspace = "";
+    let selectedBinary = "";
+    let selectionChanged = false;
 
     function session() {
       return getSession() || null;
@@ -310,15 +369,99 @@
     paneMenu.list.append(pop, dock, closePane);
 
     const agentMenu = menu("Agent", "pane-tool-agent-session-menu");
+    const selectionLabel = document.createElement("label");
+    selectionLabel.textContent = "Agent for next start";
+    const selection = document.createElement("select");
+    selection.setAttribute("aria-label", "Agent for next start");
+    selection.disabled = true;
+    selectionLabel.append(selection);
+    selection.addEventListener("change", () => {
+      selectedBinary = selection.value;
+      selectionChanged = true;
+    });
+    async function refreshAgentSelection() {
+      if (typeof options.loadAgentConfig !== "function") return;
+      const workspace = String(getWorkspaceId() || "");
+      if (!workspace) return;
+      const config = await options.loadAgentConfig();
+      if (workspace !== String(getWorkspaceId() || "")) return;
+      if (configuredWorkspace !== workspace) {
+        configuredWorkspace = workspace;
+        selectedBinary = "";
+        selectionChanged = false;
+      }
+      if (!selectionChanged) selectedBinary = String(config.backend || "");
+      selection.replaceChildren(...(config.backends || []).map((binary) => {
+        const option = document.createElement("option");
+        option.value = binary;
+        option.textContent = binary;
+        option.disabled = config.availability?.[binary] === false;
+        return option;
+      }));
+      selection.value = selectedBinary;
+      selection.disabled = false;
+    }
+    agentMenu.details.addEventListener("toggle", () => {
+      if (agentMenu.details.open) {
+        refreshAgentSelection().catch((error) => setActionStatus(actionErrorMessage(error), true));
+      }
+    });
     const start = menuButton("Start agent", () => {
-      runAction("start", () => {});
+      const binary = configuredWorkspace === String(getWorkspaceId() || "")
+        ? selectedBinary : "";
+      runAction("start", () => {}, { agentBinary: binary });
+    });
+    const info = menuButton("Info", async () => {
+      const current = session();
+      const workspace = String(getWorkspaceId() || "");
+      const dialog = document.createElement("dialog");
+      dialog.className = "agent-focus-session-dialog";
+      const title = document.createElement("h2");
+      title.textContent = "Agent info";
+      const details = document.createElement("p");
+      const list = document.createElement("ul");
+      const metadata = current?.metadata || {};
+      const provider = String(metadata.provider || "");
+      const binary = String(metadata.provider_binary || "");
+      details.textContent = current
+        ? [sessionLabel(current), `Status: ${current.status || "unknown"}`,
+          `Provider: ${provider || "unresolved"}`,
+          `Agent: ${binary || "unresolved"}`,
+          `Binary: ${metadata.provider_executable || "unavailable"}`,
+          `Workspace: ${getWorkspaceId() || "unknown"}`,
+          `Project: ${target().projectRoot || "unknown"}`,
+          `Session: ${current.session_id || "unknown"}`,
+          `Provider session: ${metadata.provider_session_id || "unknown"}`].join(" · ")
+        : "No agent session selected.";
+      if (current && binary && provider) {
+        try {
+          const entries = typeof options.loadAgentSessions === "function"
+            ? await options.loadAgentSessions() : [];
+          if (workspace !== String(getWorkspaceId() || "")) return;
+          for (const entry of entries) {
+            if (entry.provider !== provider || entry.provider_binary !== binary) continue;
+            const item = document.createElement("li");
+            item.textContent = `${entry.name || "Agent"} · ${entry.status || "unknown"} · ${entry.session_id || ""}`;
+            list.append(item);
+          }
+        } catch (error) {
+          const item = document.createElement("li");
+          item.textContent = `Could not load sessions: ${actionErrorMessage(error)}`;
+          list.append(item);
+        }
+      }
+      const close = button("Close", () => { dialog.close(); dialog.remove(); });
+      dialog.append(title, details, list, close);
+      dialog.addEventListener("cancel", () => dialog.remove(), { once: true });
+      document.body.append(dialog);
+      dialog.showModal();
     });
     const focus = menuButton("Focus session", focusRunningSession);
     const interrupt = menuButton("Interrupt", () => {
       runAction("interrupt", () => {});
     });
     const terminate = menuButton("Terminate agent", terminateSession, "danger");
-    agentMenu.list.append(start, focus, interrupt, terminate);
+    agentMenu.list.append(selectionLabel, start, info, focus, interrupt, terminate);
 
     const actionStatus = document.createElement("div");
     actionStatus.className = "pane-tool-status";
@@ -373,5 +516,5 @@
     return { refresh };
   }
 
-  window.ElectroBoyAgentPaneTools = { mount };
+  window.ElectroBoyAgentPaneTools = { mount, configureAgentChoice, chooseAgentForLaunch };
 })();

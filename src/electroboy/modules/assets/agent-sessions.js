@@ -1034,7 +1034,7 @@
       return true;
     }
 
-    function startActiveWorkflowAgent() {
+    function startActiveWorkflowAgent(options = {}) {
       const state = runtimeApi.getState();
       const workflow = window.ElectroBoyFrontend.workflowForSelection(
         state.workflowMode,
@@ -1042,7 +1042,7 @@
       if (!workflow || typeof workflow.actions?.startAgent !== "function") {
         throw new Error("The active workflow does not provide an agent launcher.");
       }
-      return window.ElectroBoyFrontend.invokeWorkflow(workflow.id, "startAgent");
+      return window.ElectroBoyFrontend.invokeWorkflow(workflow.id, "startAgent", options);
     }
 
     function mountAgentPaneTools(runtime) {
@@ -1074,13 +1074,25 @@
       agentPaneTools = window.ElectroBoyAgentPaneTools.mount({
         controller,
         getSession: selectedSession,
+        getWorkspaceId: () => runtime.getState().contextId,
+        loadAgentConfig: async () => {
+          const response = await fetch(runtime.http.contextUrl("/api/workspaces/agent-config"));
+          if (!response.ok) throw new Error("Could not load agent selections.");
+          return response.json();
+        },
+        loadAgentSessions: async () => {
+          const response = await fetch(runtime.http.contextUrl("/api/workspaces/agent-sessions"));
+          if (!response.ok) throw new Error("Could not load agent sessions.");
+          return (await response.json()).sessions || [];
+        },
         getTarget: () => ({
           canPop: !runtime.layout.isPopped("agent"),
           canClosePane: runtime.layout.hasPane("agent"),
           canStart: Boolean(runtimeState.activeProjectRoot),
+          projectRoot: runtimeState.activeProjectRoot,
         }),
         actions: {
-          start: startActiveWorkflowAgent,
+          start: (_session, _target, selection) => startActiveWorkflowAgent(selection),
           export: exportAgentSession,
           interrupt: interruptActiveAgent,
           terminate: terminateActiveAgent,

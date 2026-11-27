@@ -754,6 +754,7 @@
           scope,
           documentPath,
           activeTarget: target,
+          agentBinary: options.agentBinary || "",
         });
       } catch (error) {
         appendOutput(`${error.message || "session history failed"}\n`, "error");
@@ -782,6 +783,7 @@
         provider_session_id: choice.providerSessionId || "",
         start_new: Boolean(choice.startNew),
         name: choice.name || "",
+        agent_binary: choice.agentBinary || options.agentBinary || "",
       }),
     });
     const payload = await response
@@ -1302,24 +1304,6 @@
 
     async function chooseCreativeAgentSession(options = {}) {
       const scope = options.scope === "document" ? "document" : "general";
-      const query = creativeSessionQuery({
-        scope,
-        documentPath: options.documentPath || "",
-        activeTarget: options.activeTarget || null,
-      });
-      const sessionPath = query
-        ? `/api/creative/agent/sessions?${query}`
-        : "/api/creative/agent/sessions";
-      const response = await fetch(
-        contextUrl(sessionPath),
-        { cache: "no-store" },
-      );
-      const payload = await response.json().catch(() => ({
-        error: "session history failed",
-      }));
-      if (!response.ok) {
-        throw new Error(payload.error || "session history failed");
-      }
       const dialog = ensureCreativeSessionDialog();
       const heading = dialog.querySelector(".ad-hoc-session-header h2");
       const summary = dialog.querySelector(".ad-hoc-session-header p");
@@ -1340,19 +1324,43 @@
           </span>
         </span>
       `;
-      const sessions = Array.isArray(payload.sessions)
-        ? payload.sessions.filter(creativeSessionCanContinue)
-        : [];
       heading.textContent = scope === "document"
         ? "Start document agent"
         : "Start creative agent";
-      summary.textContent = scope === "document" && payload.document_path
-        ? `Sessions scoped to ${payload.document_path}.`
-        : "General creative sessions for this project.";
-      list.replaceChildren(
-        newOption,
-        ...sessions.map((session, index) => creativeSessionOption(session, index)),
+      let historyRevision = 0;
+      async function refreshHistory(binary) {
+        const revision = ++historyRevision;
+        submit.disabled = true;
+        const params = new URLSearchParams(creativeSessionQuery({
+          scope, documentPath: options.documentPath || "",
+          activeTarget: options.activeTarget || null,
+        }));
+        params.set("agent_binary", binary);
+        const response = await fetch(contextUrl(`/api/creative/agent/sessions?${params}`),
+          { cache: "no-store" });
+        const payload = await response.json().catch(() => ({ error: "session history failed" }));
+        if (!response.ok) throw new Error(payload.error || "session history failed");
+        if (revision !== historyRevision) return;
+        const sessions = Array.isArray(payload.sessions)
+          ? payload.sessions.filter(creativeSessionCanContinue) : [];
+        summary.textContent = scope === "document" && payload.document_path
+          ? `Sessions scoped to ${payload.document_path}.`
+          : "General creative sessions for this project.";
+        list.replaceChildren(newOption,
+          ...sessions.map((session, index) => creativeSessionOption(session, index)));
+        newOption.querySelector("input").checked = true;
+        submit.textContent = "Start";
+        submit.disabled = false;
+      }
+      const agentSelect = await window.ElectroBoyAgentPaneTools.configureAgentChoice(
+        dialog, contextUrl, options.agentBinary || "", (binary) => {
+          refreshHistory(binary).catch((failure) => {
+            error.textContent = failure.message;
+            error.hidden = false;
+          });
+        },
       );
+      await refreshHistory(agentSelect.value);
       customInput.value = "";
       nameInput.value = "";
       error.hidden = true;
@@ -1411,6 +1419,7 @@
             return;
           }
           choice.name = name;
+          choice.agentBinary = agentSelect.value;
           finish(choice);
         };
         dialog.showModal();

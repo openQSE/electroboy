@@ -3595,6 +3595,7 @@
           .then(() => window.ElectroBoyFrontend.invokeModule(
             "agent-sessions",
             "startActiveWorkflowAgent",
+            { agentBinary: String(message.agentBinary || "") },
           ))
           .catch((error) => {
             appendOutput(`${error.message || "agent start failed"}\n`, "error");
