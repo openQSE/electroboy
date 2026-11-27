@@ -222,9 +222,9 @@ after its code and relevant validation are complete.
       stable selection and resolved executable in agent session metadata.
 - [x] Update session preparation and process guards to use the captured
       selection without checking a mutable service-wide backend revision.
-- [ ] Route creative general and document agents through workspace defaults
+- [x] Route creative general and document agents through workspace defaults
       and explicit overrides; keep scope and existing agent reuse rules.
-- [ ] Route software ad hoc, stage, interactive, and review agents through the
+- [x] Route software ad hoc, stage, interactive, and review agents through the
       same selection contract. Update code-learner interactive agent launches.
 - [x] Preserve provider/executable affinity for attachment and resume, reject
       conflicting overrides, and handle missing executables without affecting
@@ -267,11 +267,11 @@ after its code and relevant validation are complete.
       workspace's sessions using that provider and executable.
 - [x] Distinguish running and completed sessions in Info, handle unresolved
       selections and no selected session, and respect workspace authorization.
-- [ ] Show the selection on running and resumable sessions. Display a fixed
+- [x] Show the selection on running and resumable sessions. Display a fixed
       selection when resuming and explain conflicts or missing executables.
 - [x] Pass the selected override through each frontend action, route, and
       controller without changing the workspace default.
-- [ ] Add service static assertions and behavioral browser coverage for default
+- [x] Add service static assertions and behavioral browser coverage for default
       changes, context-tool selection, Info, and preserving a running agent.
 
 ### 5. Validation and documentation
@@ -282,7 +282,7 @@ after its code and relevant validation are complete.
       restart and resume, with the executables available in the test setup.
 - [ ] Review service and workflow boundaries for global selection reads,
       provider-specific logic in core, and untracked launch paths.
-- [ ] Update operator documentation to explain workspace defaults, overrides,
+- [x] Update operator documentation to explain workspace defaults, overrides,
       provider-specific history, resume behavior, and legacy migration.
 - [ ] Preserve review findings, validation commands, results, and decisions
       according to the project development workflow.

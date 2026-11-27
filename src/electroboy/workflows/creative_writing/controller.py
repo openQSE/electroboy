@@ -529,6 +529,8 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                     existing_binary = str(metadata.get("provider_binary") or "")
                     if agent_binary and existing_binary and agent_binary != existing_binary:
                         raise AgentSessionError("Agent session uses a different executable.")
+                    if agent_binary and not existing_binary:
+                        resume_agent_binary([metadata], agent_binary)
                     if requested_name:
                         active.name = requested_name
                     context.selected_session_id = active.session_id

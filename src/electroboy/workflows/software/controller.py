@@ -488,6 +488,8 @@ class SoftwareWorkflowController(BoundWorkflowController):
                         existing_binary = str(metadata.get("provider_binary") or "")
                         if agent_binary and existing_binary and agent_binary != existing_binary:
                             raise AgentSessionError("Agent session uses a different executable.")
+                        if agent_binary and not existing_binary:
+                            resume_agent_binary([metadata], agent_binary)
                         if requested_name:
                             session.name = requested_name
                             self.services.sessions.record(context, session)
