@@ -1326,12 +1326,14 @@ class ServiceState:
         scope: str = "",
         active_document: str | None = None,
         active_target: dict[str, object] | None = None,
+        agent_binary: str = "",
     ) -> dict[str, object]:
         return self.workflow_controller("creative-writing").creative_agent_sessions(
             context_id,
             scope=scope,
             active_document=active_document,
             active_target=active_target,
+            agent_binary=agent_binary,
         )
 
     def start_creative_writing_agent(
@@ -1345,6 +1347,7 @@ class ServiceState:
         provider_session_id: str | None = None,
         start_new: bool = True,
         name: str | None = None,
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         return self.workflow_controller("creative-writing").start_creative_writing_agent(
             context_id,
@@ -1355,6 +1358,7 @@ class ServiceState:
             provider_session_id=provider_session_id,
             start_new=start_new,
             name=name,
+            agent_binary=agent_binary,
         )
 
     def stop_design_review_agent(self, context_id: str) -> dict[str, object]:

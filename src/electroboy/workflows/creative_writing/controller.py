@@ -415,6 +415,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         scope: str = "",
         active_document: str | None = None,
         active_target: dict[str, object] | None = None,
+        agent_binary: str = "",
     ) -> dict[str, object]:
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
@@ -427,17 +428,20 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
             active_document=active_document,
             active_target=active_target,
         )
+        selection = self.services.sessions.resolve_workspace_selection(
+            context_id, agent_binary,
+        )
         history = (
             creative_session_history(
                 self.services.files.state_root,
                 project_root,
                 scope=scope_name,
                 scope_key=scope_key,
-                executable=self.services.sessions.executable(project_root),
+                executable=selection.executable,
             )
-            if self.services.sessions.backend == "codex"
+            if selection.provider == "codex"
             else self.services.sessions.provider_history(
-                project_root, "creative-writing", scope_key
+                project_root, "creative-writing", scope_key, provider=selection.provider
             )
         )
         with self.services.contexts.lock:
@@ -450,7 +454,9 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 )
                 for session in context.creative_sessions.values()
                 if session.metadata.get("provider", "codex")
-                == self.services.sessions.backend
+                == selection.provider
+                and str(session.metadata.get("provider_binary") or selection.binary)
+                == selection.binary
                 and self._creative_session_matches_scope(session, scope_key=scope_key)
             ]
         seen: set[tuple[str, str]] = set()
@@ -483,10 +489,14 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         provider_session_id: str | None = None,
         start_new: bool = True,
         name: str | None = None,
+        agent_binary: str = "",
     ) -> tuple[AgentSession, bool]:
         requested_session_id = str(session_id or "").strip()
         requested_provider_session_id = str(provider_session_id or "").strip()
         requested_name = normalize_session_name(name)
+        selection = self.services.sessions.resolve_workspace_selection(
+            context_id, agent_binary,
+        )
         with self.services.contexts.lock:
             context = self.services.contexts.require(context_id)
             project_root = context.active_project_root
@@ -506,6 +516,13 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 require_active_provider=True,
             )
             if existing is not None:
+                existing_binary = str(existing.metadata.get("provider_binary") or "")
+                if existing_binary and existing_binary != selection.binary:
+                    if agent_binary:
+                        raise AgentSessionError("Agent session uses a different executable.")
+                    selection = self.services.sessions.resolve_workspace_selection(
+                        context_id, existing_binary,
+                    )
                 existing_provider_id = str(
                     existing.metadata.get("provider_session_id") or ""
                 )
@@ -534,6 +551,13 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 require_active_provider=True,
             )
             if existing is not None:
+                existing_binary = str(existing.metadata.get("provider_binary") or "")
+                if existing_binary and existing_binary != selection.binary:
+                    if agent_binary:
+                        raise AgentSessionError("Agent session uses a different executable.")
+                    selection = self.services.sessions.resolve_workspace_selection(
+                        context_id, existing_binary,
+                    )
                 if requested_name:
                     with self.services.contexts.lock:
                         context = self.services.contexts.require(context_id)
@@ -546,6 +570,8 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 for session in reversed(list(context.creative_sessions.values())):
                     if (
                         session.is_active()
+                        and session.metadata.get("provider_binary", selection.binary)
+                        == selection.binary
                         and self._creative_session_matches_scope(
                             session,
                             scope_key=scope_key,
@@ -557,11 +583,11 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                         self.services.sessions.record(context, session)
                         return session, False
 
-        backend = self.services.sessions.backend
+        backend = selection.provider
         if backend == "opencode":
             with self.services.contexts.lock:
                 history = self.services.sessions.provider_history(
-                    project_root, "creative-writing", scope_key
+                    project_root, "creative-writing", scope_key, provider=backend
                 )
                 if requested_provider_session_id and not any(
                     entry["provider_session_id"] == requested_provider_session_id
@@ -595,7 +621,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                         "target_path": str((target or {}).get("path") or ""),
                     },
                 )
-                session = self.services.sessions.prepare(context, session)
+                session = self.services.sessions.prepare(context, session, selection)
                 context.creative_sessions[session.session_id] = session
                 context.selected_session_id = session.session_id
                 self.services.sessions.record(context, session)
@@ -605,7 +631,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
         provider_session = None
         provider_catalog_entry: dict[str, object] | None = None
         known_provider_paths: frozenset[Path] = frozenset()
-        executable = self.services.sessions.executable(project_root)
+        executable = selection.executable
         if requested_provider_session_id:
             provider_session = resumable_creative_session(
                 self.services.files.state_root,
@@ -674,7 +700,7 @@ class CreativeWritingWorkflowController(BoundWorkflowController):
                 interactive=True,
                 metadata=metadata,
             )
-            session = self.services.sessions.prepare(context, session)
+            session = self.services.sessions.prepare(context, session, selection)
             context.creative_sessions[session.session_id] = session
             context.selected_session_id = session.session_id
             self.services.sessions.record(context, session)

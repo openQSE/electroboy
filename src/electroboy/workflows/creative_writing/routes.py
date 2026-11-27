@@ -95,6 +95,7 @@ def _start_agent(request: RouteRequest) -> ServiceResponse:
             provider_session_id=str(payload.get("provider_session_id") or ""),
             start_new=bool(payload.get("start_new", True)),
             name=str(payload.get("name") or ""),
+            agent_binary=str(payload.get("agent_binary") or ""),
         )
         result = {
             **request.services.contexts.project_payload(request.context_id),
@@ -127,6 +128,7 @@ def _agent_sessions(request: RouteRequest) -> ServiceResponse:
             scope=str((request.params.get("scope") or [""])[0]),
             active_document=str((request.params.get("active_document") or [""])[0]),
             active_target=active_target,
+            agent_binary=str((request.params.get("agent_binary") or [""])[0]),
         )
     except Exception as error:
         return _error(error)

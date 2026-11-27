@@ -65,6 +65,32 @@ def test_provider_history_can_be_queried_independently_of_global_default(tmp_pat
     assert [entry["provider_session_id"] for entry in entries] == ["open-id"]
 
 
+def test_creative_agents_capture_workspace_default_and_explicit_override(tmp_path):
+    from electroboy.service.services import build_service_services
+
+    service_root = tmp_path / "service"
+    service_root.mkdir()
+    state = ServiceState(service_root)
+    workspace = state.create_context(workflow_id="creative-writing")["context_id"]
+    state.create_creative_project(workspace, str(tmp_path / "story"))
+    services = build_service_services(state, state.workflow_registry).sessions
+    with (
+        patch("shutil.which", side_effect=lambda name: f"/bin/{name}"),
+        patch.object(AgentSession, "start"),
+        patch("electroboy.workflows.creative_writing.controller.codex_session_paths", return_value=frozenset()),
+        patch("electroboy.workflows.creative_writing.controller.start_creative_session_tracking"),
+    ):
+        services.set_workspace_backend(workspace, "codex-atoz")
+        first, _ = state.start_creative_writing_agent(workspace)
+        second, _ = state.start_creative_writing_agent(workspace, agent_binary="opencode")
+        services.set_workspace_backend(workspace, "codex-ornl")
+    assert first.metadata["provider_binary"] == "codex-atoz"
+    assert second.metadata["provider_binary"] == "opencode"
+    assert first.metadata["provider"] == "codex"
+    assert second.metadata["provider"] == "opencode"
+    assert services.workspace_backend_payload(workspace)["backend"] == "codex-ornl"
+
+
 def test_defaults_confirmation_and_stale_revision():
     backend = selection()
     assert backend.payload()["backend"] == "codex"
