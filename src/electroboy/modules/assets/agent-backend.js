@@ -1,48 +1,6 @@
 (function () {
   "use strict";
 
-  function confirmSwitch(target, config) {
-    const dialog = document.createElement("dialog");
-    dialog.className = "agent-focus-session-dialog agent-terminate-dialog";
-    dialog.setAttribute("aria-labelledby", "backendConfirmTitle");
-    dialog.innerHTML = `
-      <form method="dialog" class="agent-focus-session-form">
-        <header class="agent-focus-session-header">
-          <h2 id="backendConfirmTitle">Switch agent backend?</h2>
-          <button type="button" class="agent-focus-session-close" aria-label="Close">&times;</button>
-        </header>
-        <section class="agent-terminate-session-body"><p></p></section>
-        <footer class="agent-focus-session-footer">
-          <button type="button" class="agent-focus-session-cancel">Cancel</button>
-          <button type="submit" class="agent-focus-session-submit agent-terminate-session-submit">Stop agents and switch</button>
-        </footer>
-      </form>`;
-    const count = config.active_agents.length + config.background_agents;
-    dialog.querySelector("section p").textContent =
-      `Switch to ${target}? This will stop all active agents and cancel queued agent work across every workspace in this ElectroBoy service, including other browser tabs. ` +
-      `${count} agent${count === 1 ? " is" : "s are"} currently active. Future agents will use the selected backend. Files already written will remain.`;
-    document.body.append(dialog);
-    return new Promise((resolve) => {
-      const finish = (confirmed) => {
-        dialog.close();
-        dialog.remove();
-        resolve(confirmed);
-      };
-      dialog.querySelector("form").onsubmit = (event) => {
-        event.preventDefault();
-        finish(true);
-      };
-      dialog.querySelector(".agent-focus-session-cancel").onclick = () => finish(false);
-      dialog.querySelector(".agent-focus-session-close").onclick = () => finish(false);
-      dialog.addEventListener("cancel", (event) => {
-        event.preventDefault();
-        finish(false);
-      });
-      dialog.showModal();
-      dialog.querySelector(".agent-focus-session-cancel").focus();
-    });
-  }
-
   window.ElectroBoyFrontend.registerModule({
     id: "agent-backend",
     label: "Agent Backend",
@@ -53,16 +11,24 @@
       if (!select) return;
       select.closest(".backend-control").hidden = false;
       let config = null;
+      let configWorkspace = "";
       let busy = false;
       let disposed = false;
+
+      function workspace() {
+        return String(runtime.getState().contextId || "");
+      }
+
       async function request(options) {
-        const response = await fetch("/api/runtime/config", {cache: "no-store", ...options});
+        const url = runtime.http.contextUrl("/api/workspaces/agent-config");
+        const response = await fetch(url, {cache: "no-store", ...options});
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || "Backend request failed.");
+        if (!response.ok) throw new Error(payload.error || "Agent selection failed.");
         return payload;
       }
+
       function render() {
-        if (config) {
+        if (config && configWorkspace === workspace()) {
           select.replaceChildren(...config.backends.map((binary) => {
             const option = document.createElement("option");
             option.value = binary;
@@ -71,45 +37,57 @@
             if (option.disabled) option.title = "Executable unavailable in the service environment";
             return option;
           }));
+          select.value = config.backend;
         }
-        select.value = config?.backend || "codex";
-        select.disabled = busy || !config || config.switching;
+        select.disabled = busy || !config || configWorkspace !== workspace();
       }
+
       async function refresh() {
         if (busy || disposed) return;
+        const requestedWorkspace = workspace();
+        if (!requestedWorkspace) {
+          config = null;
+          configWorkspace = "";
+          render();
+          return;
+        }
         try {
           const current = await request();
-          if (busy || disposed) return;
-          const changed = config && config.revision !== current.revision;
+          if (busy || disposed || requestedWorkspace !== workspace()) return;
           config = current;
+          configWorkspace = requestedWorkspace;
+          status.textContent = "";
           render();
-          if (changed) runtime.modules.invoke("agent-sessions", "refreshServiceSessions");
         } catch (error) {
+          if (requestedWorkspace !== workspace()) return;
+          config = null;
+          configWorkspace = "";
           status.textContent = error.message;
-          select.title = error.message;
+          render();
         }
       }
+
       select.addEventListener("change", async () => {
         const target = select.value;
-        if (busy || !config || target === config.backend) return;
+        const requestedWorkspace = workspace();
+        if (busy || !config || configWorkspace !== requestedWorkspace ||
+            target === config.backend) return;
         busy = true;
         render();
         try {
-          config = await request();
-          if (target === config.backend) return;
-          if (!await confirmSwitch(target, config)) return;
-          status.textContent = "Stopping agents…";
-          config = await request({
+          const updated = await request({
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({backend: target, confirmed: true, revision: config.revision}),
+            body: JSON.stringify({backend: target}),
           });
-          status.textContent = `Backend: ${config.backend}`;
-          await runtime.modules.invoke("agent-sessions", "refreshServiceSessions");
+          if (requestedWorkspace === workspace()) {
+            config = updated;
+            configWorkspace = requestedWorkspace;
+            status.textContent = `Default for new agents: ${updated.backend}`;
+          }
         } catch (error) {
           status.textContent = error.message;
-          select.title = error.message;
-          runtime.notifications.appendOutput(`Backend switch failed: ${error.message}\n`, "error");
+          runtime.notifications.appendOutput(`Agent selection failed: ${error.message}\n`, "error");
         } finally {
           busy = false;
           render();

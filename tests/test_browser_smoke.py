@@ -23,6 +23,64 @@ NODE = shutil.which("node")
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_workspace_agent_selector_changes_only_active_workspace() -> None:
+    asset = Path(__file__).resolve().parents[1] / "src/electroboy/modules/assets/agent-backend.js"
+    script = r"""
+let module, tick, change, active = 'one';
+const values = {one: 'codex-atoz', two: 'opencode'};
+const select = {
+  value: '', disabled: false,
+  closest: () => ({hidden: true}),
+  replaceChildren(...options) { this.options = options; },
+  addEventListener(name, callback) { if (name === 'change') change = callback; },
+};
+const status = {textContent: ''};
+global.document = {
+  getElementById(id) { return id === 'agentBackend' ? select : status; },
+  createElement() { return {}; },
+};
+global.window = {
+  ElectroBoyFrontend: {registerModule(value) { module = value; }},
+  addEventListener() {},
+};
+global.setInterval = (fn) => { tick = fn; return 1; };
+global.fetch = async (url, options) => {
+  const workspace = new URL('http://example' + url).searchParams.get('workspace_id');
+  if (options.method === 'POST') values[workspace] = JSON.parse(options.body).backend;
+  return {ok: true, json: async () => ({
+    backend: values[workspace], backends: ['codex-atoz', 'codex-ornl', 'opencode'],
+    availability: {},
+  })};
+};
+require(process.argv[1]);
+const runtime = {
+  getState: () => ({contextId: active}),
+  http: {contextUrl: path => `${path}?workspace_id=${active}`},
+  notifications: {appendOutput(text) { throw new Error(text); }},
+};
+(async () => {
+  module.mount(runtime);
+  await new Promise(resolve => setImmediate(resolve));
+  if (select.value !== 'codex-atoz') throw Error('initial workspace default');
+  select.value = 'codex-ornl';
+  await change();
+  if (values.one !== 'codex-ornl' || values.two !== 'opencode') throw Error('isolation');
+  active = 'two';
+  await tick();
+  if (select.value !== 'opencode') throw Error('workspace switch');
+  values.two = 'codex-atoz';
+  await tick();
+  if (select.value !== 'codex-atoz') throw Error('other connection change');
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    completed = subprocess.run(
+        [str(NODE), "-e", script, str(asset)], capture_output=True, text=True,
+        timeout=10, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
 def test_corkboard_activity_populates_progress_without_opening_pane() -> None:
     asset = (
         Path(__file__).resolve().parents[1]

@@ -226,9 +226,9 @@ eval(`${code}
             Path(__file__).resolve().parents[1]
             / "src/electroboy/modules/assets/agent-backend.js"
         ).read_text()
-        self.assertIn("agent-focus-session-dialog agent-terminate-dialog", source)
-        self.assertIn("Stop agents and switch", source)
-        self.assertIn("confirmed: true", source)
+        self.assertIn('runtime.http.contextUrl("/api/workspaces/agent-config")', source)
+        self.assertIn("Default for new agents", source)
+        self.assertNotIn("Stop agents and switch", source)
         self.assertIn("config.backends.map", source)
         self.assertNotIn("window.confirm", source)
 

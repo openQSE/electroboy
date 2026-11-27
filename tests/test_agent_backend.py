@@ -52,6 +52,35 @@ def test_captured_selection_requires_available_executable(tmp_path):
             backend.resolve("codex-atoz", tmp_path)
 
 
+def test_workspace_default_change_keeps_mixed_agent_processes_running(tmp_path):
+    from electroboy.service.services import build_service_services
+
+    state = ServiceState(tmp_path)
+    workspace = state.create_context(workflow_id="software")["context_id"]
+    services = build_service_services(state, state.workflow_registry).sessions
+    sessions = []
+    try:
+        with patch("shutil.which", return_value="/bin/true"):
+            services.set_workspace_backend(workspace, "codex-atoz")
+            for binary in ("codex-atoz", "opencode"):
+                selected = services.resolve_workspace_selection(workspace, binary)
+                session = AgentSession(
+                    [sys.executable, "-c", "import time; time.sleep(60)"],
+                    tmp_path, kind="ad-hoc",
+                )
+                services.prepare(state.contexts[workspace], session, selected)
+                session.start()
+                sessions.append(session)
+            services.set_workspace_backend(workspace, "codex-ornl")
+        assert all(session.is_active() for session in sessions)
+        assert [session.metadata["provider_binary"] for session in sessions] == [
+            "codex-atoz", "opencode",
+        ]
+    finally:
+        for session in sessions:
+            session.terminate()
+
+
 def test_provider_history_can_be_queried_independently_of_global_default(tmp_path):
     state = ServiceState(tmp_path)
     records = {"sessions": [
@@ -298,7 +327,6 @@ def test_server_api_and_shell_exclusion(tmp_path):
     thread.start()
     url = f"http://127.0.0.1:{server.server_address[1]}/api/runtime/config"
     try:
-        assert json.load(urllib.request.urlopen(url))["backend"] == "codex"
         request = urllib.request.Request(
             url,
             data=json.dumps({"backend": "opencode", "revision": 0}).encode(),
@@ -306,12 +334,7 @@ def test_server_api_and_shell_exclusion(tmp_path):
         )
         with pytest.raises(urllib.error.HTTPError) as error:
             urllib.request.urlopen(request)
-        assert error.value.code == 409
-        request.data = json.dumps(
-            {"backend": "opencode", "revision": 0, "confirmed": True}
-        ).encode()
-        with patch("shutil.which", return_value="/bin/true"):
-            assert json.load(urllib.request.urlopen(request))["backend"] == "opencode"
+        assert error.value.code == 404
     finally:
         server.shutdown()
         server.server_close()

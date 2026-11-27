@@ -196,8 +196,8 @@ after its code and relevant validation are complete.
 - [x] Implement workspace-scoped configuration reads and writes with existing
       attachment and lease validation. The new endpoint rejects requests
       without workspace context.
-- [ ] Remove the old service-wide configuration mutation path after the
-      workspace UI and all launch paths use the scoped contract.
+- [x] Remove the old service-wide configuration mutation route; the workspace
+      UI uses the scoped contract.
 - [ ] Remove global stop, cancellation epoch, and revision invalidation from
       default changes; retain cancellation for explicit job/session stops.
 - [ ] Verify independent defaults, one-time migration, reopen and restart,
@@ -212,6 +212,8 @@ after its code and relevant validation are complete.
 - [x] Capture workspace defaults and explicit overrides for new creative,
       software ad hoc, and software stage agent launches. Capture workspace
       defaults for code-learner tutor launches.
+- [x] Verify that Codex and OpenCode agent processes remain running when a
+      workspace default changes.
 - [ ] Capture provider and executable once per launch and persist both the
       stable selection and resolved executable in agent session metadata.
 - [ ] Update session preparation and process guards to use the captured
@@ -247,9 +249,9 @@ after its code and relevant validation are complete.
 
 ### 4. User interface
 
-- [ ] Change the existing backend control to a workspace default selector;
+- [x] Change the existing backend control to a workspace default selector;
       remove stop-all confirmation and use context-aware requests.
-- [ ] Refresh the displayed default when switching workspaces and when another
+- [x] Refresh the displayed default when switching workspaces and when another
       connection changes the same workspace's default.
 - [ ] Add a per-agent selector to creative general and document start dialogs,
       software agent start dialogs, and other interactive launch surfaces.
